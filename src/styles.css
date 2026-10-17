@@ -1,0 +1,110 @@
+@import "tailwindcss";
+:root {
+  --bg: #FFFFFF;
+  --surface: #FFFFFF;
+  --ink: #222222;
+  --muted: #858585;
+  --line: #EEEEEE;
+  --blue: #222222;
+  --blue-soft: #F5F5F5;
+  --green: #37AE7C;
+  --green-soft: #EEF8F3;
+  --red: #EF6253;
+  --red-soft: #FFF2F0;
+  --amber: #8A7762;
+  --amber-soft: #F7F5F2;
+  --canvas: #F4F5F6;
+  --hero: #EDF1F4;
+  --overlay: #00000066;
+}
+@layer base {
+  html, body, #root { min-height: 100%; }
+  body { font-family: 'Noto Sans KR', sans-serif; background: var(--canvas); color: var(--ink); font-size: 13px; }
+  button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+  button:not(:disabled), a, select, summary { cursor: pointer; }
+  button:disabled { cursor: not-allowed; }
+  button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--green); outline-offset: 3px; }
+  input, textarea, select { accent-color: var(--ink); }
+  textarea { resize: vertical; }
+  .font-number { font-family: 'Inter', 'Noto Sans KR', sans-serif; }
+}
+@layer components {
+  .btn { @apply inline-flex min-h-[48px] items-center justify-center gap-2 rounded-[6px] px-4 text-[13px] font-bold transition-opacity active:opacity-70 disabled:opacity-35; background: var(--ink); color: var(--surface); }
+  .btn-outline { @apply border; border-color: var(--line); color: var(--ink); background: var(--surface); }
+  .btn-buy { background: var(--red); }
+  .field { @apply min-h-[44px] w-full min-w-0 border-b bg-transparent py-2.5 text-[13px] outline-none; border-color: var(--line); }
+  .field-box { @apply min-h-[88px] rounded-[4px] border p-3; background: var(--blue-soft); border-color: var(--line); }
+  .divider { @apply border-b; border-color: var(--line); }
+  .muted { color: var(--muted); }
+  .note { @apply rounded-[4px] p-3.5 text-[11px] leading-[1.7]; background: var(--blue-soft); }
+  .label { @apply mb-2 block text-[12px] font-medium; }
+}
+
+/* Onboarding measurements mirror the exported 390px reference frames. */
+main > div.flex:has(> header + div > img) { min-height: calc(100dvh - 24px); }
+main > div.flex > header + div { margin-left: 0; margin-right: 0; }
+main > div.flex > header + div > img { aspect-ratio: 1.277; }
+main > div.flex > div.flex.items-center.justify-between.pb-6 { justify-content: flex-start; }
+main > div.flex > div.flex.items-center.justify-between.pb-6 > div { display: none; }
+main > div.flex:has(> header + div > img) > div:last-child .btn.flex-1 > svg { display: none; }
+
+/* Subtle motion keeps the published UI responsive without changing layout. */
+@keyframes page-in {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes sheet-in {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translate(-50%, 8px) scale(.98); }
+  to { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+
+main { animation: page-in 220ms cubic-bezier(.22, 1, .36, 1) both; }
+
+.btn {
+  transition: transform 160ms cubic-bezier(.22, 1, .36, 1),
+              box-shadow 160ms ease,
+              opacity 160ms ease,
+              background-color 160ms ease;
+  will-change: transform;
+}
+.btn:not(:disabled):hover { box-shadow: 0 5px 14px rgb(0 0 0 / 12%); transform: translateY(-1px); }
+.btn:not(:disabled):active { box-shadow: none; opacity: .86; transform: translateY(1px) scale(.985); }
+.btn-outline:not(:disabled):hover { background: var(--blue-soft); box-shadow: none; }
+
+a[href^="#/product/"], a[href*="/product/"] { transition: transform 180ms cubic-bezier(.22, 1, .36, 1), opacity 180ms ease; }
+a[href^="#/product/"]:hover, a[href*="/product/"]:hover { transform: translateY(-2px); }
+a[href^="#/product/"]:active, a[href*="/product/"]:active { opacity: .75; transform: scale(.985); }
+a[href^="#/product/"] img, a[href*="/product/"] img { transition: transform 260ms cubic-bezier(.22, 1, .36, 1), filter 200ms ease; }
+a[href^="#/product/"]:hover img, a[href*="/product/"]:hover img { filter: brightness(.98); transform: scale(1.015); }
+
+a.divider { transition: background-color 150ms ease, padding 180ms cubic-bezier(.22, 1, .36, 1); }
+a.divider:hover { background: var(--blue-soft); padding-left: 6px; }
+a.divider svg { transition: transform 180ms cubic-bezier(.22, 1, .36, 1); }
+a.divider:hover svg { transform: translateX(3px); }
+
+nav[aria-label] a { position: relative; transition: color 160ms ease, transform 160ms cubic-bezier(.22, 1, .36, 1); }
+nav[aria-label] a:active { transform: scale(.92); }
+nav[aria-label] a[aria-current="page"]::after {
+  position: absolute; bottom: -2px; left: 50%; width: 4px; height: 4px;
+  border-radius: 999px; background: currentColor; content: ""; transform: translateX(-50%);
+}
+
+dialog[open] { animation: sheet-in 240ms cubic-bezier(.22, 1, .36, 1) both; }
+dialog::backdrop { animation: page-in 180ms ease both; }
+[role="status"] { animation: toast-in 220ms cubic-bezier(.22, 1, .36, 1) both; }
+
+input, textarea, select { transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease; }
+input:focus, textarea:focus, select:focus { border-color: var(--ink); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
