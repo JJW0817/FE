@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { approveApplication, available, beginPayment, blankDraft, combinations, defaultAddress, expireHolds, feeFor, markDelivered, publishDraft, recommendCategory, reserve, resolvePayment, saleState, seedState, validateDraft } from './domain';
+import { approveApplication, available, beginPayment, blankDraft, combinations, defaultAddress, expireHolds, feeFor, localDateTime, markDelivered, publishDraft, recommendCategory, reserve, resolvePayment, saleState, seedState, validateDraft } from './domain';
 import type { Draft } from './domain';
 const NOW = new Date('2026-10-23T14:00:00+09:00').getTime();
 function draft(): Draft { return { ...blankDraft(NOW), images: ['/images/generated-5.png'], name: 'A5 공책', description: '한 권당 80페이지 노트입니다.', category: '문구 / 노트', originalUrl: 'https://shop.example/notebook', reason: '과잉 발주', noOptions: true, options: [{ id: 'base', name: '기본', stock: 10 }], price: 6000, shipping: 3000, faqs: [{ id: 'f', question: '몇 페이지인가요?', answer: '80페이지입니다.', confirmed: true }] }; }
@@ -36,4 +36,5 @@ describe('공통 상품 등록', () => {
   it('지원하지 않는 상품은 직접 선택으로도 우회 등록하지 못한다', () => { const d = draft(); d.name = '비타민 건강기능식품'; d.category = '생활잡화 / 생활소품'; expect(() => validateDraft(d, 1, NOW)).toThrow('지원하지'); expect(recommendCategory(d).status).toBe('unsupported'); });
   it('옵션명은 상품에 맞게 생성하며 이전 재고를 보존한다', () => { const old = [{ id: 'x', name: '무지 / 2권 세트', stock: 24 }]; const options = combinations([{ name: '종류', values: '무지, 도트' }, { name: '구성', values: '2권 세트' }], old); expect(options[0]).toEqual(old[0]); expect(options[1].name).toBe('도트 / 2권 세트'); });
   it('판매 시작 후 가격·옵션 등 핵심 정보 수정은 차단한다', () => { const s = seedState(NOW), d = draft(); d.editingId = 'ecobag'; expect(() => publishDraft(s, 'seller', d, NOW)).toThrow('판매 시작 후'); });
+  it('판매 시작은 현재부터 최대 7일 이내로만 예약한다', () => { const d = draft(); d.startsAt = localDateTime(NOW + 7 * 86_400_000 + 60_000); expect(() => validateDraft(d, 5, NOW)).toThrow('최대 7일'); d.startsAt = localDateTime(NOW + 7 * 86_400_000); expect(() => validateDraft(d, 5, NOW)).not.toThrow(); });
 });

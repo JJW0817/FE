@@ -180,6 +180,7 @@ export function validateDraft(d: Draft, step: number, now: number) {
   if (step >= 4 && (!Number.isInteger(d.price) || d.price <= 0 || !Number.isInteger(d.shipping) || d.shipping < 0 || !Number.isInteger(d.maxPerAccount) || d.maxPerAccount < 1 || !Number.isInteger(d.dispatchDays) || d.dispatchDays < 1)) throw new DomainError('가격·배송비·출고 기간·구매 상한을 확인해 주세요.');
   const start = new Date(d.startsAt).getTime();
   if (step >= 5 && (!Number.isFinite(start) || start + 10_800_000 <= now)) throw new DomainError('판매 종료가 현재보다 이후가 되도록 일정을 설정해 주세요.');
+  if (step >= 5 && start > now + 7 * 86_400_000) throw new DomainError('판매 시작은 현재부터 최대 7일 이내로 설정해 주세요.');
   if (step >= 6 && (!d.faqs.length || d.faqs.some(f => !f.answer.trim() || !f.confirmed))) throw new DomainError('공개할 예상 질문의 답변을 모두 확인해 주세요.');
 }
 export function publishDraft(s: State, userId: string, d: Draft, now: number): Product {
