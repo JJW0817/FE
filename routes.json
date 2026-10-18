@@ -1,0 +1,133 @@
+{
+  "router": "HashRouter",
+  "routes": [
+    {
+      "path": "/external/:id",
+      "component": "ExternalProductPage"
+    },
+    {
+      "path": "/onboarding",
+      "component": "OnboardingPage"
+    },
+    {
+      "path": "/welcome",
+      "component": "WelcomePage"
+    },
+    {
+      "path": "/login",
+      "component": "LoginPage"
+    },
+    {
+      "path": "/signup",
+      "component": "SignupPage"
+    },
+    {
+      "path": "/signup/done",
+      "component": "SignupDonePage"
+    },
+    {
+      "path": "/reset-password",
+      "component": "ResetPasswordPage"
+    },
+    {
+      "path": "/legal",
+      "component": "LegalPage"
+    },
+    {
+      "path": "/",
+      "component": "HomePage"
+    },
+    {
+      "path": "/schedule",
+      "component": "SchedulePage"
+    },
+    {
+      "path": "/product/:id",
+      "component": "ProductPage"
+    },
+    {
+      "path": "/checkout/:id",
+      "component": "CheckoutPage"
+    },
+    {
+      "path": "/orders",
+      "component": "OrdersPage"
+    },
+    {
+      "path": "/orders/:id",
+      "component": "OrderDetailPage"
+    },
+    {
+      "path": "/qa/:id",
+      "component": "QaPage"
+    },
+    {
+      "path": "/my",
+      "component": "MyPage"
+    },
+    {
+      "path": "/apply",
+      "component": "ApplicationPage"
+    },
+    {
+      "path": "/support",
+      "component": "SupportPage"
+    },
+    {
+      "path": "/seller",
+      "component": "SellerDashboard"
+    },
+    {
+      "path": "/seller/products",
+      "component": "SellerProductsPage"
+    },
+    {
+      "path": "/seller/new",
+      "component": "WizardPage"
+    },
+    {
+      "path": "/seller/product/:id",
+      "component": "SellerProductPage"
+    },
+    {
+      "path": "/seller/published/:id",
+      "component": "SellerProductPage"
+    },
+    {
+      "path": "/seller/inquiries",
+      "component": "SellerInquiriesPage"
+    },
+    {
+      "path": "/seller/orders",
+      "component": "SellerOrdersPage"
+    },
+    {
+      "path": "/seller/orders/:id",
+      "component": "SellerOrderPage"
+    },
+    {
+      "path": "/seller/my",
+      "component": "SellerMyPage"
+    },
+    {
+      "path": "/seller/settings/:section",
+      "component": "SellerSettingsPage"
+    },
+    {
+      "path": "/seller/terms",
+      "component": "TermsPage"
+    },
+    {
+      "path": "/admin",
+      "component": "AdminListPage"
+    },
+    {
+      "path": "/admin/:id",
+      "component": "AdminDetailPage"
+    },
+    {
+      "path": "*",
+      "component": "Navigate"
+    }
+  ]
+}

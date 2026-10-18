@@ -1,0 +1,66 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# https://docs.coderabbit.ai/reference/configuration
+language: ko-KR
+tone_instructions: "친근하고 간결한 한국어로 설명하세요. 영향과 수정 이유를 먼저 말하고, 취향 수준의 스타일이나 과도한 추상화 제안은 피하세요."
+early_access: false
+
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  high_level_summary_in_walkthrough: true
+  collapse_walkthrough: true
+  sequence_diagrams: false
+  poem: false
+  in_progress_fortune: false
+
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    drafts: false
+    ignore_title_keywords:
+      - "[WIP]"
+    base_branches:
+      - "^develop$"
+      - "^main$"
+
+  path_filters:
+    - "!build/**"
+    - "!.gradle/**"
+    - "!.idea/**"
+    - "!**/*.jar"
+    - "!**/*.log"
+
+  path_instructions:
+    - path: "src/main/java/**/*.java"
+      instructions: |
+        재현 가능한 버그, 입력 검증, 트랜잭션 경계, 데이터 정합성, HTTP 상태 코드,
+        외부 API 장애 처리와 비밀 값 노출을 중심으로 리뷰하세요.
+        단순한 네이밍·포맷 취향이나 근거 없는 성능 개선은 지적하지 마세요.
+        이 프로젝트는 로그인·회원 기능 없이 공개 API를 제공합니다. 로그인 기능 도입 자체를 요구하지 마세요.
+        공개 API의 실제 데이터 노출이나 비용 발생 위험은 구체적인 근거가 있을 때 지적하세요.
+        DTO는 Lombok 빌더와 직접 변환을 사용하며 MapStruct·QueryDSL은 사용하지 않습니다.
+    - path: "src/main/resources/application*.yaml"
+      instructions: |
+        공통 설정과 dev/prod/test 프로필의 덮어쓰기, 환경 변수 누락, 운영 데이터 손실 가능성을 확인하세요.
+        앱의 .env 로딩은 spring-dotenv를 사용하고 운영은 Docker가 .env.prod를 환경 변수로 주입합니다.
+        Flyway는 사용하지 않습니다. dev는 ddl-auto: update, prod는 validate가 의도된 정책입니다.
+        변경된 엔티티에 따른 운영 DB의 수동 스키마 변경 필요성은 확인하되 마이그레이션 도구 도입을 강요하지 마세요.
+    - path: "src/test/**"
+      instructions: |
+        테스트가 실제 동작과 오류 경계를 검증하는지 확인하세요.
+        구현을 그대로 반복하는 테스트나 사소한 변경마다 불필요한 테스트를 요구하지 마세요.
+        현재 자동 테스트는 H2를 사용하며 외부 AI 호출이나 운영 데이터 접근 없이 실행되어야 합니다.
+    - path: ".github/workflows/**"
+      instructions: |
+        트리거 브랜치, Secrets 노출, AWS OIDC 권한, ECR 이미지 태그와 EC2 SSM 명령 전달을 확인하세요.
+        배포는 커밋 SHA 이미지와 docker compose 상태 확인을 사용합니다.
+        CI와 CD의 테스트 실행 범위를 구분하고, 실제로 배포 실패나 잘못된 이미지 실행을 일으키는 문제를 우선하세요.
+    - path: "docker-compose-*.yaml"
+      instructions: |
+        dev는 PostgreSQL·Redis만, prod는 ECR 앱 이미지까지 실행합니다.
+        환경 변수 치환, 볼륨과 데이터 유지, healthcheck, 내부 서비스 주소와 포트 노출을 확인하세요.
+        prod 앱은 호스트의 127.0.0.1:8080에만 바인딩하고 DB·Redis 포트는 외부에 공개하지 않는 구성을 유지하세요.
+
+chat:
+  auto_reply: true
