@@ -26,6 +26,14 @@
       "component": "SignupDonePage"
     },
     {
+      "path": "/categories",
+      "component": "CategorySelectionPage"
+    },
+    {
+      "path": "/notifications/settings",
+      "component": "NotificationSettingsPage"
+    },
+    {
       "path": "/reset-password",
       "component": "ResetPasswordPage"
     },
@@ -62,6 +70,14 @@
       "component": "QaPage"
     },
     {
+      "path": "/schedule/calendar",
+      "component": "CalendarPage"
+    },
+    {
+      "path": "/notifications",
+      "component": "NotificationsPage"
+    },
+    {
       "path": "/my",
       "component": "MyPage"
     },
@@ -72,6 +88,22 @@
     {
       "path": "/support",
       "component": "SupportPage"
+    },
+    {
+      "path": "/addresses",
+      "component": "AddressManagePage"
+    },
+    {
+      "path": "/faq",
+      "component": "FaqPage"
+    },
+    {
+      "path": "/inquiries",
+      "component": "InquiryListPage"
+    },
+    {
+      "path": "/inquiries/:id",
+      "component": "InquiryDetailPage"
     },
     {
       "path": "/seller",
