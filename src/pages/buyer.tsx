@@ -151,8 +151,8 @@ export function CalendarPage() {
   const today = new Date(now);
   const isToday = (day: number) => day === today.getDate() && month === today.getMonth() && year === today.getFullYear();
   const [selected, setSelected] = useState<number | null>(null);
-  const prevMonth = () => setViewDate(new Date(year, month - 1, 1));
-  const nextMonth = () => setViewDate(new Date(year, month + 1, 1));
+  const prevMonth = () => { setSelected(null); setViewDate(new Date(year, month - 1, 1)); };
+  const nextMonth = () => { setSelected(null); setViewDate(new Date(year, month + 1, 1)); };
   const selectedSales = selected ? salesOnDay(selected) : [];
   return (
     <div className="space-y-4">
