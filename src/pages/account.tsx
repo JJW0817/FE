@@ -174,7 +174,7 @@ export function InquiryListPage() {
 }
 
 export function InquiryDetailPage() {
-  const { id } = useParams(); const s = useStore();
+  const { id } = useParams(); const s = useStore(); const navigate = useNavigate();
   const q = s.inquiries.find(i => i.id === id && i.userId === s.activeUserId);
   if (!q) return <Empty title="문의를 찾을 수 없어요"><Link to="/inquiries" className="btn">문의 목록</Link></Empty>;
   return (
@@ -197,7 +197,7 @@ export function InquiryDetailPage() {
           <p className="text-[12px] font-bold">판매자 답변</p>
           <div className="rounded-[6px] border border-[var(--line)] p-4 space-y-2">
             <p className="text-[13px] leading-[1.8] whitespace-pre-line">{q.answer}</p>
-            <p className="muted text-[10px]">하자 확인 · 반품 배송비 판매자 부담</p>
+            {['반품', '하자', '오배송'].includes(q.kind) && <p className="muted text-[10px]">하자 확인 · 반품 배송비 판매자 부담</p>}
           </div>
           <Note>답변으로 해결되지 않았나요? StockDrop 운영팀에 도움을 요청할 수 있어요.</Note>
         </div>
@@ -206,7 +206,7 @@ export function InquiryDetailPage() {
       )}
       <div className="flex gap-2">
         <Button outline className="flex-1" onClick={() => history.back()}>추가 문의</Button>
-        {q.answer && <Button className="flex-1">반품 신청하기</Button>}
+        {q.answer && q.orderId && <Button className="flex-1" onClick={() => navigate(`/orders/${q.orderId}`)}>반품 신청하기</Button>}
       </div>
       <Link to="/inquiries" className="btn btn-outline w-full">문의 목록으로</Link>
     </div>
