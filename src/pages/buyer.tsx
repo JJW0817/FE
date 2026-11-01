@@ -32,8 +32,9 @@ export function SchedulePage() {
   const products = s.products.filter(p => p.published && p.endsAt > now).sort((a, b) => a.startsAt - b.startsAt);
   const today = new Date(now); today.setHours(0, 0, 0, 0);
   const monday = new Date(today); monday.setDate(today.getDate() - (today.getDay() + 6) % 7 + weekOffset * 7);
+  const weekEnd = new Date(monday); weekEnd.setDate(monday.getDate() + 7);
   const week = Array.from({ length: 7 }, (_, index) => { const date = new Date(monday); date.setDate(monday.getDate() + index); return { key: shortDate(date.getTime()), weekday: ['월', '화', '수', '목', '금', '토', '일'][index], date: `${date.getMonth() + 1}.${date.getDate()}` }; });
-  const visible = products.filter(p => selected === '전체' || shortDate(p.startsAt) === selected);
+  const visible = products.filter(p => selected === '전체' ? p.startsAt >= monday.getTime() && p.startsAt < weekEnd.getTime() : shortDate(p.startsAt) === selected);
   const moveWeek = (offset: 0 | 1) => { setWeekOffset(offset); setSelected('전체'); };
   return <><Header title="판매 일정" subtitle="모든 판매는 오픈 후 3시간 동안만 진행돼요" back={false}/><div className="mb-6 space-y-2"><div className="flex items-center justify-between"><div className="flex gap-2"><button type="button" onClick={() => moveWeek(0)} className={`px-2 py-2 text-[11px] ${weekOffset === 0 ? 'font-bold' : 'muted'}`}>이번 주</button><button type="button" onClick={() => moveWeek(1)} className={`px-2 py-2 text-[11px] ${weekOffset === 1 ? 'font-bold' : 'muted'}`}>다음 주</button></div><div className="flex items-center gap-2"><span className="muted text-[11px]">{week[0]?.date} – {week[6]?.date}</span><Link to="/schedule/calendar" className="text-[11px] underline">전체 일정</Link></div></div><button onClick={() => setSelected('전체')} className={`w-full rounded-[4px] py-2 text-[12px] ${selected === '전체' ? 'bg-[var(--ink)] text-[var(--surface)]' : 'bg-[var(--blue-soft)]'}`}>전체</button><div className="grid grid-cols-7 gap-1">{week.map(day => <button key={day.key} onClick={() => setSelected(day.key)} aria-label={`${day.key} ${day.weekday}요일`} className={`flex min-w-0 flex-col items-center rounded-[4px] px-1 py-2 ${selected === day.key ? 'bg-[var(--ink)] text-[var(--surface)]' : 'bg-[var(--blue-soft)]'}`}><b className="text-[12px]">{day.weekday}</b><span className="mt-1 text-[9px] opacity-70">{day.date}</span></button>)}</div></div>{selected !== '전체' && (() => { const selDate = new Date(selected); const dayNames = ['일요일', '월요일', '화요일', '수요일', '목요일', '금요일', '토요일']; return <div className="flex items-center justify-between py-2"><h2 className="text-[14px] font-bold">{selDate.getMonth() + 1}월 {selDate.getDate()}일 {dayNames[selDate.getDay()]}</h2><span className="muted text-[11px]">판매 {visible.length}개</span></div>; })()}{(() => { const selling = visible.filter(p => saleState(p, now) === '판매 중'); const upcoming = visible.filter(p => saleState(p, now) === '판매 예정'); const groups: [string, number, typeof visible][] = []; if (selling.length) groups.push(['지금 판매 중', selling.length, selling]); if (upcoming.length) groups.push(['오픈 예정', upcoming.length, upcoming]); const other = visible.filter(p => !['판매 중', '판매 예정'].includes(saleState(p, now))); if (other.length) groups.push(['판매 종료', other.length, other]); return groups.length ? groups.map(([label, count, items]) => <section key={label}><div className="flex items-center gap-2 py-3"><h3 className="text-[13px] font-bold">{label}</h3><span className="muted text-[11px]">{count}</span></div>{items.map(p => { const state = saleState(p, now); const timeLabel = state === '판매 중' ? `${new Date(p.startsAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })} – ${new Date(p.endsAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })}` : `${new Date(p.startsAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })} 오픈`; return <Link key={p.id} to={`/product/${p.id}`} className="divider flex items-center gap-3 py-4"><ProductImage src={p.images[0]} alt={p.name} className="h-[72px] w-[72px]"/><div className="min-w-0 flex-1 space-y-1"><div className="flex items-center gap-2"><Badge live={state === '판매 중'}>{state === '판매 예정' ? '오픈 예정' : state}</Badge><span className="muted text-[10px]">{timeLabel}</span></div><h2 className="text-[14px] font-semibold">{p.name}</h2><p className="muted text-[10px]">{p.category}</p><div className="flex items-center justify-between"><span className="font-number text-[13px] font-bold">{money(p.price)}</span><span className="muted text-[10px]">{state === '판매 중' ? `${countdown(p.endsAt, now)} 남음` : state === '판매 예정' ? '알림 받기' : ''}</span></div></div></Link>; })}</section>) : <Empty title="선택한 날의 판매 일정이 없어요" message="다른 요일을 선택하거나 전체 일정을 확인해 보세요."/>; })()}</>;
 }
@@ -203,19 +204,38 @@ export function CalendarPage() {
   );
 }
 
-interface Notification { id: string; type: '구매' | '상품' | '맞춤추천'; title: string; desc: string; time: string }
-const DEMO_NOTIFICATIONS: Notification[] = [
-  { id: 'n1', type: '맞춤추천', title: '맞춤 추천', desc: '회원님이 좋아할 것 같은 소프트 코튼 가디건이 판매 중이에요.', time: '2분 전' },
-  { id: 'n2', type: '상품', title: '판매 시작', desc: "천한 상품 '린넨 와이드 슬랙스'의 판매가 막 시작됐어요.", time: '1시간 전' },
-  { id: 'n3', type: '상품', title: '재고 임박', desc: '관심 상품의 재고가 얼마 남지 않았어요. 지금 확인해보세요.', time: '어제' },
-  { id: 'n4', type: '구매', title: '구매 확정', desc: '소프트 코튼 가디건 주문이 확정되었습니다.', time: '2일 전' },
-  { id: 'n5', type: '맞춤추천', title: '맞춤 추천', desc: '새 미판매 상품이 등록됐어요. 한정 수량이니 서둘러 확인하세요.', time: '3일 전' },
-];
+interface Notification { id: string; type: '구매' | '상품'; title: string; desc: string; time: string }
 
 export function NotificationsPage() {
-  const [tab, setTab] = useState<'전체' | '구매' | '상품' | '맞춤추천'>('전체');
-  const tabs = ['전체', '구매', '상품', '맞춤추천'] as const;
-  const filtered = tab === '전체' ? DEMO_NOTIFICATIONS : DEMO_NOTIFICATIONS.filter(n => n.type === tab);
+  const s = useStore(), now = useClock();
+  const [tab, setTab] = useState<'전체' | '구매' | '상품'>('전체');
+  const tabs = ['전체', '구매', '상품'] as const;
+
+  const userOrders = s.orders.filter(o => o.userId === s.activeUserId);
+  const bookmarkedIds = s.bookmarks.filter(k => k.startsWith(`${s.activeUserId}:`)).map(k => k.split(':')[1]);
+  const bookmarkedProducts = s.products.filter(p => bookmarkedIds.includes(p.id) && p.published);
+
+  const raw: Array<{ id: string; type: '구매' | '상품'; title: string; desc: string; ts: number }> = [
+    ...userOrders.flatMap(o => {
+      if (o.status === 'delivered' && o.deliveredAt)
+        return [{ id: `o-${o.id}-d`, type: '구매' as const, title: '배송 완료', desc: `${o.product.name} 배송이 완료되었어요.`, ts: o.deliveredAt }];
+      if (o.status === 'shipping' && o.shippedAt)
+        return [{ id: `o-${o.id}-s`, type: '구매' as const, title: '배송 시작', desc: `${o.product.name}이 출고되었어요.`, ts: o.shippedAt }];
+      return [{ id: `o-${o.id}-p`, type: '구매' as const, title: '구매 확정', desc: `${o.product.name} 주문이 확정되었습니다.`, ts: o.createdAt }];
+    }),
+    ...bookmarkedProducts.flatMap(p => {
+      const state = saleState(p, now);
+      if (state === '판매 중')
+        return [{ id: `b-${p.id}-on`, type: '상품' as const, title: '판매 시작', desc: `관심 상품 '${p.name}'의 판매가 시작됐어요.`, ts: p.startsAt }];
+      if (state === '판매 예정')
+        return [{ id: `b-${p.id}-up`, type: '상품' as const, title: '판매 예정', desc: `관심 상품 '${p.name}'이 곧 판매 시작돼요.`, ts: p.startsAt }];
+      return [];
+    }),
+  ].sort((a, b) => b.ts - a.ts);
+
+  const notifications: Notification[] = raw.map(n => ({ ...n, time: dateTime(n.ts) }));
+  const filtered = tab === '전체' ? notifications : notifications.filter(n => n.type === tab);
+
   return (
     <div className="space-y-4">
       <Header title="알림" back={true}/>
