@@ -80,6 +80,7 @@ export function AddressManagePage() {
       </Button>
       {editing && (
         <AddressModal
+          title={address ? '배송지 수정' : '새 배송지 추가'}
           initial={address ?? { name: user.name, phone: user.phone, address: '', detail: '', request: '' }}
           onClose={() => setEditing(false)}
           onSave={value => { mutate(state => { state.addresses[user.id] = value; }); setEditing(false); toast('배송지를 저장했습니다.'); }}
