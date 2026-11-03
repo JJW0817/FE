@@ -41,29 +41,38 @@ export function AdminDetailPage() {
 export function SupportPage() {
   const s = useStore(); const [tab, setTab] = useState('전체'); const faqTabs = ['전체', '구매·선착순', '배송·반품', '결제', '판매자'];
   const recentOrder = s.orders.filter(o => o.userId === s.activeUserId).sort((a, b) => b.createdAt - a.createdAt)[0];
-  const faqs: [string, string, string][] = [['구매·선착순', '선착순 재고는 어떻게 확보하나요?', '상품 화면에서 구매하기를 누르면 재고가 5분간 확보돼요. 확보된 5분 안에 결제를 완료해야 구매가 확정됩니다. 장바구니에 담거나 결제 화면에 들어간 것만으로는 재고가 잡히지 않아요. 판매 30분 전 알림을 켜두고 배송지를 미리 등록해 두면 더 빠르게 진행할 수 있어요.'], ['구매·선착순', '결제 중에 품절되면 어떻게 되나요?', '재고 확보에 실패하면 결제가 진행되지 않으며 금액이 청구되지 않아요. 다음 판매 일정을 확인해 주세요.'], ['구매·선착순', '1인당 몇 개까지 살 수 있나요?', '상품마다 계정당 구매 상한이 설정되어 있어요. 상품 상세에서 확인할 수 있습니다.'], ['구매·선착순', '다른 쇼핑몰보다 정말 저렴한가요?', '미판매 새 상품을 정리하는 판매자가 직접 가격을 설정해요. 기존 판매처보다 저렴한 경우가 많지만, 상품마다 다를 수 있어요.'], ['배송·반품', '판매 알림은 언제 오나요?', '판매 시작 30분 전과 시작 직후에 알림이 발송돼요. 알림 설정에서 원하는 알림을 켜거나 끌 수 있어요.'], ['결제', '어떤 결제 수단을 사용할 수 있나요?', '신용카드·체크카드 결제를 지원합니다. 결제 수단은 마이페이지에서 미리 등록할 수 있어요.'], ['판매자', '판매자가 되려면 어떻게 하나요?', '사업자등록증 PDF와 담당자 정보를 제출하고 운영자 승인을 받으면 판매자가 될 수 있어요.']];
+  const faqs: [string, string, string][] = [['구매·선착순', '선착순 재고는 어떻게 확보하나요?', '판매가 열리는 순간 결제를 먼저 완료한 순서대로 재고가 확보돼요. 장바구니에 담거나 결제 화면에 들어간 것만으로는 재고가 잡히지 않아요. 판매 30분 전 알림을 켜두고 배송지와 결제 수단을 미리 등록해 두면 더 빠르게 결제할 수 있어요.'], ['구매·선착순', '결제 중에 품절되면 어떻게 되나요?', '재고 확보에 실패하면 결제가 진행되지 않으며 금액이 청구되지 않아요. 다음 판매 일정을 확인해 주세요.'], ['구매·선착순', '1인당 몇 개까지 살 수 있나요?', '상품마다 계정당 구매 상한이 설정되어 있어요. 상품 상세에서 확인할 수 있습니다.'], ['구매·선착순', '다른 쇼핑몰보다 정말 저렴한가요?', '미판매 새 상품을 정리하는 판매자가 직접 가격을 설정해요. 기존 판매처보다 저렴한 경우가 많지만, 상품마다 다를 수 있어요.'], ['배송·반품', '판매 알림은 언제 오나요?', '판매 시작 30분 전과 시작 직후에 알림이 발송돼요. 알림 설정에서 원하는 알림을 켜거나 끌 수 있어요.'], ['결제', '어떤 결제 수단을 사용할 수 있나요?', '신용카드·체크카드 결제를 지원합니다. 결제 수단은 마이페이지에서 미리 등록할 수 있어요.'], ['판매자', '판매자가 되려면 어떻게 하나요?', '사업자등록증 PDF와 담당자 정보를 제출하고 운영자 승인을 받으면 판매자가 될 수 있어요.']];
   const filtered = faqs.filter(([cat]) => tab === '전체' || cat === tab);
   return <div className="space-y-5"><Header title="고객 지원"/><p className="muted text-[12px]">궁금한 내용을 검색해 보세요</p>{recentOrder && <section className="divider space-y-3 pb-4"><h2 className="text-[15px] font-bold">주문 관련 문의</h2><Link to={`/orders/${recentOrder.id}`} className="block space-y-2 rounded-[4px] bg-[var(--blue-soft)] p-3"><p className="muted text-[10px]">전체 주문</p><p className="text-[12px] font-bold">{recentOrder.product.name}</p><p className="muted text-[10px]">{dateTime(recentOrder.createdAt)} 결제 · {money(recentOrder.total)}</p></Link><Link className="btn btn-outline w-full" to={`/orders/${recentOrder.id}`}>이 주문 판매자에게 문의</Link><p className="muted text-[10px]">취소·반품·하자·오배송은 해당 주문의 판매자에게 전달돼요.</p></section>}<section className="space-y-3"><h2 className="text-[15px] font-bold">자주 묻는 질문</h2><div className="divider flex gap-2 pb-3">{faqTabs.map(t => <button key={t} onClick={() => setTab(t)} className={`rounded-[4px] px-2.5 py-1.5 text-[11px] ${tab === t ? 'bg-[var(--ink)] font-semibold text-[var(--surface)]' : 'muted'}`}>{t}</button>)}</div>{filtered.map(([, q, a], i) => <details key={i} className="divider py-4"><summary className="font-bold">Q {'  '}{q}</summary><p className="muted mt-3 text-[12px] leading-relaxed">{a}</p></details>)}</section><section className="divider space-y-3 py-4"><h2 className="text-[15px] font-bold">1:1 문의하기</h2><p className="muted text-[12px]">계정·결제·앱 오류</p><Link className="btn w-full" to="/inquiries?compose=1">1:1 문의 작성</Link><Link className="btn btn-outline w-full" to="/inquiries">내 문의 내역</Link><p className="muted text-[10px]">1:1 문의 운영시간 평일 10:00–18:00 · 주말·공휴일 휴무</p></section></div>;
 }
 
+type ExtraAddress = { id: string; label: string; name: string; phone: string; address: string; detail: string; request: string };
+function useExtraAddresses(userId: string) {
+  const key = `stockdrop:extra-addresses-${userId}`;
+  const [extras, setExtras] = useState<ExtraAddress[]>(() => { try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; } });
+  const save = (next: ExtraAddress[]) => { setExtras(next); try { localStorage.setItem(key, JSON.stringify(next)); } catch {} };
+  return [extras, save] as const;
+}
 export function AddressManagePage() {
   const s = useStore(); const user = activeUser(s); const toast = useToast();
   const address = s.addresses[user.id];
-  const [editing, setEditing] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [extras, saveExtras] = useExtraAddresses(user.id);
+  const [editingPrimary, setEditingPrimary] = useState(false);
+  const [editingExtra, setEditingExtra] = useState<ExtraAddress | null>(null);
+  const [addingExtra, setAddingExtra] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<'primary' | string | null>(null);
   return (
     <div className="space-y-5">
       <Header title="배송지 관리" subtitle="주문 시 기본 배송지가 자동으로 선택돼요" back={true}/>
       {address ? (
-        <>
         <section className="space-y-3">
           <h2 className="text-[14px] font-bold">기본 배송지</h2>
           <div className="rounded-[6px] border border-[var(--line)] p-4 space-y-2">
             <div className="flex items-center justify-between">
               <p className="text-[13px] font-semibold">{(address as any).label || '집'}</p>
               <div className="flex gap-3">
-                <button onClick={() => setEditing(true)} className="text-[12px] underline">수정</button>
-                <button onClick={() => setConfirmDelete(true)} className="text-[12px] text-[var(--red)] underline">삭제</button>
+                <button onClick={() => setEditingPrimary(true)} className="text-[12px] underline">수정</button>
+                <button onClick={() => setConfirmDelete('primary')} className="text-[12px] text-[var(--red)] underline">삭제</button>
               </div>
             </div>
             <p className="text-[12px]">{address.name} · {address.phone}</p>
@@ -71,32 +80,57 @@ export function AddressManagePage() {
             {address.request && <p className="muted text-[11px]">{address.request}</p>}
           </div>
         </section>
-        </>
       ) : (
         <Empty title="등록된 배송지가 없어요" message="새 배송지를 추가해 주세요."/>
       )}
-      <Button outline className="w-full" onClick={() => setEditing(true)}>
-        {address ? '배송지 수정' : '새 배송지 추가'}
-      </Button>
-      {editing && (
+      {extras.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-[14px] font-bold">다른 배송지</h2>
+          {extras.map(ex => (
+            <div key={ex.id} className="rounded-[6px] border border-[var(--line)] p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-[13px] font-semibold">{ex.label || '배송지'}</p>
+                <div className="flex gap-3">
+                  <button onClick={() => { mutate(state => { state.addresses[user.id] = { name: ex.name, phone: ex.phone, address: ex.address, detail: ex.detail, request: ex.request, label: ex.label } as any; }); saveExtras(extras.filter(e => e.id !== ex.id)); toast('기본 배송지로 설정했습니다.'); }} className="text-[12px] underline">기본 설정</button>
+                  <button onClick={() => setEditingExtra(ex)} className="text-[12px] underline">수정</button>
+                  <button onClick={() => setConfirmDelete(ex.id)} className="text-[12px] text-[var(--red)] underline">삭제</button>
+                </div>
+              </div>
+              <p className="text-[12px]">{ex.name} · {ex.phone}</p>
+              <p className="muted text-[12px] leading-relaxed">{ex.address}{ex.detail ? `, ${ex.detail}` : ''}</p>
+              {ex.request && <p className="muted text-[11px]">{ex.request}</p>}
+            </div>
+          ))}
+        </section>
+      )}
+      <Button outline className="w-full" onClick={() => { if (!address) setEditingPrimary(true); else setAddingExtra(true); }}>새 배송지 추가</Button>
+      {editingPrimary && (
         <AddressModal
           title={address ? '배송지 수정' : '새 배송지 추가'}
           initial={address ?? { name: user.name, phone: user.phone, address: '', detail: '', request: '' }}
-          onClose={() => setEditing(false)}
-          onSave={value => { mutate(state => { state.addresses[user.id] = value; }); setEditing(false); toast('배송지를 저장했습니다.'); }}
+          onClose={() => setEditingPrimary(false)}
+          onSave={value => { mutate(state => { state.addresses[user.id] = value; }); setEditingPrimary(false); toast('배송지를 저장했습니다.'); }}
+        />
+      )}
+      {addingExtra && (
+        <AddressModal title="새 배송지 추가" initial={{ name: '', phone: '', address: '', detail: '', request: '' }}
+          onClose={() => setAddingExtra(false)}
+          onSave={value => { saveExtras([...extras, { id: `addr-${Date.now()}`, label: (value as any).label || '배송지', ...value }]); setAddingExtra(false); toast('배송지를 추가했습니다.'); }}
+        />
+      )}
+      {editingExtra && (
+        <AddressModal title="배송지 수정" initial={editingExtra}
+          onClose={() => setEditingExtra(null)}
+          onSave={value => { saveExtras(extras.map(e => e.id === editingExtra.id ? { ...e, ...(value as any) } : e)); setEditingExtra(null); toast('배송지를 수정했습니다.'); }}
         />
       )}
       {confirmDelete && (
-        <Modal title="배송지를 삭제할까요?" onClose={() => setConfirmDelete(false)}>
+        <Modal title="배송지를 삭제할까요?" onClose={() => setConfirmDelete(null)}>
           <div className="space-y-4">
             <p className="muted text-[12px]">삭제한 배송지는 복구할 수 없어요</p>
-            {address && <div className="rounded-[4px] bg-[var(--blue-soft)] p-3 space-y-1">
-              <p className="text-[12px] font-semibold">{(address as any).label || '집'}</p>
-              <p className="muted text-[11px]">{address.address}{address.detail ? `, ${address.detail}` : ''}</p>
-            </div>}
             <div className="flex gap-2">
-              <Button outline className="flex-1" onClick={() => setConfirmDelete(false)}>취소</Button>
-              <Button className="flex-1" onClick={() => { mutate(state => { delete state.addresses[user.id]; }); setConfirmDelete(false); toast('배송지를 삭제했습니다.'); }}>삭제</Button>
+              <Button outline className="flex-1" onClick={() => setConfirmDelete(null)}>취소</Button>
+              <Button className="flex-1" onClick={() => { if (confirmDelete === 'primary') { mutate(state => { delete state.addresses[user.id]; }); } else { saveExtras(extras.filter(e => e.id !== confirmDelete)); } setConfirmDelete(null); toast('배송지를 삭제했습니다.'); }}>삭제</Button>
             </div>
           </div>
         </Modal>
@@ -106,7 +140,7 @@ export function AddressManagePage() {
 }
 
 const FAQ_ITEMS = [
-  { category: '구매·선착순', question: '선착순 재고는 어떻게 확보하나요?', answer: '상품 화면에서 구매하기를 누르면 재고가 5분간 확보돼요. 확보된 5분 안에 결제를 완료해야 구매가 확정됩니다. 장바구니에 담거나 결제 화면에 들어간 것만으로는 재고가 잡히지 않아요. 판매 30분 전 알림을 켜두고 배송지를 미리 등록해 두면 더 빠르게 진행할 수 있어요.' },
+  { category: '구매·선착순', question: '선착순 재고는 어떻게 확보하나요?', answer: '판매가 열리는 순간 결제를 먼저 완료한 순서대로 재고가 확보돼요. 장바구니에 담거나 결제 화면에 들어간 것만으로는 재고가 잡히지 않아요. 판매 30분 전 알림을 켜두고 배송지와 결제 수단을 미리 등록해 두면 더 빠르게 결제할 수 있어요.' },
   { category: '구매·선착순', question: '결제 중에 품절되면 어떻게 되나요?', answer: '재고 확보에 실패하면 결제가 진행되지 않으며 금액이 청구되지 않아요. 다음 판매 일정을 확인해 주세요.' },
   { category: '구매·선착순', question: '1인당 몇 개까지 살 수 있나요?', answer: '상품마다 계정당 구매 상한이 설정되어 있어요. 상품 상세에서 확인할 수 있습니다.' },
   { category: '구매·선착순', question: '다른 쇼핑몰보다 정말 저렴한가요?', answer: '미판매 새 상품을 정리하는 판매자가 직접 가격을 설정해요. 기존 판매처보다 저렴한 경우가 많지만, 상품마다 다를 수 있어요.' },
