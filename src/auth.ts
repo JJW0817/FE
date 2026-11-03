@@ -11,16 +11,21 @@ export function safeNext(value: string | null | undefined) { return value && /^\
 export const loginHref = (next: string) => `/login?next=${encodeURIComponent(safeNext(next))}`;
 function ensure(s: State) { return s.auth ??= initialAuth(); }
 export function selectProfile(s: State, id: string) { const user = s.users.find(u => u.id === id); if (!user) throw new Error('계정을 찾을 수 없습니다.'); const a = ensure(s); a.userId = id; a.onboarded = true; s.activeUserId = id; s.mode = user.admin ? 'admin' : 'buyer'; }
-export function endSession(s: State) { ensure(s).userId = null; s.activeUserId = ''; s.mode = 'buyer'; setAccessToken(null); }
+export function endSession(s: State) { ensure(s).userId = null; s.activeUserId = ''; s.mode = 'buyer'; }
+export async function logout() {
+  try { const { token, headerName } = await fetchCSRF(); await apiPost('/auth/logout', {}, { [headerName]: token }); } catch {}
+  setAccessToken(null);
+  mutate(endSession);
+}
 export async function sendCode(emailValue: string, purpose: 'signup' | 'reset') {
   const email = normalizeEmail(emailValue);
   if (!validEmail(email)) throw new Error('올바른 이메일 주소를 입력해 주세요.');
   const now = Date.now(), key = `${purpose}:${email}`;
   const old = getState().auth?.challenges[key];
-  if (old && now - old.sentAt < 30_000) throw new Error('인증번호는 30초 후 다시 요청할 수 있습니다.');
+  if (old && now - old.sentAt < 60_000) throw new Error('인증번호는 60초 후 다시 요청할 수 있습니다.');
   const path = purpose === 'signup' ? '/auth/email-verifications' : '/auth/password-resets';
   const data = await apiPost(path, { email }) as { challengeId: string };
-  await atomic(s => { ensure(s).challenges[key] = { email, purpose, code: '', challengeId: data.challengeId, sentAt: now, expiresAt: now + 180_000, attempts: 0, verified: false }; });
+  await atomic(s => { ensure(s).challenges[key] = { email, purpose, code: '', challengeId: data.challengeId, sentAt: now, expiresAt: now + 300_000, attempts: 0, verified: false }; });
 }
 export async function verifyCode(email: string, purpose: 'signup' | 'reset', code: string): Promise<string | null> {
   const nEmail = normalizeEmail(email), key = `${purpose}:${nEmail}`;
@@ -36,8 +41,8 @@ export async function verifyCode(email: string, purpose: 'signup' | 'reset', cod
 }
 export async function login(emailValue: string, password: string) {
   const email = normalizeEmail(emailValue);
-  const csrf = await fetchCSRF();
-  const data = await apiPost('/auth/login', { email, password }, csrf) as { accessToken: string; accountId: string; roles: string[] };
+  const { token, headerName } = await fetchCSRF();
+  const data = await apiPost('/auth/login', { email, password }, { [headerName]: token }) as { accessToken: string; accountId: string; roles: string[] };
   setAccessToken(data.accessToken);
   await atomic(s => {
     let user = s.users.find(u => normalizeEmail(u.email) === email);
@@ -49,7 +54,7 @@ export async function login(emailValue: string, password: string) {
 }
 export async function signup(input: { email: string; password: string; name: string; phone: string; age: boolean; terms: boolean; privacy: boolean; marketing: boolean }) {
   if (!validPassword(input.password)) throw new Error('비밀번호는 영문·숫자·특수문자를 포함한 8~32자로 입력해 주세요.');
-  if (!input.name.trim() || input.name.trim().length > 30 || !/^01[016789]\d{7,8}$/.test(input.phone.replace(/\D/g, ''))) throw new Error('이름과 올바른 휴대폰 번호를 입력해 주세요.');
+  if (!input.name.trim() || input.name.trim().length > 30) throw new Error('이름을 입력해 주세요.');
   if (!input.age || !input.terms || !input.privacy) throw new Error('필수 약관에 동의해 주세요.');
   const email = normalizeEmail(input.email), key = `signup:${email}`;
   const c = getState().auth?.challenges[key];

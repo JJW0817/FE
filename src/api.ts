@@ -14,15 +14,14 @@ async function parse(r: Response): Promise<unknown> {
   throw new Error(msg);
 }
 
-export async function fetchCSRF(): Promise<string> {
+export async function fetchCSRF(): Promise<{ token: string; headerName: string }> {
   const r = await fetch(`${BASE}/auth/csrf`, { credentials: 'include', headers: skip });
-  return ((await parse(r)) as { csrfToken: string }).csrfToken;
+  return (await parse(r)) as { token: string; headerName: string };
 }
 
-export async function apiPost(path: string, body: unknown, csrf?: string): Promise<unknown> {
-  const h: Record<string, string> = { 'Content-Type': 'application/json', ...skip };
+export async function apiPost(path: string, body: unknown, extraHeaders?: Record<string, string>): Promise<unknown> {
+  const h: Record<string, string> = { 'Content-Type': 'application/json', ...skip, ...extraHeaders };
   if (_token) h['Authorization'] = `Bearer ${_token}`;
-  if (csrf) h['X-XSRF-TOKEN'] = csrf;
   const r = await fetch(`${BASE}${path}`, { method: 'POST', credentials: 'include', headers: h, body: JSON.stringify(body) });
   return parse(r);
 }
