@@ -1,4 +1,4 @@
-const BASE = 'https://lia-balsamiferous-elois.ngrok-free.app/api/v1';
+const BASE = 'https://lia-balsamiferous-elois.ngrok-free.dev/api/v1';
 // shortcut: BASE is hardcoded; change when the ngrok URL rotates
 
 let _token: string | null = null;
