@@ -15,7 +15,7 @@ export interface User { id: string; name: string; email: string; phone: string; 
 export interface AuthData {
   onboarded: boolean; userId: string | null;
   credentials: Record<string, { salt: string; hash: string }>;
-  challenges: Record<string, { email: string; code: string; purpose: 'signup' | 'reset'; expiresAt: number; sentAt: number; attempts: number; verified: boolean }>;
+  challenges: Record<string, { email: string; code: string; purpose: 'signup' | 'reset'; expiresAt: number; sentAt: number; attempts: number; verified: boolean; challengeId?: string; token?: string }>;
   loginFailures: Record<string, { count: number; until: number }>;
   consents: Record<string, { acceptedAt: number; marketing: boolean }>;
 }
