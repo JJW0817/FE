@@ -20,7 +20,7 @@ export interface AuthData {
   consents: Record<string, { acceptedAt: number; marketing: boolean }>;
 }
 export const initialAuth = (): AuthData => ({ onboarded: false, userId: null, credentials: {}, challenges: {}, loginFailures: {}, consents: {} });
-export interface Address { name: string; phone: string; address: string; detail: string; request: string }
+export interface Address { name: string; phone: string; address: string; detail: string; request: string; postalCode?: string }
 export interface DocumentFile { id: string; name: string; size: number; uploadedAt: number }
 export interface Application {
   id: string; userId: string; displayName: string; name: string; email: string; phone: string;
@@ -46,7 +46,7 @@ export interface Draft {
   maxPerAccount: number; startsAt: string; faqs: Faq[];
   ai: { status: AiStatus; signature: string; category: string; reason: string };
 }
-export interface SellerSettings { displayName: string; bank: string; account: string; holder: string; shippingAddress: string; returnAddress: string; notifications: Record<string, boolean> }
+export interface SellerSettings { displayName: string; bank: string; account: string; holder: string; shippingAddress: string; returnAddress: string; shippingPostal?: string; returnPostal?: string; notifications: Record<string, boolean> }
 export interface State {
   version: 1; auth?: AuthData; activeUserId: string; mode: 'buyer' | 'seller' | 'admin'; users: User[]; products: Product[];
   applications: Application[]; holds: Hold[]; orders: Order[]; inquiries: Inquiry[]; drafts: Record<string, Draft>;

@@ -1,7 +1,7 @@
 import { initialAuth } from './domain';
 import type { State } from './domain';
 import { atomic, getState, mutate } from './store';
-import { apiPost, fetchCSRF, setAccessToken } from './api';
+import { apiPost, apiGet, fetchCSRF, setAccessToken } from './api';
 export const DEMO_PASSWORD = 'Stockdrop123!';
 export const normalizeEmail = (value: string) => value.trim().toLowerCase();
 export const validEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizeEmail(value));
@@ -24,8 +24,9 @@ export async function sendCode(emailValue: string, purpose: 'signup' | 'reset') 
   const old = getState().auth?.challenges[key];
   if (old && now - old.sentAt < 60_000) throw new Error('인증번호는 60초 후 다시 요청할 수 있습니다.');
   const path = purpose === 'signup' ? '/auth/email-verifications' : '/auth/password-resets';
-  const data = await apiPost(path, { email }) as { challengeId: string };
-  await atomic(s => { ensure(s).challenges[key] = { email, purpose, code: '', challengeId: data.challengeId, sentAt: now, expiresAt: now + 300_000, attempts: 0, verified: false }; });
+  const data = await apiPost(path, { email }) as { challengeId: string; expiresAt: string; resendAvailableAt: string };
+  const expiresAt = new Date(data.expiresAt).getTime(), resendAvailableAt = new Date(data.resendAvailableAt).getTime();
+  await atomic(s => { ensure(s).challenges[key] = { email, purpose, code: '', challengeId: data.challengeId, sentAt: resendAvailableAt - 60_000, expiresAt, attempts: 0, verified: false }; });
 }
 export async function verifyCode(email: string, purpose: 'signup' | 'reset', code: string): Promise<string | null> {
   const nEmail = normalizeEmail(email), key = `${purpose}:${nEmail}`;
@@ -51,6 +52,10 @@ export async function login(emailValue: string, password: string) {
     else { user = { id: data.accountId, name: email.split('@')[0], email, phone: '', seller, admin }; s.users.push(user); }
     selectProfile(s, data.accountId);
   });
+  // sync display name from server (fire-and-forget)
+  apiGet('/accounts/me').then((me: any) => {
+    if (me?.name) mutate(s => { const u = s.users.find(u => u.id === data.accountId); if (u) u.name = me.name; });
+  }).catch(() => {});
 }
 export async function signup(input: { email: string; password: string; name: string; phone: string; age: boolean; terms: boolean; privacy: boolean; marketing: boolean }) {
   if (!validPassword(input.password)) throw new Error('비밀번호는 영문·숫자·특수문자를 포함한 8~32자로 입력해 주세요.');
@@ -66,6 +71,18 @@ export async function signup(input: { email: string; password: string; name: str
     if (user) { user.name = input.name.trim(); user.phone = input.phone.replace(/\D/g, ''); }
     delete s.auth?.challenges[key];
   });
+}
+export async function restoreSession(): Promise<boolean> {
+  try {
+    const { token, headerName } = await fetchCSRF();
+    const data = await apiPost('/auth/refresh', {}, { [headerName]: token }) as { accessToken: string; accountId: string; roles: string[] };
+    setAccessToken(data.accessToken);
+    return true;
+  } catch {
+    setAccessToken(null);
+    mutate(endSession);
+    return false;
+  }
 }
 export async function resetPassword(emailValue: string, password: string) {
   if (!validPassword(password)) throw new Error('영문·숫자·특수문자를 포함한 8~32자로 입력해 주세요.');

@@ -25,7 +25,27 @@ export function InfoRow({ label, value, strong = false }: { label: string; value
 export function MenuRow({ label, to, children }: { label: string; to: string; children?: ReactNode }) { return <Link to={to} className="divider flex min-h-[52px] items-center gap-3"><span className="min-w-0 flex-1 text-[13px]">{label}</span>{children}<ChevronRight size={17} className="muted"/></Link>; }
 export function ProductImage({ src, alt, className = '' }: { src: string; alt: string; className?: string }) { return <img src={typeof src === 'string' && src.startsWith('/images/') ? `.${src}` : src || './images/generated.png'} alt={alt} className={`block rounded-[4px] bg-[var(--blue-soft)] object-cover ${className}`} loading="lazy"/>; }
 export function ProductSummary({ product, option, amount }: { product: { name: string; brand: string; image: string }; option?: ReactNode; amount?: number }) { return <div className="divider flex items-center gap-3 pb-4"><ProductImage src={product.image} alt={product.name} className="h-[86px] w-[76px] shrink-0"/><div className="min-w-0 flex-1 space-y-1.5"><p className="muted text-[10px]">{product.brand}</p><p className="text-[14px] font-semibold">{product.name}</p>{option && <div className="muted whitespace-pre-line text-[11px] leading-relaxed">{option}</div>}{amount !== undefined && <p className="font-number text-[14px] font-bold">{money(amount)}</p>}</div></div>; }
-export function ProductCard({ product, now }: { product: Product; now: number }) { const status = saleState(product, now); return <Link to={`/product/${product.id}`} className="min-w-0 space-y-1.5"><ProductImage src={product.images[0]} alt={product.name} className="aspect-square w-full"/><p className="mt-2 text-[10px] font-bold">{product.brand}</p><h3 className="text-[13px] leading-[1.6]">{product.name}</h3><p className="font-number text-[14px] font-bold">{money(product.price)}</p><p className="muted text-[10px] leading-relaxed">{product.category}</p><Badge live={status === '판매 중'}>{status}</Badge></Link>; }
+export function ProductCard({ product, now, availableCount }: { product: Product; now: number; availableCount?: number }) {
+  const status = saleState(product, now);
+  const totalStock = product.options.reduce((n, o) => n + o.stock, 0);
+  const soldOut = availableCount === 0 && status === '판매 중';
+  const pct = availableCount !== undefined && totalStock > 0 ? Math.min(100, Math.max(0, (1 - availableCount / totalStock) * 100)) : null;
+  const seconds = Math.max(0, Math.floor(((status === '판매 중' ? product.endsAt : product.startsAt) - now) / 1000));
+  const h = Math.floor(seconds / 3600), m = Math.floor(seconds % 3600 / 60), s = seconds % 60;
+  const timer = [h, m, s].map(n => String(n).padStart(2, '0')).join(':');
+  return <Link to={`/product/${product.id}`} className="min-w-0 space-y-1.5">
+    <div className="relative">
+      <ProductImage src={product.images[0]} alt={product.name} className="aspect-square w-full"/>
+      {soldOut && <div className="absolute inset-0 flex items-center justify-center rounded-[4px] bg-black/50"><span className="text-[13px] font-black tracking-widest text-white">SOLD OUT</span></div>}
+      {(status === '판매 중' || status === '판매 예정') && <div className="absolute bottom-1.5 right-1.5 rounded-[3px] bg-black/60 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-white">{timer}</div>}
+    </div>
+    <p className="mt-2 text-[10px] font-bold">{product.brand}</p>
+    <h3 className="text-[13px] leading-[1.6]">{product.name}</h3>
+    <p className="font-number text-[14px] font-bold">{money(product.price)}</p>
+    {pct !== null && <div className="h-1 w-full rounded-full bg-[var(--line)]"><div className="h-1 rounded-full bg-[var(--red)] transition-all" style={{ width: `${pct}%` }}/></div>}
+    <div className="flex items-center justify-between gap-1"><Badge live={status === '판매 중'}>{status}</Badge>{status === '판매 중' && availableCount !== undefined && <span className="text-[10px] text-[var(--red)]">{availableCount}개 남음</span>}</div>
+  </Link>;
+}
 export function Progress({ step }: { step: number }) { return <div aria-label={`상품 등록 ${step} / 7단계`} className="mb-5 flex gap-[5px]">{Array.from({ length: 7 }, (_, i) => <div key={i} className={`h-1 flex-1 rounded-[2px] ${i < step ? 'bg-[var(--ink)]' : 'bg-[var(--line)]'}`}/>)}</div>; }
 export const ORDER_LABELS: Record<Order['status'], string> = { paid: '결제 완료', preparing: '배송 준비', shipping: '배송 중', delivered: '배송 완료', cancelled: '취소 완료', refunded: '환불 완료' };
 export function DeliveryProgress({ status }: { status: Order['status'] }) { const active = ['paid', 'preparing', 'shipping', 'delivered'].indexOf(status); return <div className="divider grid grid-cols-4 gap-1 pb-5">{['결제 완료', '배송 준비', '배송 중', '배송 완료'].map((label, i) => <div key={label} className="flex flex-col items-center gap-2"><span className={`font-number grid h-[30px] w-[30px] place-items-center rounded-full text-[11px] ${i <= active ? 'bg-[var(--ink)] text-[var(--surface)]' : 'bg-[var(--blue-soft)] text-[var(--muted)]'}`}>{i < active ? '✓' : i + 1}</span><span className={`text-[10px] ${i === active ? 'font-bold' : 'muted'}`}>{label}</span></div>)}</div>; }
