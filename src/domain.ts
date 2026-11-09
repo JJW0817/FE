@@ -9,7 +9,7 @@ export interface Product {
   id: string; sellerId: string; name: string; brand: string; category: string; description: string;
   images: string[]; originalUrl: string; price: number; shipping: number; maxPerAccount: number;
   dispatchDays: number; startsAt: number; endsAt: number; published: boolean; options: Option[];
-  dimensions: Dimension[]; extras: Extra[]; reason: string; faqs: Faq[];
+  dimensions: Dimension[]; extras: Extra[]; reason: string; faqs: Faq[]; rejectionReason?: string;
 }
 export interface User { id: string; name: string; email: string; phone: string; seller: boolean; admin: boolean }
 export interface AuthData {
@@ -188,7 +188,7 @@ export function publishDraft(s: State, userId: string, d: Draft, now: number): P
   validateDraft(d, 7, now);
   const existing = d.editingId ? s.products.find(p => p.id === d.editingId && p.sellerId === userId) : undefined;
   if (d.editingId && (!existing || now >= existing.startsAt)) throw new DomainError('판매 시작 후에는 핵심 상품 정보를 변경할 수 없습니다.');
-  const p: Product = { id: existing?.id ?? uid('product-'), sellerId: userId, name: d.name.trim(), brand: d.brand.trim() || s.sellerSettings[userId]?.displayName || '나의 스토어', category: d.category, description: d.description.trim(), images: [...d.images], originalUrl: d.originalUrl.trim(), price: d.price, shipping: d.shipping, maxPerAccount: d.maxPerAccount, dispatchDays: d.dispatchDays, startsAt: new Date(d.startsAt).getTime(), endsAt: new Date(d.startsAt).getTime() + 10_800_000, published: true, options: structuredClone(d.options), dimensions: structuredClone(d.dimensions), extras: d.extras.filter(e => e.key.trim() && e.value.trim()).map(e => ({ ...e })), reason: d.reason.trim(), faqs: structuredClone(d.faqs) };
+  const p: Product = { id: existing?.id ?? uid('product-'), sellerId: userId, name: d.name.trim(), brand: d.brand.trim() || s.sellerSettings[userId]?.displayName || '나의 스토어', category: d.category, description: d.description.trim(), images: [...d.images], originalUrl: d.originalUrl.trim(), price: d.price, shipping: d.shipping, maxPerAccount: d.maxPerAccount, dispatchDays: d.dispatchDays, startsAt: new Date(d.startsAt).getTime(), endsAt: new Date(d.startsAt).getTime() + 10_800_000, published: false, options: structuredClone(d.options), dimensions: structuredClone(d.dimensions), extras: d.extras.filter(e => e.key.trim() && e.value.trim()).map(e => ({ ...e })), reason: d.reason.trim(), faqs: structuredClone(d.faqs) };
   if (existing) s.products[s.products.indexOf(existing)] = p; else s.products.unshift(p);
   delete s.drafts[userId]; return p;
 }
