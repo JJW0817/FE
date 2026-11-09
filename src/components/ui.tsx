@@ -62,3 +62,83 @@ export async function copyText(text: string) { if (!navigator.clipboard) throw n
 export function CopyButton({ value }: { value: string }) { const toast = useToast(); return <button aria-label="복사" className="grid h-8 w-8 place-items-center" onClick={() => copyText(value).then(() => toast('복사했습니다.')).catch(e => toast(e.message))}><Copy size={16} className="muted"/></button>; }
 export function Unavailable({ message = '접근할 수 없는 화면입니다.' }: { message?: string }) { return <><Header title="접근 안내"/><Empty title={message} message="이 화면을 사용할 수 있는 계정으로 전환해 주세요."><Link to="/my" className="btn">마이페이지로</Link></Empty></>; }
 export function Loading({ text = '확인하고 있어요…' }: { text?: string }) { return <div className="muted flex items-center justify-center gap-2 py-10 text-[12px]"><Info size={16}/>{text}</div>; }
+
+/** 바텀시트 — 상단 모서리 16, 손잡이, 뒤 배경 45% 어둡게 */
+export function BottomSheet({ title, children, onClose }: { title?: string; children: ReactNode; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center" style={{ background: 'var(--overlay)' }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="w-full max-w-[390px] rounded-t-[16px] bg-[var(--surface)] pb-safe" style={{ animation: 'sheet-in 240ms cubic-bezier(.22,1,.36,1) both' }}>
+        <div className="flex justify-center py-3"><div className="h-1 w-9 rounded-full bg-[var(--border)]"/></div>
+        {title && <div className="flex items-center justify-between border-b border-[var(--line)] px-4 pb-3"><h2 className="text-[16px] font-bold">{title}</h2><button aria-label="닫기" onClick={onClose}><X size={20} className="muted"/></button></div>}
+        <div className="px-4 pb-6 pt-4">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+/** 수량 증감 — 계정당 최대 수 적용 */
+export function QuantityStepper({ value, min = 0, max, onChange }: { value: number; min?: number; max: number; onChange: (n: number) => void }) {
+  return (
+    <div className="inline-flex items-center gap-3">
+      <button aria-label="수량 감소" onClick={() => onChange(Math.max(min, value - 1))} disabled={value <= min} className="grid h-8 w-8 place-items-center rounded-full border border-[var(--border)] text-[18px] font-bold disabled:opacity-30">−</button>
+      <span className="font-number w-6 text-center text-[15px] font-bold">{value}</span>
+      <button aria-label="수량 증가" onClick={() => onChange(Math.min(max, value + 1))} disabled={value >= max} className="grid h-8 w-8 place-items-center rounded-full border border-[var(--border)] text-[18px] font-bold disabled:opacity-30">+</button>
+    </div>
+  );
+}
+
+/** 칩 — 선택 시 ink 바탕 흰 글자, 기본 흰 바탕 border */
+export function Chip({ selected, onClick, children }: { selected: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button onClick={onClick} className={`inline-flex h-8 items-center rounded-full px-3.5 text-[12px] font-medium transition-colors ${selected ? 'bg-[var(--ink)] text-[var(--surface)]' : 'border border-[var(--border)] bg-[var(--surface)] text-[var(--ink)]'}`}>
+      {children}
+    </button>
+  );
+}
+
+/** 작성 중 나가기 확인 대화상자 */
+export function ConfirmLeave({ onLeave, onStay }: { onLeave: () => void; onStay: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{ background: 'var(--overlay)' }}>
+      <div className="w-[318px] rounded-[8px] bg-[var(--surface)] p-6 space-y-4">
+        <h2 className="text-[16px] font-bold">작성 중인 내용이 있어요</h2>
+        <p className="muted text-[13px] leading-relaxed">나가면 작성한 내용이 사라져요. 계속 작성하시겠어요?</p>
+        <div className="flex gap-2">
+          <Button outline className="flex-1" onClick={onLeave}>나가기</Button>
+          <Button className="flex-1" onClick={onStay}>계속 작성</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** 처리 실패와 재시도 — 입력 내용 유지 */
+export function RetryError({ message, onRetry, onBack }: { message: string; onRetry: () => void; onBack?: () => void }) {
+  return (
+    <div className="rounded-[4px] border border-[var(--border)] p-4 space-y-3">
+      <p className="text-[13px] font-bold text-[var(--red)]">처리에 실패했어요</p>
+      <p className="muted text-[12px] leading-relaxed">{message}</p>
+      <div className="flex gap-2">
+        {onBack && <Button outline className="flex-1" onClick={onBack}>이전으로</Button>}
+        <Button className="flex-1" onClick={onRetry}>다시 시도</Button>
+      </div>
+    </div>
+  );
+}
+
+/** 로그인 필요 대화상자 — 로그인 후 returnTo로 복귀 */
+export function LoginRequired({ returnTo, onClose }: { returnTo: string; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{ background: 'var(--overlay)' }}>
+      <div className="w-[318px] rounded-[8px] bg-[var(--surface)] p-6 space-y-4">
+        <h2 className="text-[16px] font-bold">로그인이 필요해요</h2>
+        <p className="muted text-[13px] leading-relaxed">로그인 후 계속할 수 있어요.</p>
+        <div className="space-y-2">
+          <Link to={`/login?next=${encodeURIComponent(returnTo)}`} className="btn w-full">로그인</Link>
+          <Link to={`/signup?next=${encodeURIComponent(returnTo)}`} className="btn btn-outline w-full">이메일로 회원가입</Link>
+          <button onClick={onClose} className="muted w-full py-2 text-[12px]">닫기</button>
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -16,6 +16,16 @@
   --canvas: #F4F5F6;
   --hero: #EDF1F4;
   --overlay: #00000066;
+  /* 연결표 추가 토큰 */
+  --aux: #7B7B7B;
+  --meta: #949494;
+  --placeholder: #A0A0A0;
+  --divider: #F2F2F2;
+  --border: #DEDEDE;
+  --infobar: #FBFBFB;
+  --positive: #3FB181;
+  --positive-soft: #EEF8F3;
+  --action: #EF6253;
 }
 @layer base {
   html, body, #root { min-height: 100%; }

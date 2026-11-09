@@ -5,7 +5,7 @@ import { ArrowLeft, ArrowRight, Check, Eye, EyeOff, PackageCheck, Package, Tag, 
 import { Button, ErrorBox, Field, Header, Modal, Note, useToast } from '../components/ui';
 import { mutate, useStore } from '../store';
 import { initialAuth } from '../domain';
-import { apiPut } from '../api';
+import { apiGet, apiPut } from '../api';
 import { login, logout, normalizeEmail, resetPassword, safeNext, sendCode, signedIn, signup, validEmail, validPassword, verifyCode } from '../auth';
 import { requestPushPermission } from '../firebase';
 const inputClass = 'w-full min-w-0 border-0 border-b border-[var(--line)] bg-transparent py-3 text-[14px] outline-none placeholder:text-[var(--muted)] focus:border-[var(--ink)] disabled:opacity-50';
@@ -35,14 +35,115 @@ function EmailVerification({ email, setEmail, purpose, onError }: { email: strin
 }
 export function LegalContent({ kind }: { kind: string }) { return <div className="space-y-5 text-[12px] leading-[1.9]"><p className="text-[10px] font-bold tracking-[1px]">STOCKDROP · {kind === 'privacy' ? 'PRIVACY' : 'TERMS'}</p>{kind === 'privacy' ? <><h2 className="font-bold">개인정보 수집·이용 안내</h2><p>계정 생성과 로그인, 주문·배송, 문의 응대를 위해 이메일·이름·연락처를 이용합니다. 배송지는 주문 시 별도로 입력합니다.</p><p>판매자 신청 시 사업자등록증 PDF, 담당자 정보, 정산·출고·반품 정보를 추가로 수집합니다. 판매자 승인은 제출 서류 검토 후 진행됩니다.</p><p>주문 이행에 필요한 수령인·연락처·배송지는 해당 주문의 판매자에게 제공됩니다. 주문 문의의 개인정보는 공개 FAQ로 게시하지 않습니다.</p><p>수집 목적이 달성되면 정보를 삭제하며, 관련 법령상 보관이 필요한 거래 정보는 해당 기간 보관합니다.</p><p>필수 정보 수집에 동의하지 않을 수 있으나 회원가입과 거래 이용이 제한됩니다.</p></> : <><h2 className="text-[15px] font-bold">서비스 이용 안내</h2><p className="muted">STOCKDROP을 이용하기 전에 꼭 알아두실 내용이에요.</p><div className="grid grid-cols-3 gap-2 rounded-[4px] bg-[var(--blue-soft)] p-4 text-center"><div><p className="font-number text-[20px] font-bold">3시간</p><p className="muted text-[10px]">판매 진행 시간</p></div><div><p className="font-number text-[20px] font-bold">5분</p><p className="muted text-[10px]">확보 후 결제 기한</p></div><div><p className="font-number text-[20px] font-bold">새 상품</p><p className="muted text-[10px]">거래 대상</p></div></div><section className="space-y-4"><h3 className="font-bold">01 {'  '}회원 및 판매자 자격</h3><p>회원은 구매자로 시작하며, 판매는 사업자등록증 PDF 제출 및 운영자 승인 후 가능합니다. 판매자 승인 후에도 구매 권한과 기존 내역은 유지됩니다.</p><h3 className="font-bold">02 {'  '}거래 가능 상품</h3><p>의류·패션잡화·문구·일반 생활잡화의 미판매 새 상품을 거래합니다. 중고·전시·하자 상품과 식품·건강기능식품·화장품·전기제품은 지원하지 않습니다.</p><h3 className="font-bold">03 {'  '}판매 시간과 결제</h3><p>판매는 시작 후 3시간입니다. 옵션 선택만으로 재고가 확보되지 않으며, 구매하기로 확보에 성공한 뒤 5분 안에 결제해야 합니다. 결제 결과 확인 중인 재고는 결과가 확정되기 전 반환되지 않습니다.</p><h3 className="font-bold">04 {'  '}취소 · 반품 · 오배송</h3><p>취소·반품·하자·오배송은 주문 상세에서 판매자에게 문의합니다. 법령상 소비자의 권리는 별도로 보장됩니다.</p><h3 className="font-bold">05 {'  '}배송완료 처리</h3><p>판매자의 수동 배송완료 처리는 구매확정이나 정산 송금을 의미하지 않습니다.</p></section></>}</div>; }
 export function LegalPage() { const [params] = useSearchParams(); const kind = params.get('kind') || 'terms'; return <><Header title={kind === 'privacy' ? '개인정보 수집·이용' : '서비스 이용약관'}/><LegalContent kind={kind}/></>; }
+/** 회원가입 1단계: 이름 + 이메일 인증 → /signup/info 로 이동 */
 export function SignupPage() {
-  const s = useStore(), next = useNext(), navigate = useNavigate(); const [step, setStep] = useState(0), [email, setEmail] = useState(''), [password, setPassword] = useState(''), [confirmation, setConfirmation] = useState(''), [name, setName] = useState(''), [phone, setPhone] = useState(''), [checks, setChecks] = useState({ age: false, terms: false, privacy: false, marketing: false }), [legal, setLegal] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false);
+  const s = useStore(), next = useNext(), navigate = useNavigate();
+  const [email, setEmail] = useState(''), [name, setName] = useState(''), [error, setError] = useState('');
+  const authNow = useAuthNow(), c = s.auth?.challenges[`signup:${normalizeEmail(email)}`], verified = !!c?.verified && c.expiresAt > authNow;
+  if (signedIn(s)) return <Navigate to={next} replace/>;
+  return (
+    <AuthShell title="이메일 회원가입" onBack={() => navigate(`/welcome?next=${encodeURIComponent(next)}`)}>
+      <div className="mb-7 flex items-center justify-between">
+        <p className="text-[20px] font-bold tracking-[-.7px]">이름과 이메일을 입력해 주세요.</p>
+        <span className="muted text-[11px]">01 / 02</span>
+      </div>
+      <div className="space-y-6">
+        <Field label="이름" required><input aria-label="이름" value={name} onChange={e => setName(e.target.value)} autoComplete="name" maxLength={30} placeholder="실명을 입력해 주세요" className={inputClass}/></Field>
+        <EmailVerification email={email} setEmail={setEmail} purpose="signup" onError={setError}/>
+        <p className="muted text-[11px] leading-relaxed">구매와 판매에 사용할 하나의 계정을 만들어요.<br/>판매자 신청은 가입 후 마이페이지에서 진행할 수 있어요.</p>
+        <ErrorBox message={error}/>
+        <Button className="w-full" disabled={!verified || !name.trim()} onClick={() => navigate(`/signup/info?email=${encodeURIComponent(email)}&name=${encodeURIComponent(name)}&next=${encodeURIComponent(next)}`)}>다음 · 가입 정보</Button>
+      </div>
+    </AuthShell>
+  );
+}
+
+/** 회원가입 2단계: 비밀번호 + 연락처 + 약관 */
+export function SignupInfoPage() {
+  const s = useStore(), navigate = useNavigate();
+  const [params] = useSearchParams();
+  const email = params.get('email') || '', name = params.get('name') || '', next = safeNext(params.get('next'));
+  const [password, setPassword] = useState(''), [confirmation, setConfirmation] = useState(''), [phone, setPhone] = useState(''), [checks, setChecks] = useState({ age: false, terms: false, privacy: false, marketing: false }), [legal, setLegal] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false);
   const authNow = useAuthNow(), c = s.auth?.challenges[`signup:${normalizeEmail(email)}`], verified = !!c?.verified && c.expiresAt > authNow;
   if (signedIn(s) && !busy) return <Navigate to={next} replace/>;
-  return <AuthShell title="이메일 회원가입" onBack={() => { if (step > 0) { setStep(0); setError(''); } else navigate(`/welcome?next=${encodeURIComponent(next)}`); }}><div className="mb-7 flex items-center justify-between"><p className="text-[20px] font-bold tracking-[-.7px]">{step === 0 ? '이름과 이메일을 입력해 주세요.' : '가입 정보를 입력해 주세요.'}</p><span className="muted text-[11px]">0{step + 1} / 02</span></div>{step === 0 ? <div className="space-y-6"><Field label="이름" required><input aria-label="이름" value={name} onChange={e => setName(e.target.value)} autoComplete="name" maxLength={30} placeholder="실명을 입력해 주세요" className={inputClass}/></Field><EmailVerification email={email} setEmail={setEmail} purpose="signup" onError={setError}/><p className="muted text-[11px] leading-relaxed">구매와 판매에 사용할 하나의 계정을 만들어요.<br/>판매자 신청은 가입 후 마이페이지에서 진행할 수 있어요.</p><ErrorBox message={error}/><Button className="w-full" disabled={!verified || !name.trim()} onClick={() => { setError(''); setStep(1); }}>다음 · 가입 정보</Button></div> : <form className="space-y-6" onSubmit={async e => { e.preventDefault(); if (busy) return; setError(''); if (password !== confirmation) return setError('비밀번호가 일치하지 않습니다.'); setBusy(true); try { await signup({ email, password, name, phone, ...checks }); navigate(`/signup/done?next=${encodeURIComponent(next)}`, { replace: true }); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }}><div className="flex items-center justify-between border-b border-[var(--line)] pb-4"><span className="min-w-0 break-all text-[12px]">{normalizeEmail(email)}</span><button type="button" onClick={() => { setStep(0); setError(''); }} className="muted shrink-0 p-2 text-[11px] underline">{verified ? '이메일 변경' : '다시 인증'}</button></div>{!verified && <Note>인증 시간이 지났어요. 이메일을 다시 인증해 주세요. 입력한 가입 정보는 유지됩니다.</Note>}<Field label="휴대폰 번호" required hint="주문·배송 및 문의 연락처로 사용해요."><input aria-label="휴대폰 번호" type="tel" value={phone} onChange={e => setPhone(e.target.value)} autoComplete="tel" maxLength={13} placeholder="01012345678" className={inputClass}/></Field><PasswordField value={password} onChange={setPassword}/><PasswordField label="비밀번호 확인" value={confirmation} onChange={setConfirmation}/>{confirmation && confirmation !== password && <p className="text-[11px] text-[var(--red)]">비밀번호가 일치하지 않아요.</p>}<fieldset className="space-y-3 border-t border-[var(--line)] pt-5"><legend className="sr-only">약관 동의</legend><label className="divider flex items-center gap-3 pb-4 text-[14px] font-bold"><input aria-label="약관 전체 동의" type="checkbox" checked={Object.values(checks).every(Boolean)} onChange={e => setChecks({ age: e.target.checked, terms: e.target.checked, privacy: e.target.checked, marketing: e.target.checked })} className="h-4 w-4"/>전체 동의</label>{([['age', '[필수] 만 14세 이상입니다'], ['terms', '[필수] 서비스 이용약관 동의'], ['privacy', '[필수] 개인정보 수집·이용 동의'], ['marketing', '[선택] 혜택 및 마케팅 정보 수신 동의']] as const).map(([key, label]) => <div key={key} className="flex items-center gap-2"><label className="flex min-w-0 flex-1 items-center gap-3 text-[11px]"><input type="checkbox" checked={checks[key]} onChange={e => setChecks({ ...checks, [key]: e.target.checked })} className="h-4 w-4 shrink-0"/>{label}</label>{(key === 'terms' || key === 'privacy') && <button type="button" aria-label={key === 'terms' ? '이용약관 보기' : '개인정보 동의 내용 보기'} onClick={() => setLegal(key)} className="muted p-2 text-[11px] underline">보기</button>}</div>)}</fieldset><ErrorBox message={error}/><Button type="submit" className="w-full" disabled={busy || !verified || !name.trim() || !phone || !validPassword(password) || password !== confirmation || !checks.age || !checks.terms || !checks.privacy}>{busy ? '가입 중…' : '동의하고 가입하기'}</Button></form>}{legal && <Modal title={legal === 'terms' ? '서비스 이용약관' : '개인정보 수집·이용'} onClose={() => setLegal('')}><LegalContent kind={legal}/><Button className="mt-6 w-full" onClick={() => setLegal('')}>내용 확인</Button></Modal>}</AuthShell>;
+  if (!email || !name) return <Navigate to={`/signup?next=${encodeURIComponent(next)}`} replace/>;
+  return (
+    <AuthShell title="이메일 회원가입" onBack={() => navigate(`/signup?next=${encodeURIComponent(next)}`)}>
+      <div className="mb-7 flex items-center justify-between">
+        <p className="text-[20px] font-bold tracking-[-.7px]">가입 정보를 입력해 주세요.</p>
+        <span className="muted text-[11px]">02 / 02</span>
+      </div>
+      <form className="space-y-6" onSubmit={async e => { e.preventDefault(); if (busy) return; setError(''); if (password !== confirmation) return setError('비밀번호가 일치하지 않습니다.'); setBusy(true); try { await signup({ email, password, name, phone, ...checks }); navigate(`/signup/done?next=${encodeURIComponent(next)}`, { replace: true }); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }}>
+        <div className="flex items-center justify-between border-b border-[var(--line)] pb-4">
+          <div className="flex items-center gap-2 min-w-0"><span className="min-w-0 break-all text-[12px]">{normalizeEmail(email)}</span><span className="shrink-0 rounded-full bg-[var(--green-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--green)]">인증 완료</span></div>
+          <button type="button" onClick={() => navigate(`/signup?next=${encodeURIComponent(next)}`)} className="muted shrink-0 p-2 text-[11px] underline">이메일 변경</button>
+        </div>
+        {!verified && <Note>인증 시간이 지났어요. 이메일을 다시 인증해 주세요.</Note>}
+        <Field label="휴대폰 번호" required hint="주문·배송 및 문의 연락처로 사용해요."><input aria-label="휴대폰 번호" type="tel" value={phone} onChange={e => setPhone(e.target.value)} autoComplete="tel" maxLength={13} placeholder="01012345678" className={inputClass}/></Field>
+        <PasswordField value={password} onChange={setPassword}/>
+        <PasswordField label="비밀번호 확인" value={confirmation} onChange={setConfirmation}/>
+        {confirmation && confirmation !== password && <p className="text-[11px] text-[var(--red)]">비밀번호가 일치하지 않아요.</p>}
+        <fieldset className="space-y-3 border-t border-[var(--line)] pt-5">
+          <legend className="sr-only">약관 동의</legend>
+          <label className="divider flex items-center gap-3 pb-4 text-[14px] font-bold"><input aria-label="약관 전체 동의" type="checkbox" checked={Object.values(checks).every(Boolean)} onChange={e => setChecks({ age: e.target.checked, terms: e.target.checked, privacy: e.target.checked, marketing: e.target.checked })} className="h-4 w-4"/>전체 동의</label>
+          {([['age', '[필수] 만 14세 이상입니다'], ['terms', '[필수] 서비스 이용약관 동의'], ['privacy', '[필수] 개인정보 수집·이용 동의'], ['marketing', '[선택] 혜택 및 마케팅 정보 수신 동의']] as const).map(([key, label]) => <div key={key} className="flex items-center gap-2"><label className="flex min-w-0 flex-1 items-center gap-3 text-[11px]"><input type="checkbox" checked={checks[key]} onChange={e => setChecks({ ...checks, [key]: e.target.checked })} className="h-4 w-4 shrink-0"/>{label}</label>{(key === 'terms' || key === 'privacy') && <button type="button" aria-label={key === 'terms' ? '이용약관 보기' : '개인정보 동의 내용 보기'} onClick={() => setLegal(key)} className="muted p-2 text-[11px] underline">보기</button>}</div>)}
+        </fieldset>
+        <ErrorBox message={error}/>
+        <Button type="submit" className="w-full" disabled={busy || !verified || !phone || !validPassword(password) || password !== confirmation || !checks.age || !checks.terms || !checks.privacy}>{busy ? '가입 중…' : '동의하고 가입하기'}</Button>
+      </form>
+      {legal && <Modal title={legal === 'terms' ? '서비스 이용약관' : '개인정보 수집·이용'} onClose={() => setLegal('')}><LegalContent kind={legal}/><Button className="mt-6 w-full" onClick={() => setLegal('')}>내용 확인</Button></Modal>}
+    </AuthShell>
+  );
 }
 export function SignupDonePage() { const s = useStore(), next = useNext(); if (!signedIn(s)) return <Navigate to="/login" replace/>; const user = s.users.find(u => u.id === s.activeUserId)!; return <div className="flex min-h-[calc(100dvh-60px)] flex-col"><Wordmark/><div className="flex flex-1 flex-col justify-center py-12"><Check size={38} strokeWidth={1.5}/><p className="mt-7 text-[10px] font-bold tracking-[2px]">WELCOME TO STOCKDROP</p><h1 className="mt-4 break-words text-[30px] font-bold leading-[1.5] tracking-[-1px]">{user.name}님,<br/>가입을 환영해요.</h1><p className="muted mt-4 text-[12px] leading-[1.9]">지금부터 3시간 한정 드롭에<br/>바로 참여할 수 있어요.</p></div><div className="space-y-3 pb-6"><Link className="btn w-full" to={`/categories?next=${encodeURIComponent(next)}`}>상품 둘러보기</Link><Link className="btn btn-outline w-full" to="/apply">판매자 입점 신청</Link><p className="muted text-center text-[10px]">입점 신청만으로 판매 권한이 추가되지는 않습니다.</p></div></div>; }
-export function ResetPasswordPage() { const next = useNext(), authNow = useAuthNow(); const [email, setEmail] = useState(''), [password, setPassword] = useState(''), [confirmation, setConfirmation] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false), [done, setDone] = useState(false); const s = useStore(), c = s.auth?.challenges[`reset:${normalizeEmail(email)}`], verified = c?.verified && c.expiresAt > authNow; return <AuthShell title="비밀번호 재설정">{done ? <div className="space-y-6"><Check size={30}/><h1 className="text-[24px] font-bold">비밀번호가 변경됐어요.</h1><p className="muted text-[12px]">새 비밀번호로 다시 로그인해 주세요.</p><Link className="btn w-full" to={`/login?next=${encodeURIComponent(next)}`}>로그인으로</Link></div> : <form className="space-y-6" onSubmit={async e => { e.preventDefault(); if (busy) return; setError(''); if (password !== confirmation) return setError('비밀번호가 일치하지 않습니다.'); setBusy(true); try { await resetPassword(email, password); setDone(true); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }}><h1 className="text-[22px] font-bold">가입한 이메일을 확인해요.</h1><EmailVerification email={email} setEmail={setEmail} purpose="reset" onError={setError}/>{verified && <><PasswordField label="새 비밀번호" value={password} onChange={setPassword}/><PasswordField label="새 비밀번호 확인" value={confirmation} onChange={setConfirmation}/></>}<ErrorBox message={error}/><Button type="submit" className="w-full" disabled={busy || !verified || !validPassword(password) || password !== confirmation}>{busy ? '변경 중…' : '비밀번호 변경하기'}</Button></form>}</AuthShell>; }
+/** 비밀번호 재설정 1단계: 이메일 인증 → /reset-password/new 로 이동 */
+export function ResetPasswordPage() {
+  const next = useNext(), navigate = useNavigate();
+  const [email, setEmail] = useState(''), [error, setError] = useState('');
+  const authNow = useAuthNow(), s = useStore(), c = s.auth?.challenges[`reset:${normalizeEmail(email)}`], verified = !!c?.verified && c.expiresAt > authNow;
+  return (
+    <AuthShell title="비밀번호 재설정" onBack={() => navigate(`/login?next=${encodeURIComponent(next)}`)}>
+      <h1 className="mb-7 text-[22px] font-bold">가입한 이메일을 확인해요.</h1>
+      <div className="space-y-6">
+        <EmailVerification email={email} setEmail={setEmail} purpose="reset" onError={setError}/>
+        <ErrorBox message={error}/>
+        <Button className="w-full" disabled={!verified} onClick={() => navigate(`/reset-password/new?email=${encodeURIComponent(email)}&next=${encodeURIComponent(next)}`)}>다음 · 새 비밀번호 설정</Button>
+      </div>
+    </AuthShell>
+  );
+}
+
+/** 비밀번호 재설정 2단계: 새 비밀번호 입력 */
+export function ResetPasswordNewPage() {
+  const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const email = params.get('email') || '', next = safeNext(params.get('next'));
+  const [password, setPassword] = useState(''), [confirmation, setConfirmation] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false), [done, setDone] = useState(false);
+  const authNow = useAuthNow(), s = useStore(), c = s.auth?.challenges[`reset:${normalizeEmail(email)}`], verified = !!c?.verified && c.expiresAt > authNow;
+  if (!email) return <Navigate to="/reset-password" replace/>;
+  if (!verified) return <Navigate to={`/reset-password?next=${encodeURIComponent(next)}`} replace/>;
+  return (
+    <AuthShell title="새 비밀번호 설정" onBack={() => navigate(-1)}>
+      {done ? (
+        <div className="space-y-6">
+          <Check size={30}/>
+          <h1 className="text-[24px] font-bold">비밀번호가 변경됐어요.</h1>
+          <p className="muted text-[12px]">새 비밀번호로 다시 로그인해 주세요.</p>
+          <Link className="btn w-full" to={`/login?next=${encodeURIComponent(next)}`}>로그인으로</Link>
+        </div>
+      ) : (
+        <form className="space-y-6" onSubmit={async e => { e.preventDefault(); if (busy) return; setError(''); if (password !== confirmation) return setError('비밀번호가 일치하지 않습니다.'); setBusy(true); try { await resetPassword(email, password); setDone(true); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }}>
+          <h1 className="text-[22px] font-bold">새 비밀번호를 설정해 주세요.</h1>
+          <PasswordField label="새 비밀번호" value={password} onChange={setPassword}/>
+          <PasswordField label="새 비밀번호 확인" value={confirmation} onChange={setConfirmation}/>
+          {confirmation && confirmation !== password && <p className="text-[11px] text-[var(--red)]">비밀번호가 일치하지 않아요.</p>}
+          <ErrorBox message={error}/>
+          <Button type="submit" className="w-full" disabled={busy || !validPassword(password) || password !== confirmation}>{busy ? '변경 중…' : '비밀번호 변경하기'}</Button>
+        </form>
+      )}
+    </AuthShell>
+  );
+}
 export function CategorySelectionPage() {
   const navigate = useNavigate(); const [params] = useSearchParams(); const next = safeNext(params.get('next'));
   const CATS = ['의류·패션', '뷰티·헬스', '생활용품', '가전제품', '전자기기', '인테리어·가구', '공구·자재', '식품·음료', '스포츠·레저', '문구·도서', '유아·아동', '기타'];
@@ -61,6 +162,7 @@ export function NotificationSettingsPage() {
   const toggle = (id: string) => setEnabled(e => ({ ...e, [id]: !e[id] }));
   const allowPush = async () => { setPushState('busy'); const token = await requestPushPermission(); if (token) { setPushState('granted'); setPushToken(token); } else { setPushState(Notification.permission as any); } };
   useEffect(() => { if (Notification.permission === 'granted') allowPush(); }, []);
+  useEffect(() => { apiGet('/accounts/me/notification-settings').then((data: any) => { if (!data) return; setEnabled(e => ({ ...e, sale_start: !!data.saleStart, recommendation: !!data.personalizedRecommendation })); if (data.marketingConsent !== undefined) setMarketing(!!data.marketingConsent); }).catch(() => {}); }, []);
   const proceed = () => {
     try { localStorage.setItem('stockdrop:notifications', JSON.stringify({ ...enabled, marketing })); } catch {}
     apiPut('/accounts/me/notification-settings', { saleStart: !!enabled['sale_start'], personalizedRecommendation: !!enabled['recommendation'] }).catch(() => {});
