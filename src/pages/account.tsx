@@ -23,13 +23,26 @@ function PasswordChangeModal({ onClose }: { onClose: () => void }) {
 }
 export function MyPage() {
   const s = useStore(), user = activeUser(s), navigate = useNavigate(); const app = s.applications.find(a => a.userId === user.id); const [address, setAddress] = useState(false); const [profileEdit, setProfileEdit] = useState(false); const [pwChange, setPwChange] = useState(false); const toast = useToast();
-  const roleLabel = user.seller ? '판매자 모드로 전환' : app?.status === 'pending' ? '판매자 승인 대기' : '판매자 입점 신청';
-  return <div className="space-y-5"><Header title="구매자 마이페이지" subtitle="내 주문과 계정 정보를 관리하세요." back={false}/><button className="divider w-full flex items-center gap-3 pb-5 text-left" onClick={() => setProfileEdit(true)}><div className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-[4px] bg-[var(--blue-soft)] text-[18px] font-bold">{user.name[0]}</div><div className="min-w-0 flex-1"><h2 className="break-words text-[17px] font-bold">{user.name}</h2><p className="muted mt-1 break-all text-[12px]">{user.email}</p></div><span className="muted text-[11px] shrink-0">수정 ›</span></button><MenuRow to="/orders" label="주문 · 배송 조회"/><section className="note space-y-3"><p className="muted text-[10px]">회원 권한</p><h2 className="text-[22px] font-bold">구매자{user.seller ? ' + 판매자' : ''}</h2><p className="muted text-[12px]">{user.seller ? '판매자 권한이 추가되었어요. 기존 구매자 권한과 구매 내역은 그대로 유지됩니다.' : app?.status === 'pending' ? '제출한 사업자등록증 PDF와 담당자 정보를 검토하고 있어요. 구매와 기존 구매 내역은 그대로 이용할 수 있어요.' : '개인·사업자 모두 구매할 수 있어요. 판매자는 사업자등록증 PDF와 담당자 정보를 제출하고 승인을 받아야 합니다.'}</p><Button className="w-full" onClick={() => { if (user.seller) { mutate(state => { state.mode = 'seller'; }); navigate('/seller'); } else navigate('/seller/terms'); }}>{roleLabel}</Button></section><div><button onClick={() => navigate('/addresses')} className="divider flex h-[52px] w-full items-center justify-between"><span>배송지 관리</span><span className="muted">›</span></button><button onClick={() => navigate('/notifications/settings')} className="divider flex h-[52px] w-full items-center justify-between"><span>알림 설정</span><span className="muted">›</span></button><button onClick={() => setPwChange(true)} className="divider flex h-[52px] w-full items-center justify-between"><span>비밀번호 변경</span><span className="muted">›</span></button><Link className="divider flex h-[52px] items-center justify-between" to="/support">고객 지원 <span className="muted">›</span></Link></div>{user.admin && <MenuRow to="/admin" label="운영자 · 판매자 신청 검토"/>}<LogoutButton/>{address && <AddressModal initial={s.addresses[user.id] ?? { name: user.name, phone: user.phone, address: '', detail: '', request: '' }} onClose={() => setAddress(false)} onSave={value => { mutate(state => { state.addresses[user.id] = value; }); setAddress(false); toast('배송지를 저장했습니다.'); }}/ >}{profileEdit && <ProfileEditModal userId={user.id} name={user.name} phone={user.phone} onClose={() => setProfileEdit(false)}/>}{pwChange && <PasswordChangeModal onClose={() => setPwChange(false)}/>}</div>;
+  const roleLabel = user.seller ? '판매자 모드로 전환' : app?.status === 'pending' ? '심사 현황 보기' : app?.status === 'rejected' ? '심사 결과 확인하기' : '판매자 입점 신청';
+  const shortTs = (ms: number) => { const d = new Date(ms); return `${d.getMonth()+1}.${d.getDate()} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`; };
+  const shortDt = (ms: number) => { const d = new Date(ms); const days = ['일','월','화','수','목','금','토']; return `${d.getMonth()+1}.${d.getDate()} (${days[d.getDay()]})`; };
+  const reviewDate = app ? (app.reviewedAt ?? (app.submittedAt + 2 * 86_400_000)) : 0;
+  const deadlineDate = app ? (app.deadlineAt ?? (app.submittedAt + 7 * 86_400_000)) : 0;
+  const appStatusDesc = app?.status === 'pending'
+    ? `${shortTs(app.submittedAt)} 신청 · ${shortDt(reviewDate)} 결과 안내 예정`
+    : app?.status === 'approved'
+    ? `${shortTs(app.approvedAt ?? app.submittedAt)} 승인 · 지금 첫 한정 판매를 등록할 수 있어요`
+    : app?.status === 'rejected'
+    ? `${(app.rejectionItems?.length ?? 0)}개 항목 보완 필요 · ${shortDt(deadlineDate)}까지 제출해 주세요`
+    : '';
+  const appStepLabel = app?.status === 'pending' ? '심사 중' : app?.status === 'approved' ? '승인 완료' : app?.status === 'rejected' ? '거절' : '';
+  return <div className="space-y-5"><Header title="구매자 마이페이지" subtitle="내 주문과 계정 정보를 관리하세요." back={false}/><button className="divider w-full flex items-center gap-3 pb-5 text-left" onClick={() => setProfileEdit(true)}><div className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-[4px] bg-[var(--blue-soft)] text-[18px] font-bold">{user.name[0]}</div><div className="min-w-0 flex-1"><h2 className="break-words text-[17px] font-bold">{user.name}</h2><p className="muted mt-1 break-all text-[12px]">{user.email}</p></div><span className="muted text-[11px] shrink-0">수정 ›</span></button><MenuRow to="/orders" label="주문 · 배송 조회"/><section className="note space-y-3"><p className="muted text-[10px]">회원 권한</p><h2 className="text-[22px] font-bold">구매자{user.seller ? ' + 판매자' : ''}</h2><p className="muted text-[12px]">{user.seller ? '개인·사업자 모두 구매할 수 있어요.' : '개인·사업자 모두 구매할 수 있어요.'}</p><p className="muted text-[12px]">판매는 입점 심사 승인 후 시작할 수 있어요.</p>{app && <div className="rounded-[4px] bg-[var(--canvas,#F7F7F7)] p-3 space-y-1"><div className="flex items-center justify-between"><p className="text-[11px] font-bold">판매자 입점 신청</p><span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${app.status === 'approved' ? 'bg-[var(--green-soft)] text-[var(--green)]' : app.status === 'rejected' ? 'bg-[var(--red-soft,#FEF2F2)] text-[var(--red)]' : 'bg-[var(--blue-soft)]'}`}>{appStepLabel}</span></div><p className="muted text-[11px] leading-relaxed">{appStatusDesc}</p></div>}<Button className="w-full" onClick={() => { if (user.seller) { mutate(state => { state.mode = 'seller'; }); navigate('/seller'); } else if (app) navigate('/apply'); else navigate('/seller/terms'); }}>{roleLabel}</Button></section><div><button onClick={() => navigate('/addresses')} className="divider flex h-[52px] w-full items-center justify-between"><span>배송지 관리</span><span className="muted">›</span></button><button onClick={() => navigate('/notifications/settings')} className="divider flex h-[52px] w-full items-center justify-between"><span>알림 설정</span><span className="muted">›</span></button><button onClick={() => setPwChange(true)} className="divider flex h-[52px] w-full items-center justify-between"><span>비밀번호 변경</span><span className="muted">›</span></button><Link className="divider flex h-[52px] items-center justify-between" to="/support">고객 지원 <span className="muted">›</span></Link></div>{user.admin && <MenuRow to="/admin" label="운영자 · 판매자 신청 검토"/>}<LogoutButton/>{address && <AddressModal initial={s.addresses[user.id] ?? { name: user.name, phone: user.phone, address: '', detail: '', request: '' }} onClose={() => setAddress(false)} onSave={value => { mutate(state => { state.addresses[user.id] = value; }); setAddress(false); toast('배송지를 저장했습니다.'); }}/ >}{profileEdit && <ProfileEditModal userId={user.id} name={user.name} phone={user.phone} onClose={() => setProfileEdit(false)}/>}{pwChange && <PasswordChangeModal onClose={() => setPwChange(false)}/>}</div>;
 }
 
 interface ApplicationForm { displayName: string; name: string; email: string; phone: string; bank: string; account: string; shippingPostal: string; shippingAddress: string; returnPostal: string; returnAddress: string }
 export function ApplicationPage() {
   const s = useStore(), user = activeUser(s), navigate = useNavigate(); const previous = s.applications.find(a => a.userId === user.id); const toast = useToast();
+  const [showDetail, setShowDetail] = useState(false);
   const [doc, setDoc] = useState<DocumentFile | undefined>(() => { try { return JSON.parse(localStorage.getItem(`application-doc:${user.id}`) || 'null') ?? undefined; } catch { return undefined; } }); const [form, setForm] = useState<ApplicationForm>(() => { try { return JSON.parse(localStorage.getItem(`application-draft:${user.id}`) || 'null') ?? { displayName: '', name: user.name, email: user.email, phone: user.phone, bank: '신한은행', account: '', shippingPostal: '', shippingAddress: '', returnPostal: '', returnAddress: '' }; } catch { return { displayName: '', name: user.name, email: user.email, phone: user.phone, bank: '신한은행', account: '', shippingPostal: '', shippingAddress: '', returnPostal: '', returnAddress: '' }; } }); const [error, setError] = useState('');
   function change(key: keyof ApplicationForm, value: string) { const next = { ...form, [key]: value }; setForm(next); try { localStorage.setItem(`application-draft:${user.id}`, JSON.stringify(next)); } catch { /* Main submission still validates storage. */ } }
   useEffect(() => {
@@ -45,8 +58,137 @@ export function ApplicationPage() {
       if (status === 'approved') restoreSession().catch(() => {});
     }).catch(() => {});
   }, [user.id]);
-  if (user.seller) return <div className="space-y-5"><Header title="입점 심사"/><div className="grid grid-cols-3 gap-2 text-center text-[11px]"><span>✓ 정보 입력</span><span>✓ 입점 심사</span><b>03 판매 시작</b></div><p className="text-[10px] font-bold tracking-[1px]">WELCOME TO STOCKDROP PARTNERS</p><h1 className="text-[22px] font-bold leading-[1.5] tracking-[-1px]">{s.sellerSettings[user.id]?.displayName ?? user.name}님,<br/>입점이 승인됐어요</h1><p className="muted text-[12px] leading-relaxed">이제 남은 재고를 3시간 한정 판매로<br/>빠르게 정리할 수 있어요.</p><div className="grid grid-cols-3 gap-2 rounded-[4px] bg-[var(--blue-soft)] p-4 text-center"><div><p className="font-number text-[20px] font-bold">10%</p><p className="muted text-[10px]">판매율 90% 초과 시</p></div><div><p className="font-number text-[20px] font-bold">D+7</p><p className="muted text-[10px]">정산 주기</p></div><div><p className="font-number text-[20px] font-bold">2영업일</p><p className="muted text-[10px]">출고 기한</p></div></div><Note title="판매 시작 전에 확인해 주세요"><p className="mb-2"><b>1</b> {'  '}첫 한정 판매 등록 — 상품, 수량, 판매 시간을 정하고 판매 심사를 요청해요</p><p className="mb-2"><b>2</b> {'  '}출고지 · 반품 주소 확인</p><p><b>3</b> {'  '}판매자 알림 설정 — 주문·출고 마감 알림을 받을 번호를 확인해요</p></Note><Button className="w-full" onClick={() => { mutate(state => { state.mode = 'seller'; }); navigate('/seller/new'); }}>첫 한정 판매 등록하기</Button><Button outline className="w-full" onClick={() => { mutate(state => { state.mode = 'seller'; }); navigate('/seller'); }}>판매자 홈으로</Button></div>;
-  if (previous) return <div className="space-y-5"><Header title="입점 심사" subtitle={previous.id}/><div className="grid grid-cols-3 gap-2 text-center text-[11px]"><span>✓ 정보 입력</span><b>02 입점 심사</b><span className="muted">03 판매 시작</span></div><h1 className="text-[22px] font-bold leading-[1.5] tracking-[-1px]">입점 심사가<br/>진행 중이에요</h1><p className="muted text-[12px] leading-relaxed">영업일 기준 1~2일 안에 결과를 알림과<br/>이메일({previous.email})로 알려드려요.</p><div className="grid grid-cols-2 gap-4"><div><p className="muted text-[10px]">신청 일시</p><p className="mt-1 text-[12px] font-bold">{dateTime(previous.submittedAt)}</p></div><div><p className="muted text-[10px]">결과 안내 예정</p><p className="mt-1 text-[12px] font-bold">영업일 1~2일</p></div></div><section className="divider space-y-3 py-4"><h2 className="text-[15px] font-bold">신청 정보</h2><InfoRow label="신청 번호" value={previous.id}/><InfoRow label="판매자 표시 이름" value={previous.displayName || `${previous.name}의 스토어`}/><InfoRow label="담당자" value={`${previous.name} · ${previous.phone}`}/><PdfField value={previous.document} readOnly/><InfoRow label="정산 계좌" value={`${previous.bank} · ***${previous.account.slice(-4)}`}/><InfoRow label="출고지" value={previous.shippingAddress}/></section><Note title="심사 중에는 신청 정보를 수정할 수 없어요">변경이 필요하면 고객센터로 문의해 주세요.</Note><div className="flex gap-2"><Link className="btn btn-outline flex-1" to="/support">고객센터 문의</Link><Link className="btn flex-1" to="/">홈으로</Link></div></div>;
+  if (user.seller) {
+    const sellerName = s.sellerSettings[user.id]?.displayName ?? user.name;
+    const shippingAddr = s.sellerSettings[user.id]?.shippingAddress ?? (s.applications.find(a => a.userId === user.id)?.shippingAddress ?? '');
+    return <div className="space-y-5"><Header title="입점 심사"/><div className="grid grid-cols-3 gap-2 text-center text-[11px]"><span>✓ 정보 입력</span><span>✓ 입점 심사</span><b>03 판매 시작</b></div><p className="text-[10px] font-bold tracking-[1px]">WELCOME TO STOCKDROP PARTNERS</p><h1 className="text-[22px] font-bold leading-[1.5] tracking-[-1px]">{sellerName}님,<br/>입점이 승인됐어요</h1><p className="muted text-[12px] leading-relaxed">이제 남은 재고를 3시간 한정 판매로<br/>빠르게 정리할 수 있어요.</p><div className="grid grid-cols-3 gap-2 rounded-[4px] bg-[var(--blue-soft)] p-4 text-center"><div><p className="font-number text-[20px] font-bold">9.8%</p><p className="muted text-[10px]">판매 수수료</p></div><div><p className="font-number text-[20px] font-bold">D+7</p><p className="muted text-[10px]">정산 주기</p></div><div><p className="font-number text-[20px] font-bold">2영업일</p><p className="muted text-[10px]">출고 기한</p></div></div><Note title="판매 시작 전에 확인해 주세요"><p className="mb-2"><b>첫 한정 판매 등록</b><br/><span className="muted">상품, 수량, 판매 시간을 정하고 판매 심사를 요청해요</span></p>{shippingAddr && <p className="mb-2"><b>출고지 · 반품 주소 확인</b><br/><span className="muted">{shippingAddr}</span></p>}<p><b>판매자 알림 설정</b><br/><span className="muted">주문·출고 마감 알림을 받을 번호를 확인해요</span></p></Note><Button className="w-full" onClick={() => { mutate(state => { state.mode = 'seller'; }); navigate('/seller/new'); }}>첫 한정 판매 등록하기</Button><Button outline className="w-full" onClick={() => { mutate(state => { state.mode = 'seller'; }); navigate('/seller'); }}>판매자 홈으로</Button></div>;
+  }
+  if (previous) {
+    const shortDt = (ms: number) => { const d = new Date(ms); const days = ['일','월','화','수','목','금','토']; return `${d.getMonth()+1}.${d.getDate()} (${days[d.getDay()]})`; };
+    const shortTs = (ms: number) => { const d = new Date(ms); return `${d.getMonth()+1}.${d.getDate()} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`; };
+    const reviewDate = previous.reviewedAt ?? (previous.submittedAt + 2 * 86_400_000);
+    const deadlineDate = previous.deadlineAt ?? (previous.submittedAt + 7 * 86_400_000);
+    const items = previous.rejectionItems ?? [];
+    const fixedCount = items.filter(i => i.fixed).length;
+    const allFixed = items.length > 0 && fixedCount === items.length;
+
+    if (previous.status === 'rejected') {
+      // 입점 심사 실패 → 사유 확인하기 → 심사 반려(수정)
+      const hasUnfixed = items.some(i => !i.fixed);
+      const reviewFields = [
+        { label: '판매자 표시 이름', status: items.find(i => i.field === '판매자 표시 이름')?.fixed === false ? '보완 필요' : '확인 완료' },
+        { label: '담당자', status: items.find(i => i.field === '담당자')?.fixed === false ? '보완 필요' : '확인 완료' },
+        { label: '사업자등록증', status: items.some(i => i.field === '사업자등록증 PDF' && !i.fixed) ? '보완 필요' : '확인 완료' },
+        { label: '정산 계좌', status: items.some(i => i.field === '정산 계좌번호' && !i.fixed) ? '보완 필요' : '확인 완료' },
+        { label: '출고지', status: items.some(i => i.field === '출고지' && !i.fixed) ? '보완 필요' : '확인 완료' },
+      ];
+      const needCount = reviewFields.filter(f => f.status === '보완 필요').length;
+
+      if (!showDetail) {
+        // 입점 심사 실패 overview
+        return <div className="space-y-5">
+          <Header title="입점 심사"/>
+          <div className="grid grid-cols-3 gap-2 text-center text-[11px]"><span>✓ 정보 입력</span><b>02 입점 심사</b><span className="muted">03 판매 시작</span></div>
+          <div>
+            <h1 className="text-[22px] font-bold leading-[1.5] tracking-[-1px]">입점 심사를<br/>통과하지 못했어요</h1>
+            <p className="muted mt-2 text-[12px] leading-relaxed">제출한 정보 중 {needCount}개 항목을 확인하지 못했어요.<br/>사유를 확인하고 보완하면 다시 심사해 드려요.</p>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div><p className="muted text-[10px]">심사 완료</p><p className="mt-1 text-[12px] font-bold">{shortDt(reviewDate)}</p></div>
+            <div><p className="muted text-[10px]">보완 기한</p><p className="mt-1 text-[12px] font-bold">{shortDt(deadlineDate)}</p></div>
+          </div>
+          <section className="divider space-y-0 py-2">
+            <h2 className="mb-3 text-[15px] font-bold">심사 결과</h2>
+            <InfoRow label="신청 번호" value={previous.id}/>
+            {reviewFields.map(f => (
+              <div key={f.label} className="divider flex items-center justify-between py-3">
+                <span className="text-[12px]">{f.label}</span>
+                <span className={`text-[11px] font-semibold ${f.status === '보완 필요' ? 'text-[var(--red)]' : 'text-[var(--green)]'}`}>{f.status}</span>
+              </div>
+            ))}
+          </section>
+          <Note title="기한 안에 보완하지 않으면 신청이 취소돼요.">취소되면 처음부터 다시 신청해야 해요.</Note>
+          <div className="flex gap-2">
+            <Link className="btn btn-outline flex-1" to="/support">고객센터 문의</Link>
+            <Button className="flex-1" onClick={() => setShowDetail(true)}>사유 확인하기</Button>
+          </div>
+        </div>;
+      }
+      return <div className="space-y-5">
+        <Header title="입점 심사"/>
+        <div className="grid grid-cols-3 gap-2 text-center text-[11px]"><span>✓ 정보 입력</span><b>02 입점 심사</b><span className="muted">03 판매 시작</span></div>
+        <div>
+          <h1 className="text-[22px] font-bold leading-[1.5] tracking-[-1px]">{items.length}개 항목의<br/>보완이 필요해요</h1>
+          <p className="muted mt-2 text-[12px] leading-relaxed">{shortDt(deadlineDate)}까지 보완해 주시면<br/>제출한 날부터 다시 심사를 진행해요.</p>
+        </div>
+        <section className="space-y-4">
+          {items.map((item, idx) => (
+            <div key={idx} className={`space-y-3 rounded-[4px] border p-4 ${item.fixed ? 'border-[var(--line)] opacity-60' : 'border-[var(--red)]'}`}>
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-[11px] font-bold text-[var(--muted)]">0{idx + 1}</p>
+                  <p className="text-[13px] font-bold">{item.field}</p>
+                </div>
+                {item.fixed
+                  ? <span className="shrink-0 rounded-full bg-[var(--green-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--green)]">수정 완료</span>
+                  : <button className="shrink-0 rounded-[4px] border border-[var(--ink)] px-3 py-1 text-[11px] font-bold" onClick={() => mutate(state => { const a = state.applications.find(a => a.userId === user.id); if (a?.rejectionItems) a.rejectionItems[idx].fixed = true; })}>수정하기</button>
+                }
+              </div>
+              <p className="text-[12px] leading-relaxed text-[var(--red)]">{item.reason}</p>
+              {!item.fixed && item.field === '사업자등록증 PDF' && <p className="muted text-[11px]">원본 PDF로 다시 첨부해 주세요.</p>}
+            </div>
+          ))}
+        </section>
+        {items.length === 0 && (
+          <div className="space-y-3 rounded-[4px] border border-[var(--red)] p-4">
+            <p className="text-[13px] font-bold">입점 심사를 통과하지 못했어요</p>
+            <p className="muted text-[12px]">{shortDt(deadlineDate)}까지 보완해 주세요.</p>
+          </div>
+        )}
+        <section className="space-y-2">
+          <p className="text-[13px] font-bold">확인 완료된 항목</p>
+          {['판매자 표시 이름 · 담당자 정보', '정산 은행', '출고지 · 반품 주소'].map(label => (
+            <div key={label} className="divider flex items-center justify-between py-3">
+              <span className="text-[12px]">{label}</span>
+              <span className="text-[11px] font-semibold text-[var(--green)]">확인 완료</span>
+            </div>
+          ))}
+        </section>
+        {hasUnfixed
+          ? <p className="muted text-center text-[11px]">{items.length}개 항목을 모두 수정하면 제출할 수 있어요</p>
+          : null
+        }
+        <Button className="w-full" disabled={!allFixed && items.length > 0} onClick={() => mutate(state => { const a = state.applications.find(x => x.userId === user.id); if (a) { a.status = 'pending'; a.submittedAt = Date.now(); } })}>심사 다시 요청하기</Button>
+      </div>;
+    }
+
+    // 입점 심사 대기 (pending) or 심사 실패 fallback display
+    const isFailed = (previous as any)._failed;
+    return <div className="space-y-5">
+      <Header title="입점 심사" subtitle={previous.id}/>
+      <div className="grid grid-cols-3 gap-2 text-center text-[11px]"><span>✓ 정보 입력</span><b>02 입점 심사</b><span className="muted">03 판매 시작</span></div>
+      <h1 className="text-[22px] font-bold leading-[1.5] tracking-[-1px]">입점 심사가<br/>진행 중이에요</h1>
+      <p className="muted text-[12px] leading-relaxed">영업일 기준 1~2일 안에 결과를 알림과<br/>이메일({previous.email})로 알려드려요.</p>
+      <div className="grid grid-cols-2 gap-4">
+        <div><p className="muted text-[10px]">신청 일시</p><p className="mt-1 text-[12px] font-bold">{shortTs(previous.submittedAt)}</p></div>
+        <div><p className="muted text-[10px]">결과 안내 예정</p><p className="mt-1 text-[12px] font-bold">{shortDt(reviewDate)}</p></div>
+      </div>
+      <section className="divider space-y-3 py-4">
+        <h2 className="text-[15px] font-bold">신청 정보</h2>
+        <InfoRow label="신청 번호" value={previous.id}/>
+        <InfoRow label="판매자 표시 이름" value={previous.displayName || `${previous.name}의 스토어`}/>
+        <InfoRow label="담당자" value={`${previous.name} · ${previous.phone}`}/>
+        <PdfField value={previous.document} readOnly/>
+        <InfoRow label="정산 계좌" value={`${previous.bank} ${previous.account.slice(0, 3)}-***-***${previous.account.slice(-3)}`}/>
+        <InfoRow label="출고지" value={previous.shippingAddress}/>
+      </section>
+      <Note title="심사 중에는 신청 정보를 수정할 수 없어요.">변경이 필요하면 고객센터로 문의해 주세요.</Note>
+      <div className="flex gap-2">
+        <Link className="btn btn-outline flex-1" to="/support">고객센터 문의</Link>
+        <Link className="btn flex-1" to="/">홈으로</Link>
+      </div>
+    </div>;
+  }
   const inputs: [keyof ApplicationForm, string, string?][] = [['displayName', '판매자 표시 이름 · 선택', '예: 나의 상점'], ['name', '담당자 이름', '예: 홍길동'], ['email', '이메일', '예: hong@example.com'], ['phone', '연락처', '예: 01012345678'], ['bank', '정산 은행', '예: 신한은행'], ['account', '정산 계좌번호', '예: 110123456789 (숫자만, 하이픈 없이)'], ['shippingPostal', '출고지 우편번호', '예: 04783'], ['shippingAddress', '출고지', '예: 서울시 마포구 와우산로 94'], ['returnPostal', '반품 주소 우편번호', '예: 04783'], ['returnAddress', '반품 주소', '예: 서울시 마포구 와우산로 94']];
   return <form className="space-y-5" onSubmit={async event => { event.preventDefault(); setError(''); try { if (!doc) throw new Error('사업자등록증 PDF를 첨부해 주세요.'); if (!form.name.trim() || !form.email.trim() || !form.phone.trim() || !form.bank.trim() || !form.account.trim() || !form.shippingAddress.trim() || !form.returnAddress.trim()) throw new Error('담당자·정산·배송 정보를 모두 입력해 주세요.'); if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) throw new Error('올바른 이메일 주소를 입력해 주세요.'); if (!/^\d{6,30}$/.test(form.account)) throw new Error('계좌번호는 숫자만 6~30자리로 입력해 주세요. (예: 110123456789)'); if (form.shippingPostal && !/^\d{5}$/.test(form.shippingPostal)) throw new Error('출고지 우편번호는 5자리 숫자로 입력해 주세요.'); if (form.returnPostal && !/^\d{5}$/.test(form.returnPostal)) throw new Error('반품 주소 우편번호는 5자리 숫자로 입력해 주세요.'); if (s.applications.some(a => a.userId === user.id)) throw new Error('이미 접수된 신청이 있습니다.'); const pdfBlob = await getPdf(doc.id); const fd = new FormData(); fd.append('certificate', pdfBlob, doc.name); fd.append('application', new Blob([JSON.stringify({ sellerDisplayName: form.displayName || undefined, contactName: form.name, contactEmail: form.email, contactPhone: form.phone, bankName: form.bank, bankAccountNumber: form.account, dispatchAddress: { postalCode: form.shippingPostal || '', roadAddress: form.shippingAddress, detailAddress: '' }, returnAddress: { postalCode: form.returnPostal || '', roadAddress: form.returnAddress, detailAddress: '' } })], { type: 'application/json' })); const result = await apiPostForm('/seller-applications', fd) as { applicationId: string }; await atomic(state => { state.applications.unshift({ id: result.applicationId, userId: user.id, displayName: form.displayName, name: form.name, email: form.email, phone: form.phone, document: doc!, bank: form.bank, account: form.account, shippingAddress: form.shippingAddress, returnAddress: form.returnAddress, status: 'pending', submittedAt: nowOf(state) }); }); localStorage.removeItem(`application-draft:${user.id}`); localStorage.removeItem(`application-doc:${user.id}`); toast('판매자 신청이 접수되었습니다.'); } catch (e) { setError((e as Error).message); } }}><Header title="판매자 입점 신청" subtitle="1인 쇼핑몰 개인사업자를 위한 판매자 신청"/><div className="flex gap-4 bg-[var(--hero)] p-5"><div className="flex-1"><p className="text-[9px] font-bold tracking-[1px]">STOCKDROP PARTNERS</p><h2 className="mt-3 text-[22px] font-bold leading-[1.5] tracking-[-1px]">혼자 운영하는 쇼핑몰,<br/>남은 재고를 새 기회로.</h2><p className="muted mt-3 text-[11px] leading-relaxed">사업자등록증을 첨부하고<br/>판매자로 신청해 보세요.</p></div><Store size={52} strokeWidth={1} className="self-center text-[var(--muted)]"/></div><div className="divider grid grid-cols-3 gap-2 pb-5 text-center text-[11px]"><b>01 정보 입력</b><span className="muted">02 입점 심사</span><span className="muted">03 판매 시작</span></div><PdfField value={doc} onChange={file => { setDoc(file); try { if (file) localStorage.setItem(`application-doc:${user.id}`, JSON.stringify(file)); else localStorage.removeItem(`application-doc:${user.id}`); } catch { setError('파일 정보를 저장하지 못했습니다. 브라우저 저장 공간을 확인해 주세요.'); } }}/>{inputs.map(([key, label, placeholder]) => <Field key={key} label={label} required={key !== 'displayName'}><input aria-label={label} required={key !== 'displayName'} type={key === 'email' ? 'email' : key === 'phone' ? 'tel' : 'text'} value={form[key]} onChange={e => change(key, e.target.value)} placeholder={placeholder} className="field"/></Field>)}<Note title="사업자등록증 검토 안내">사업자등록증 PDF와 담당자 정보를 확인한 뒤 승인 결과를 안내합니다.</Note><ErrorBox message={error}/><Button className="w-full" type="submit" disabled={!doc}>입점 심사 요청하기</Button></form>;
 }

@@ -25,7 +25,9 @@ export interface DocumentFile { id: string; name: string; size: number; uploaded
 export interface Application {
   id: string; userId: string; displayName: string; name: string; email: string; phone: string;
   document: DocumentFile; bank: string; account: string; shippingAddress: string; returnAddress: string;
-  status: 'pending' | 'approved'; submittedAt: number; approvedAt?: number; approvedBy?: string;
+  status: 'pending' | 'approved' | 'rejected'; submittedAt: number; approvedAt?: number; approvedBy?: string;
+  rejectedAt?: number; reviewedAt?: number; deadlineAt?: number;
+  rejectionItems?: { field: string; reason: string; fixed?: boolean }[];
 }
 export interface Line { optionId: string; name: string; quantity: number }
 export interface Hold { id: string; userId: string; productId: string; lines: Line[]; createdAt: number; expiresAt: number; status: 'reserved' | 'pending' | 'consumed' | 'released'; orderId?: string }
