@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { approveApplication, available, beginPayment, blankDraft, combinations, defaultAddress, expireHolds, feeFor, localDateTime, markDelivered, publishDraft, recommendCategory, reserve, resolvePayment, saleState, seedState, validateDraft } from './domain';
+import { listingOptions, validateListing, approveApplication, available, beginPayment, blankDraft, combinations, defaultAddress, expireHolds, feeFor, localDateTime, markDelivered, publishDraft, recommendCategory, reserve, resolvePayment, saleState, seedState, validateDraft } from './domain';
 import type { Draft } from './domain';
 const NOW = new Date('2026-10-23T14:00:00+09:00').getTime();
 function draft(): Draft { return { ...blankDraft(NOW), images: ['/images/generated-5.png'], name: 'A5 공책', description: '한 권당 80페이지 노트입니다.', category: '문구 / 노트', originalUrl: 'https://shop.example/notebook', reason: '과잉 발주', noOptions: true, options: [{ id: 'base', name: '기본', stock: 10 }], price: 6000, shipping: 3000, faqs: [{ id: 'f', question: '몇 페이지인가요?', answer: '80페이지입니다.', confirmed: true }] }; }
@@ -37,4 +37,10 @@ describe('공통 상품 등록', () => {
   it('옵션명은 상품에 맞게 생성하며 이전 재고를 보존한다', () => { const old = [{ id: 'x', name: '무지 / 2권 세트', stock: 24 }]; const options = combinations([{ name: '종류', values: '무지, 도트' }, { name: '구성', values: '2권 세트' }], old); expect(options[0]).toEqual(old[0]); expect(options[1].name).toBe('도트 / 2권 세트'); });
   it('판매 시작 후 가격·옵션 등 핵심 정보 수정은 차단한다', () => { const s = seedState(NOW), d = draft(); d.editingId = 'ecobag'; expect(() => publishDraft(s, 'seller', d, NOW)).toThrow('판매 시작 후'); });
   it('판매 시작은 현재부터 최대 7일 이내로만 예약한다', () => { const d = draft(); d.startsAt = localDateTime(NOW + 7 * 86_400_000 + 60_000); expect(() => validateDraft(d, 5, NOW)).toThrow('최대 7일'); d.startsAt = localDateTime(NOW + 7 * 86_400_000); expect(() => validateDraft(d, 5, NOW)).not.toThrow(); });
+});
+
+describe('단일 화면 상품 등록', () => {
+  const base = (): Draft => ({ ...draft(), noOptions: false, axes: { size: true, color: true }, colors: ['차콜', '오트밀'], sizes: ['S', 'M'], stock: { '차콜|S': 5, '차콜|M': 0, '오트밀|S': 2, '오트밀|M': 3 }, options: [], originalUrl: 'coupang.com/vp/products/7348215906', reference: { platform: '쿠팡', title: '니트', price: 89000 }, price: 49000 });
+  it('색상 × 사이즈 조합으로 옵션과 수량을 만든다', () => { const d = base(); const options = listingOptions(d); expect(options.map(o => o.name)).toEqual(['차콜 / S', '차콜 / M', '오트밀 / S', '오트밀 / M']); expect(options.reduce((n, o) => n + o.stock, 0)).toBe(10); d.axes = { size: false, color: false }; d.stock = { '|': 7 }; expect(listingOptions(d)).toEqual([{ id: 'opt-기본', name: '기본', stock: 7 }]); });
+  it('타 플랫폼 판매가보다 낮아야 하고 수량이 있어야 심사를 요청할 수 있다', () => { const d = base(); d.options = listingOptions(d); expect(() => validateListing(d, NOW)).not.toThrow(); d.price = 89000; expect(() => validateListing(d, NOW)).toThrow('낮아야'); d.price = 49000; d.stock = {}; d.options = listingOptions(d); expect(() => validateListing(d, NOW)).toThrow('수량'); });
 });

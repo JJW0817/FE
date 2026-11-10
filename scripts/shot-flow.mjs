@@ -96,6 +96,26 @@ const FLOWS = {
       url: '/#/reset-password/new?email=buyer%40example.com',
       state: withChallenge(loggedOutState(), 'buyer@example.com', 'reset', true) },
   ],
+  '07': (now) => {
+    // 판매자 계정 + Figma 예시 값 초안/상품 (스크린샷 전용 상태, 앱 목업은 바꾸지 않음)
+    const tue = new Date(now); tue.setHours(21, 0, 0, 0); do tue.setDate(tue.getDate() + 1); while (tue.getDay() !== 2);
+    const local = (t) => new Date(t - new Date(t).getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    const stock = { '차콜|S': 5, '차콜|M': 12, '차콜|L': 9, '차콜|XL': 4, '오트밀|S': 4, '오트밀|M': 8, '오트밀|L': 6, '오트밀|XL': 2 };
+    const options = Object.entries(stock).map(([k, n]) => ({ id: 'opt-' + k, name: k.replace('|', ' / '), stock: n }));
+    const reference = { platform: '쿠팡', title: '울 블렌드 오버핏 라운드 니트 차콜', price: 89000, image: './images/seller-register-3.jpg' };
+    const result = { category: '니트/스웨터', path: '패션 › 상의 › 니트/스웨터', confidence: 96, photos: 2, found: [['색상', '차콜 그레이'], ['소재', '울 블렌드 (추정)'], ['핏', '오버핏 · 라운드넥'], ['시즌', '가을 · 겨울']], alternatives: [['패션 › 아우터 › 가디건', 12], ['패션 › 상의 › 맨투맨', 4]] };
+    const knit = { name: '울 블렌드 오버핏 니트 (차콜)', images: ['./images/seller-register-1.jpg', './images/seller-register-2.jpg'], category: '패션 › 상의 › 니트/스웨터', originalUrl: 'coupang.com/vp/products/7348215906', price: 49000, dispatchDays: 2 };
+    const draft = (ai) => ({ step: 1, brand: '', description: '', extras: [], reason: '', faqs: [], noOptions: false, shipping: 3000, maxPerAccount: 1, ...knit, startsAt: local(tue.getTime()), dimensions: [{ name: '색상', values: '차콜, 오트밀' }, { name: '사이즈', values: 'S, M, L, XL' }], options, axes: { size: true, color: true }, colors: ['차콜', '오트밀'], sizes: ['S', 'M', 'L', 'XL'], stock, reference, ai });
+    const asSeller = (extra) => (s) => { s.activeUserId = 'seller'; s.auth.userId = 'seller'; s.mode = 'seller'; extra(s); return s; };
+    const done = { status: 'recommended', signature: 'x', category: '', reason: '', result };
+    return [
+      { name: '01-register',         url: '/#/seller/new', full: true, prepare: asSeller(s => { s.drafts.seller = draft(done); }) },
+      { name: '02-ai-result',        url: '/#/seller/new/ai', full: true, prepare: asSeller(s => { s.drafts.seller = draft(done); }) },
+      { name: '03-ai-analyzing',     url: '/#/seller/new/ai/analyzing', prepare: asSeller(s => { s.drafts.seller = { ...draft({ status: 'analyzing', signature: 'x', category: '', reason: '' }), category: '' }; }) },
+      { name: '04-ai-failed',        url: '/#/seller/new/ai/failed', prepare: asSeller(s => { s.drafts.seller = { ...draft({ status: 'failed', signature: 'x', category: '', reason: '' }), category: '' }; }) },
+      { name: '05-edit',             url: '/#/seller/new?edit=notebook', full: true, prepare: asSeller(s => { const p = s.products.find(p => p.id === 'notebook'); Object.assign(p, knit, { startsAt: tue.getTime(), endsAt: tue.getTime() + 10800000, maxPerAccount: 1, notifySubscribers: 12, reference, dimensions: [{ name: '색상', values: '차콜, 오트밀' }, { name: '사이즈', values: 'S, M, L, XL' }], options }); delete s.drafts.seller; }) },
+    ];
+  },
   '05': () => [
     { name: '01-order-inquiry',      url: '/#/orders/SD-2026-001/inquiry',      state: null },
   ],
@@ -117,7 +137,7 @@ fs.mkdirSync(outDir, { recursive: true });
 
 const browser = await chromium.launch();
 
-for (const { name, url, state, setup, clock } of screens) {
+for (const { name, url, state, setup, clock, prepare, full } of screens) {
   const ctx = await browser.newContext({ viewport: VIEWPORT });
   const page = await ctx.newPage();
   // state: null → 앱 기본 목업(seedState) 사용. clock → 해당 시각으로 브라우저 시계 고정 후 진행
@@ -125,9 +145,11 @@ for (const { name, url, state, setup, clock } of screens) {
   if (state) await page.addInitScript((s) => { localStorage.setItem('stockdrop:v1', JSON.stringify(s)); }, state);
   await page.goto(BASE + url);
   await page.waitForTimeout(1500);
+  // prepare: 기본 목업을 한 번 저장한 뒤 그 상태를 고쳐서 다시 연다
+  if (prepare) { const s = prepare(JSON.parse(await page.evaluate(() => localStorage.getItem('stockdrop:v1')))); await page.evaluate((v) => localStorage.setItem('stockdrop:v1', v), JSON.stringify(s)); await page.reload(); await page.waitForTimeout(1500); }
   if (setup) await setup(page);
   const file = path.join(outDir, `${name}.png`);
-  await page.screenshot({ path: file, fullPage: false });
+  await page.screenshot({ path: file, fullPage: !!full });
   console.log(`✓ ${file}`);
   await ctx.close();
 }

@@ -1,6 +1,6 @@
 export type Category = '의류' | '패션잡화' | '문구' | '생활잡화';
 export const CATEGORIES: Category[] = ['의류', '패션잡화', '문구', '생활잡화'];
-export const CATEGORY_PATHS = ['의류 / 상의 / 티셔츠', '의류 / 상의 / 가디건', '의류 / 하의', '패션잡화 / 가방', '패션잡화 / 모자', '패션잡화 / 소품', '문구 / 노트', '문구 / 필기구', '문구 / 사무용품', '생활잡화 / 수납용품', '생활잡화 / 생활소품'];
+export const CATEGORY_PATHS = ['패션 › 상의 › 니트/스웨터', '패션 › 상의 › 맨투맨', '패션 › 아우터 › 가디건', '의류 / 상의 / 티셔츠', '의류 / 상의 / 가디건', '의류 / 하의', '패션잡화 / 가방', '패션잡화 / 모자', '패션잡화 / 소품', '문구 / 노트', '문구 / 필기구', '문구 / 사무용품', '생활잡화 / 수납용품', '생활잡화 / 생활소품'];
 export interface Extra { key: string; value: string }
 export interface Faq { id: string; question: string; answer: string; confirmed: boolean }
 export interface Option { id: string; name: string; stock: number }
@@ -10,6 +10,8 @@ export interface Product {
   images: string[]; originalUrl: string; price: number; shipping: number; maxPerAccount: number;
   dispatchDays: number; startsAt: number; endsAt: number; published: boolean; options: Option[];
   dimensions: Dimension[]; extras: Extra[]; reason: string; faqs: Faq[]; rejectionReason?: string;
+  /** 판매 시작 알림 신청 인원 — 백엔드 요청 필드 (docs/backend-api-requests.md) */ notifySubscribers?: number;
+  /** 타 플랫폼 판매가 확인 결과 — 백엔드 요청 필드 */ reference?: ReferenceListing;
 }
 export interface User { id: string; name: string; email: string; phone: string; seller: boolean; admin: boolean }
 export interface AuthData {
@@ -47,8 +49,12 @@ export interface Draft {
   category: string; originalUrl: string; extras: Extra[]; reason: string; dimensions: Dimension[];
   noOptions: boolean; options: Option[]; price: number; shipping: number; dispatchDays: number;
   maxPerAccount: number; startsAt: string; faqs: Faq[];
-  ai: { status: AiStatus; signature: string; category: string; reason: string };
+  ai: { status: AiStatus; signature: string; category: string; reason: string; result?: AiAnalysis };
+  /** 단일 화면 등록(Figma 판매 상품 등록): 옵션 축, 색상·사이즈, 조합별 수량, 추가 URL, 타 플랫폼 확인 결과 */
+  axes?: { size: boolean; color: boolean }; colors?: string[]; sizes?: string[]; stock?: Record<string, number>; extraUrls?: string[]; reference?: ReferenceListing;
 }
+export interface ReferenceListing { platform: string; title: string; price: number; image?: string }
+export interface AiAnalysis { category: string; path: string; confidence: number; photos: number; found: [string, string][]; alternatives: [string, number][] }
 export interface SellerSettings { displayName: string; bank: string; account: string; holder: string; shippingAddress: string; returnAddress: string; shippingPostal?: string; returnPostal?: string; notifications: Record<string, boolean> }
 export interface State {
   version: 1; auth?: AuthData; activeUserId: string; mode: 'buyer' | 'seller' | 'admin'; users: User[]; products: Product[];
@@ -188,7 +194,7 @@ export function validateDraft(d: Draft, step: number, now: number) {
 }
 export function publishDraft(s: State, userId: string, d: Draft, now: number): Product {
   if (!s.users.find(u => u.id === userId)?.seller) throw new DomainError('승인된 판매자만 게시할 수 있습니다.', 'forbidden');
-  validateDraft(d, 7, now);
+  validateListing(d, now);
   const existing = d.editingId ? s.products.find(p => p.id === d.editingId && p.sellerId === userId) : undefined;
   if (d.editingId && (!existing || now >= existing.startsAt)) throw new DomainError('판매 시작 후에는 핵심 상품 정보를 변경할 수 없습니다.');
   const p: Product = { id: existing?.id ?? uid('product-'), sellerId: userId, name: d.name.trim(), brand: d.brand.trim() || s.sellerSettings[userId]?.displayName || '나의 스토어', category: d.category, description: d.description.trim(), images: [...d.images], originalUrl: d.originalUrl.trim(), price: d.price, shipping: d.shipping, maxPerAccount: d.maxPerAccount, dispatchDays: d.dispatchDays, startsAt: new Date(d.startsAt).getTime(), endsAt: new Date(d.startsAt).getTime() + 10_800_000, published: false, options: structuredClone(d.options), dimensions: structuredClone(d.dimensions), extras: d.extras.filter(e => e.key.trim() && e.value.trim()).map(e => ({ ...e })), reason: d.reason.trim(), faqs: structuredClone(d.faqs) };
@@ -212,4 +218,43 @@ export function seedState(now = Date.now()): State {
   const users: User[] = [{ id: 'buyer', name: '김서윤', email: 'buyer@example.com', phone: '010-1234-5678', seller: false, admin: false }, { id: 'seller', name: '김민지', email: 'seller@example.com', phone: '010-9876-5432', seller: true, admin: false }, { id: 'admin', name: '운영자', email: 'admin@example.com', phone: '', seller: false, admin: true }, { id: 'applicant', name: '이수진', email: 'paper@example.com', phone: '010-2222-3333', seller: false, admin: false }];
   const order = (i: number, p: Product, status: OrderStatus): Order => ({ id: `SD-${new Date(now).getFullYear()}-00${i + 1}`, userId: 'buyer', sellerId: 'seller', productId: `archive-${p.id}`, holdId: `archive-hold-${i}`, lines: [{ optionId: p.options[0].id, name: p.options[0].name, quantity: 1 }], product: { name: p.name, brand: p.brand, image: p.images[0], category: p.category, originalUrl: p.originalUrl, price: p.price }, shipping: 3000, total: p.price + 3000, address: { ...defaultAddress }, status, createdAt: now - 172_800_000, ...(status === 'shipping' || status === 'delivered' ? { carrier: 'CJ대한통운', tracking: '1234-5678-9012', shippedAt: now - 86_400_000 } : {}), ...(status === 'delivered' ? { deliveredAt: now - 3_600_000, deliveredPlace: '문 앞', processedAt: now - 3_500_000, processedBy: 'seller' } : {}) });
   return { version: 1, auth: { ...initialAuth(), onboarded: true, userId: 'buyer' }, activeUserId: 'buyer', mode: 'buyer', users, products, applications: [{ id: 'SD-P-002', userId: 'applicant', displayName: '종이상점', name: '이수진', email: 'paper@example.com', phone: '010-2222-3333', document: { id: 'sample', name: '사업자등록증_종이상점.pdf', size: 1024, uploadedAt: now - 3_600_000 }, bank: '신한은행', account: '000-1234-5678', shippingAddress: '서울시 성동구 성수이로 00', returnAddress: '서울시 성동구 성수이로 00', status: 'pending', submittedAt: now - 3_600_000 }], holds: [], orders: [order(0, products[0], 'preparing'), order(1, products[1], 'shipping'), order(2, products[3], 'delivered')], inquiries: [{ id: 'q-seed', userId: 'buyer', sellerId: 'seller', productId: 'ecobag', productName: '데일리 코튼 에코백', kind: '상품 문의', question: '손잡이 길이를 포함한 높이도 알 수 있나요?', public: false, createdAt: now - 300_000 }], drafts: {}, addresses: { buyer: { ...defaultAddress }, seller: { ...defaultAddress, name: '김민지' } }, sellerSettings: { seller: { displayName: '아틀리에 노트', bank: '신한은행', account: '000-1234-5678', holder: '김민지', shippingAddress: '서울시 성동구 성수이로 00', returnAddress: '서울시 광진구 아차산로 00', notifications: { 신규주문: true, 문의: true, 판매일정: true, 마케팅: false } } }, bookmarks: [], clockOffset: 0, paymentOutcome: 'success', aiOutcome: 'auto' };
+}
+
+/* ── 단일 화면 상품 등록 (Figma 판매 상품 등록 / 판매 정보 수정) ───────────────────────── */
+export const optionKey = (color: string, size: string) => `${color}|${size}`;
+/** 옵션 축·색상·사이즈·수량에서 판매 옵션(이름·재고)을 만든다. 같은 이름의 옵션은 id를 유지한다. */
+export function listingOptions(d: Draft): Option[] {
+  const axes = d.axes ?? { size: false, color: false }, colors = d.colors ?? [], sizes = d.sizes ?? [], stock = d.stock ?? {};
+  const pairs: [string, string, string][] = axes.color && axes.size ? colors.flatMap(c => sizes.map(s => [`${c} / ${s}`, c, s] as [string, string, string]))
+    : axes.color ? colors.map(c => [c, c, ''] as [string, string, string])
+    : axes.size ? sizes.map(s => [s, '', s] as [string, string, string])
+    : [['기본', '', '']];
+  return pairs.map(([name, c, s]) => ({ id: d.options.find(o => o.name === name)?.id ?? `opt-${name}`, name, stock: stock[optionKey(c, s)] ?? 0 }));
+}
+export function listingDimensions(d: Draft): Dimension[] {
+  const axes = d.axes ?? { size: false, color: false };
+  return [...(axes.color ? [{ name: '색상', values: (d.colors ?? []).join(', ') }] : []), ...(axes.size ? [{ name: '사이즈', values: (d.sizes ?? []).join(', ') }] : [])];
+}
+export function validateListing(d: Draft, now: number) {
+  if (unsupportedInput(d.name, d.description) || d.ai.status === 'unsupported') throw new DomainError('지원하지 않는 상품은 등록할 수 없습니다.');
+  if (!d.images.length || !d.name.trim()) throw new DomainError('상품 사진과 상품명을 입력해 주세요.');
+  if (!CATEGORY_PATHS.includes(d.category)) throw new DomainError('카테고리를 선택해 주세요.');
+  try { const url = new URL(/^https?:\/\//.test(d.originalUrl) ? d.originalUrl : `https://${d.originalUrl}`); if (!['https:', 'http:'].includes(url.protocol) || !url.hostname.includes('.')) throw new Error(); } catch { throw new DomainError('타 플랫폼 판매 URL을 올바르게 입력해 주세요.'); }
+  if (!Number.isInteger(d.price) || d.price <= 0) throw new DomainError('한정 판매가를 입력해 주세요.');
+  if (d.reference && d.price >= d.reference.price) throw new DomainError('등록한 URL의 판매가보다 낮아야 심사를 요청할 수 있어요');
+  if (!d.options.length || d.options.some(o => !Number.isInteger(o.stock) || o.stock < 0) || !d.options.some(o => o.stock > 0)) throw new DomainError('옵션별 한정 수량을 입력해 주세요.');
+  const start = new Date(d.startsAt).getTime();
+  if (!Number.isFinite(start) || start <= now) throw new DomainError('판매 일정은 현재 이후로 설정해 주세요.');
+  if (start > now + 7 * 86_400_000) throw new DomainError('판매 시작은 현재부터 최대 7일 이내로 설정해 주세요.');
+  if (!Number.isInteger(d.dispatchDays) || d.dispatchDays < 1) throw new DomainError('출고 기한을 선택해 주세요.');
+}
+/** 타 플랫폼 URL 확인 — API 연동 전 목업 (Figma 예시 값) */
+const REFERENCE_MOCK: Record<string, ReferenceListing> = { 'coupang.com/vp/products/7348215906': { platform: '쿠팡', title: '울 블렌드 오버핏 라운드 니트 차콜', price: 89000, image: './images/seller-register-3.jpg' } };
+export function lookupReference(url: string): ReferenceListing | undefined {
+  const key = url.trim().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/$/, '');
+  return REFERENCE_MOCK[key];
+}
+/** AI 상품 분석 — API 연동 전 목업 (Figma 예시 값) */
+export function mockAiAnalysis(d: Draft): AiAnalysis {
+  return { category: '니트/스웨터', path: '패션 › 상의 › 니트/스웨터', confidence: 96, photos: d.images.length, found: [['색상', '차콜 그레이'], ['소재', '울 블렌드 (추정)'], ['핏', '오버핏 · 라운드넥'], ['시즌', '가을 · 겨울']], alternatives: [['패션 › 아우터 › 가디건', 12], ['패션 › 상의 › 맨투맨', 4]] };
 }
