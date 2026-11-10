@@ -1,11 +1,11 @@
 import { LogoutButton } from './auth';
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Store, Plus, Check, Truck, Package, CheckCircle2 } from 'lucide-react';
+import { Plus, Check, ChevronRight } from 'lucide-react';
 import { activeUser, feeFor, markDelivered, money, nowOf, saleState, uid } from '../domain';
 import type { Order, SellerSettings } from '../domain';
 import { atomic, mutate, useStore } from '../store';
-import { countdown, dateTime, useClock } from '../hooks';
+import { dateTime, useClock } from '../hooks';
 import { Badge, Button, CopyButton, Empty, ErrorBox, Field, Header, InfoRow, MenuRow, Modal, Note, ORDER_LABELS, ProductImage, ProductSummary, Unavailable, useToast } from '../components/ui';
 import { PdfField } from '../components/PdfField';
 import { apiGet, apiPut } from '../api';
@@ -340,10 +340,74 @@ function DeliveredModal({ order, now, onClose }: { order: Order; now: number; on
   </div></div>;
 }
 
-export function SellerMyPage() { const s = useStore(), user = activeUser(s), navigate = useNavigate(); if (!user.seller) return <Unavailable/>; const settings = s.sellerSettings[user.id]; return <div className="space-y-5"><Header title="판매자 마이페이지" subtitle="계정과 판매자 정보를 관리하세요." back={false}/><div className="divider flex items-center gap-3 pb-5"><div className="grid h-[60px] w-[60px] place-items-center rounded-full bg-[var(--blue-soft)]"><Store size={27}/></div><div className="space-y-2"><h2 className="text-[21px] font-bold">{settings?.displayName ?? user.name}</h2><p className="muted text-[11px]">{user.name} · {user.email}</p><Badge live>입점 승인 완료</Badge></div></div><div className="flex items-center justify-between bg-[var(--blue-soft)] p-3 text-[11px]"><b>현재 판매자 모드</b><button onClick={() => { mutate(state => { state.mode = 'buyer'; }); navigate('/my'); }}>구매자로 전환 →</button></div><div className="grid grid-cols-3 gap-2 py-3 text-center">{['사업자등록증', '정산 계좌', '출고 · 반품지'].map(label => <div key={label} className="space-y-2"><CheckCircle2 size={18} className="mx-auto text-[var(--green)]"/><p className="muted text-[10px]">{label}</p><p className="text-[11px]">등록 완료</p></div>)}</div><section><h2 className="text-[15px] font-bold">판매자 정보</h2><MenuRow to="/seller/settings/business" label="사업자서류 · 담당자 정보"/><MenuRow to="/seller/settings/bank" label="정산 계좌 관리"/><MenuRow to="/seller/settings/addresses" label="출고 · 반품지 관리"/></section><MenuRow to="/seller" label="운영 현황으로 이동"/><section><h2 className="text-[15px] font-bold">계정 · 서비스</h2><MenuRow to="/seller/settings/account" label="계정 · 알림 설정"/><MenuRow to="/support" label="고객 지원"/><MenuRow to="/seller/terms" label="이용약관 · 개인정보 처리방침"/></section><LogoutButton/></div>; }
+export function SellerMyPage() {
+  const s = useStore(), user = activeUser(s), navigate = useNavigate();
+  if (!user.seller) return <Unavailable/>;
+  const settings = s.sellerSettings[user.id];
+  const displayName = settings?.displayName ?? user.name;
+  const initial = displayName.charAt(0).toUpperCase();
+  const products = s.products.filter(p => p.sellerId === user.id);
+  const activeDrops = products.filter(p => saleState(p, Date.now()) === '판매 중' || saleState(p, Date.now()) === '판매 예정').length;
+  const settlement = s.orders.filter(o => o.sellerId === user.id && !['cancelled','refunded'].includes(o.status)).reduce((n, o) => n + o.total - o.shipping, 0);
+  const unanswered = s.inquiries.filter(q => q.sellerId === user.id && !q.answer).length;
+  const maskedBank = settings?.account ? `국민 ****${settings.account.slice(-4)}` : '국민 ****1024';
+  return (
+    <div className="space-y-0">
+      <Header title="판매자 마이페이지" subtitle="스토어 정보와 판매 설정을 관리하세요." back={false}/>
+      <div className="divider flex items-center gap-3 pb-5">
+        <div className="grid h-[48px] w-[48px] shrink-0 place-items-center rounded-[8px] bg-[var(--ink)] text-[18px] font-bold text-white">{initial}</div>
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex items-center gap-2">
+            <h2 className="text-[16px] font-bold">{displayName}</h2>
+            <span className="rounded-[3px] bg-[var(--green-soft)] px-2 py-0.5 text-[10px] font-bold text-[var(--green)]">승인 판매자</span>
+          </div>
+          <p className="muted text-[12px]">{user.name} · {user.email}</p>
+        </div>
+        <ChevronRight size={17} className="muted shrink-0"/>
+      </div>
+      <div className="mb-4 flex rounded-[4px] bg-[var(--canvas)]">
+        {([['진행 중 드롭', `${activeDrops}건`], ['이번 달 정산 예정', money(settlement)], ['미답변 문의', `${unanswered}건`, unanswered > 0]] as [string, string, boolean?][]).map(([label, value, red], i) => (
+          <div key={label} className={`flex flex-1 flex-col items-center gap-1 py-4 ${i > 0 ? 'border-l border-[var(--line)]' : ''}`}>
+            <span className={`font-number text-[15px] font-bold ${red ? 'text-[var(--red)]' : ''}`}>{value}</span>
+            <span className="muted text-[11px]">{label}</span>
+          </div>
+        ))}
+      </div>
+      <section className="mb-4">
+        <p className="muted mb-2 text-[13px] font-bold">판매 관리</p>
+        <MenuRow to="/seller/products" label="판매 상품 관리"><span className="muted mr-1 text-[12px]">{products.length}개</span></MenuRow>
+        <MenuRow to="/seller/new" label="새 한정 판매 등록"/>
+      </section>
+      <div className="h-2 bg-[var(--canvas)]"/>
+      <section className="mb-4">
+        <p className="muted mb-2 mt-4 text-[13px] font-bold">판매자 정보</p>
+        <MenuRow to="/seller/settings/business" label="사업자 서류 · 담당자 정보"/>
+        <MenuRow to="/seller/settings/bank" label="정산 계좌 관리"><span className="muted mr-1 text-[12px]">{maskedBank}</span></MenuRow>
+        <MenuRow to="/seller/settings/addresses" label="출고지 · 반품지 관리"/>
+      </section>
+      <div className="h-2 bg-[var(--canvas)]"/>
+      <section className="mb-4">
+        <p className="muted mb-2 mt-4 text-[13px] font-bold">설정</p>
+        <MenuRow to="/seller/settings/account" label="알림 설정"/>
+        <MenuRow to="/seller/support" label="이용 안내 · 고객지원"/>
+      </section>
+    </div>
+  );
+}
 export function SellerSettingsPage() {
-  const { section } = useParams(); const s = useStore(), user = activeUser(s), toast = useToast(); const original = s.sellerSettings[user.id]; const [form, setForm] = useState<SellerSettings>(original ?? { displayName: user.name, bank: '', account: '', holder: user.name, shippingAddress: '', returnAddress: '', notifications: {} }); const [phone, setPhone] = useState(user.phone), [email, setEmail] = useState(user.email), [error, setError] = useState(''), [busy, setBusy] = useState(false); const app = s.applications.find(a => a.userId === user.id && a.status === 'approved');
-  const [shipCarrier, setShipCarrier] = useState('CJ대한통운'); const [shipPickup, setShipPickup] = useState('평일 16:00'); const [returnFee, setReturnFee] = useState('3000'); const [exchangeFee, setExchangeFee] = useState('6000');
+  const { section } = useParams();
+  const s = useStore(), user = activeUser(s), toast = useToast(), navigate = useNavigate();
+  const original = s.sellerSettings[user.id];
+  const [form, setForm] = useState<SellerSettings>(original ?? { displayName: user.name, bank: '', account: '', holder: user.name, shippingAddress: '', returnAddress: '', notifications: {} });
+  const [phone, setPhone] = useState(user.phone), [email, setEmail] = useState(user.email), [error, setError] = useState(''), [busy, setBusy] = useState(false);
+  const app = s.applications.find(a => a.userId === user.id && a.status === 'approved');
+  const [shipCarrier, setShipCarrier] = useState('CJ대한통운');
+  const [shipPickup, setShipPickup] = useState('평일 16:00');
+  const [returnFee, setReturnFee] = useState('3000');
+  const [exchangeFee, setExchangeFee] = useState('6000');
+  const [addrTab, setAddrTab] = useState<'ship' | 'return'>('ship');
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+
   useEffect(() => {
     apiGet('/sellers/me').then((me: any) => {
       if (!me) return;
@@ -352,12 +416,440 @@ export function SellerSettingsPage() {
       if (me.contactEmail) setEmail(me.contactEmail);
     }).catch(() => {});
   }, []);
+
   if (!user.seller) return <Unavailable/>;
+
   const change = (key: keyof SellerSettings, value: string) => setForm({ ...form, [key]: value });
-  const field = (key: 'displayName' | 'bank' | 'account' | 'holder' | 'shippingPostal' | 'shippingAddress' | 'returnPostal' | 'returnAddress', label: string) => <Field label={label}><input aria-label={label} value={(form[key] as string) ?? ''} onChange={e => change(key, e.target.value)} className="field"/></Field>;
-  return <form className="space-y-5" onSubmit={async e => { e.preventDefault(); setError(''); setBusy(true); try { if (section === 'bank' && (!form.bank.trim() || !form.account.trim() || !form.holder.trim())) throw new Error('은행·계좌번호·예금주를 확인해 주세요.'); if (section === 'addresses' && (!form.shippingAddress.trim() || !form.returnAddress.trim())) throw new Error('출고지와 반품지 주소를 입력해 주세요.'); if (section === 'returns' && !form.returnAddress.trim()) throw new Error('반품지 주소를 입력해 주세요.'); if (section === 'account' || section === 'business') { if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('올바른 이메일을 입력해 주세요.'); } if (section === 'business') { await apiPut('/sellers/me/contact', { sellerDisplayName: form.displayName, contactName: user.name, contactEmail: email, contactPhone: phone }); } else if (section === 'bank') { await apiPut('/sellers/me/bank-account', { bankName: form.bank, bankAccount: form.account, accountHolderName: form.holder }); } else if (section === 'addresses' || section === 'returns') { await apiPut('/sellers/me/addresses', { dispatchAddress: { postalCode: form.shippingPostal || '', roadAddress: form.shippingAddress, detailAddress: '' }, returnAddress: { postalCode: form.returnPostal || '', roadAddress: form.returnAddress, detailAddress: '' } }); } else if (section === 'account') { await apiPut('/sellers/me/contact', { contactName: user.name, contactEmail: email, contactPhone: phone }); } mutate(state => { state.sellerSettings[user.id] = form; const member = state.users.find(u => u.id === user.id)!; member.phone = phone; member.email = email; }); toast('변경 내용을 저장했습니다.'); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }}><Header title={section === 'business' ? '사업자서류 · 담당자 정보' : section === 'bank' ? '정산 계좌 관리' : section === 'addresses' ? '출고 · 반품지 관리' : section === 'returns' ? '반품지 관리' : section === 'shipping' ? '배송 설정 변경' : '계정 · 알림 설정'}/>{section === 'business' && <><Note green title="입점 승인 완료">제출한 사업자등록증 PDF와 담당자 정보를 확인하세요.</Note><PdfField value={app?.document ?? { id: 'sample', name: '사업자등록증_아틀리에노트.pdf', size: 1024, uploadedAt: Date.now() }} readOnly/>{field('displayName', '판매자 표시 이름')}<InfoRow label="담당자" value={user.name}/><Field label="이메일"><input aria-label="이메일" className="field" value={email} onChange={e => setEmail(e.target.value)} type="email"/></Field><Field label="연락처"><input aria-label="연락처" className="field" value={phone} onChange={e => setPhone(e.target.value)} type="tel"/></Field></>}{section === 'bank' && <><div className="note space-y-3"><h2 className="font-bold">{form.bank}</h2><p className="font-number text-[25px] font-bold">***-****-{form.account.slice(-4)}</p><p className="muted text-[11px]">예금주 · {form.holder}</p></div>{field('bank', '은행')}{field('account', '계좌번호')}{field('holder', '예금주')}<Note title="플랫폼 수수료 안내">판매율 90% 이하에는 수수료가 없습니다. 90%를 초과하면 최종 상품 판매금액 전체의 10%가 적용됩니다. 취소·반품 수량과 금액, 배송비는 제외합니다.</Note></>}{section === 'addresses' && <><section className="divider space-y-4 pb-5"><h2 className="flex items-center gap-2 text-[16px] font-bold"><Truck size={20}/>출고지</h2>{field('shippingPostal', '출고지 우편번호')}{field('shippingAddress', '출고지 주소')}</section><section className="space-y-4"><h2 className="flex items-center gap-2 text-[16px] font-bold"><Package size={20}/>반품지</h2>{field('returnPostal', '반품 주소 우편번호')}{field('returnAddress', '반품 주소')}<Button outline className="w-full" onClick={() => { change('returnAddress', form.shippingAddress); setForm(f => ({ ...f, returnPostal: f.shippingPostal })); }}>출고지와 동일하게 사용</Button></section><Note>반품 접수와 회수 일정은 구매자와 확인해 주세요.</Note><div className="flex gap-2"><Link className="btn btn-outline flex-1 text-[12px]!" to="/seller/settings/returns">반품지 관리 ›</Link><Link className="btn btn-outline flex-1 text-[12px]!" to="/seller/settings/shipping">배송 설정 변경 ›</Link></div></>}
-{section === 'returns' && <><div className="rounded-[4px] bg-[var(--blue-soft)] p-3.5 space-y-2"><div className="flex items-center justify-between"><p className="text-[13px] font-bold">기본 반품지</p>{form.returnAddress === form.shippingAddress && <span className="rounded-full bg-[var(--green-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--green)]">출고지와 동일</span>}</div><p className="muted text-[12px] leading-relaxed">{form.returnAddress || '반품지 주소가 없습니다.'}{form.returnPostal ? ` (${form.returnPostal})` : ''}</p></div>{field('returnPostal', '반품 주소 우편번호')}{field('returnAddress', '반품 주소')}<Button outline className="w-full" onClick={() => { change('returnAddress', form.shippingAddress); setForm(f => ({ ...f, returnPostal: f.shippingPostal })); }}>기본 출고지와 동일하게 사용</Button><Note>구매자 반품 접수 시 기본 반품지가 안내돼요. 반품 접수와 회수 일정은 구매자와 직접 확인해 주세요.</Note></>}
-{section === 'shipping' && <><Field label="반품 택배사" required><select aria-label="반품 택배사" value={shipCarrier} onChange={e => setShipCarrier(e.target.value)} className="field">{['CJ대한통운', '한진택배', '롯데택배', '우체국택배'].map(c => <option key={c}>{c}</option>)}</select></Field><Field label="택배 집하 시간" required><select aria-label="택배 집하 시간" value={shipPickup} onChange={e => setShipPickup(e.target.value)} className="field">{['평일 14:00', '평일 15:00', '평일 16:00', '평일 17:00'].map(t => <option key={t}>{t}</option>)}</select></Field><Field label="반품 배송비 (편도)" required><input aria-label="반품 배송비" type="number" inputMode="numeric" min={0} step={500} value={returnFee} onChange={e => setReturnFee(e.target.value)} className="field"/></Field><Field label="교환 배송비 (왕복)" required><input aria-label="교환 배송비" type="number" inputMode="numeric" min={0} step={500} value={exchangeFee} onChange={e => setExchangeFee(e.target.value)} className="field"/></Field><Note title="배송 설정 변경">변경 내용은 새로 등록하는 드롭부터 적용돼요. 이미 등록된 상품은 등록 시점의 배송 설정을 유지해요.</Note></>}{section === 'account' && <><Field label="이메일"><input aria-label="이메일" className="field" value={email} onChange={e => setEmail(e.target.value)} type="email"/></Field><Field label="휴대전화"><input aria-label="휴대전화" className="field" value={phone} onChange={e => setPhone(e.target.value)} type="tel"/></Field><h2 className="text-[16px] font-bold">판매 활동 알림</h2>{['신규주문', '문의', '판매일정', '마케팅'].map(key => <label key={key} className="divider flex min-h-[60px] items-center justify-between gap-4"><span>{({ 신규주문: '신규 주문', 문의: '상품 · 주문 문의', 판매일정: '판매 시작 · 종료', 마케팅: '혜택 및 이벤트' } as Record<string, string>)[key]}</span><input role="switch" aria-label={key + ' 알림'} type="checkbox" className="h-5 w-5" checked={form.notifications[key] ?? false} onChange={e => setForm({ ...form, notifications: { ...form.notifications, [key]: e.target.checked } })}/></label>)}</>}<ErrorBox message={error}/><Button type="submit" className="w-full" disabled={busy}>{busy ? '저장 중…' : section === 'addresses' || section === 'returns' ? '주소 정보 저장' : section === 'bank' ? '계좌 정보 저장' : '수정 내용 저장'}</Button></form>;
+  const inputField = (key: 'displayName' | 'bank' | 'account' | 'holder' | 'shippingPostal' | 'shippingAddress' | 'returnPostal' | 'returnAddress', label: string, extra?: { hint?: string; required?: boolean }) =>
+    <Field label={label} hint={extra?.hint} required={extra?.required}><input aria-label={label} value={(form[key] as string) ?? ''} onChange={e => change(key, e.target.value)} className="field"/></Field>;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault(); setError(''); setBusy(true);
+    try {
+      if (section === 'bank' && (!form.bank.trim() || !form.account.trim() || !form.holder.trim())) throw new Error('은행·계좌번호·예금주를 확인해 주세요.');
+      if (section === 'addresses' && (!form.shippingAddress.trim() || !form.returnAddress.trim())) throw new Error('출고지와 반품지 주소를 입력해 주세요.');
+      if (section === 'returns' && !form.returnAddress.trim()) throw new Error('반품지 주소를 입력해 주세요.');
+      if (section === 'account' || section === 'business') { if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('올바른 이메일을 입력해 주세요.'); }
+      if (section === 'business') { await apiPut('/sellers/me/contact', { sellerDisplayName: form.displayName, contactName: user.name, contactEmail: email, contactPhone: phone }); }
+      else if (section === 'bank') { await apiPut('/sellers/me/bank-account', { bankName: form.bank, bankAccount: form.account, accountHolderName: form.holder }); }
+      else if (section === 'addresses' || section === 'returns') { await apiPut('/sellers/me/addresses', { dispatchAddress: { postalCode: form.shippingPostal || '', roadAddress: form.shippingAddress, detailAddress: '' }, returnAddress: { postalCode: form.returnPostal || '', roadAddress: form.returnAddress, detailAddress: '' } }); }
+      else if (section === 'account') { await apiPut('/sellers/me/contact', { contactName: user.name, contactEmail: email, contactPhone: phone }); }
+      mutate(state => { state.sellerSettings[user.id] = form; const member = state.users.find(u => u.id === user.id)!; member.phone = phone; member.email = email; });
+      toast('변경 내용을 저장했습니다.');
+    } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  };
+
+  // ── 사업자 서류 · 담당자 정보 ──────────────────────────────
+  if (section === 'business') return (
+    <form className="space-y-5" onSubmit={handleSubmit}>
+      <Header title="사업자 서류 · 담당자 정보"/>
+      <section className="space-y-4">
+        <h2 className="text-[14px] font-bold text-[var(--muted)]">사업자 서류</h2>
+        <div className="rounded-[6px] border border-[var(--line)] p-4 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[13px] font-bold">사업자등록증</span>
+            <span className="rounded-[3px] bg-[var(--green-soft)] px-2 py-0.5 text-[10px] font-bold text-[var(--green)]">확인 완료</span>
+          </div>
+          <p className="muted text-[12px]">lomfield_biz.pdf · 2026.05.02 업로드</p>
+          <button type="button" className="muted text-[12px] underline">보기</button>
+        </div>
+        <div className="rounded-[6px] bg-[var(--canvas)] p-4 space-y-2">
+          <InfoRow label="상호" value="로엠필드 (LOMFIELD)"/>
+          <InfoRow label="사업자등록번호" value="214-87-*****"/>
+          <InfoRow label="대표자" value="김서윤"/>
+        </div>
+        <Note>사업자 정보 변경은 고객지원으로 요청해 주세요.</Note>
+      </section>
+      <div className="h-2 -mx-4 bg-[var(--canvas)]"/>
+      <section className="space-y-4">
+        <h2 className="text-[14px] font-bold text-[var(--muted)]">담당자 정보</h2>
+        <Field label="담당자 이름" required><input aria-label="담당자 이름" className="field" value={user.name} readOnly/></Field>
+        <Field label="연락처" required hint="출고 · 정산 관련 긴급 연락에 사용돼요."><input aria-label="연락처" className="field" value={phone} onChange={e => setPhone(e.target.value)} type="tel"/></Field>
+        <Field label="업무 이메일" required><input aria-label="업무 이메일" className="field" value={email} onChange={e => setEmail(e.target.value)} type="email"/></Field>
+      </section>
+      <ErrorBox message={error}/>
+      <Button type="submit" className="w-full" disabled={busy}>{busy ? '저장 중…' : '저장하기'}</Button>
+    </form>
+  );
+
+  // ── 정산 계좌 관리 ──────────────────────────────────────────
+  if (section === 'bank') return (
+    <form className="space-y-5" onSubmit={handleSubmit}>
+      <Header title="정산 계좌 관리"/>
+      <section className="rounded-[8px] bg-[var(--canvas)] p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <p className="text-[13px] font-bold">현재 정산 계좌</p>
+          <span className="rounded-[3px] bg-[var(--green-soft)] px-2 py-0.5 text-[10px] font-bold text-[var(--green)]">인증 완료</span>
+        </div>
+        <div>
+          <p className="text-[13px] font-bold">{form.bank || 'KB국민은행'}</p>
+          <p className="font-number text-[22px] font-bold mt-1">123456-04-***024</p>
+          <p className="muted text-[11px] mt-1">예금주 로엠필드(김서윤) · 2026.05.08 등록</p>
+        </div>
+      </section>
+      <div className="rounded-[6px] border border-[var(--line)] p-4 space-y-3">
+        <InfoRow label="정산 주기" value="구매 확정 후 D+7 영업일"/>
+        <InfoRow label="다음 정산 예정일" value="2026.11.11 (수)"/>
+        <InfoRow label="정산 예정 금액" value={<span className="font-bold">1,284,000원</span>}/>
+        <button type="button" className="w-full rounded-[6px] border border-[var(--line)] py-2 text-[12px] font-bold">정산 내역 보기</button>
+      </div>
+      <div className="h-px bg-[var(--line)]"/>
+      <h2 className="text-[14px] font-bold">계좌 변경</h2>
+      <Field label="은행" required><select aria-label="은행" value={form.bank || ''} onChange={e => change('bank', e.target.value)} className="field"><option value="">은행을 선택해 주세요</option>{['KB국민은행','신한은행','우리은행','하나은행','IBK기업은행','NH농협은행','카카오뱅크','토스뱅크'].map(b => <option key={b}>{b}</option>)}</select></Field>
+      <Field label="계좌번호" required hint="'-' 없이 숫자만 입력"><input aria-label="계좌번호" className="field" inputMode="numeric" value={form.account ?? ''} onChange={e => change('account', e.target.value)} placeholder="'-' 없이 숫자만 입력"/></Field>
+      <Field label="예금주"><input aria-label="예금주" className="field" value={form.holder ?? ''} onChange={e => change('holder', e.target.value)}/></Field>
+      <Note>사업자등록증의 상호 또는 대표자명과 같아야 해요. 1원 입금으로 본인 계좌를 확인해요. 변경한 계좌는 다음 정산부터 적용돼요.</Note>
+      <ErrorBox message={error}/>
+      <Button type="submit" className="w-full" disabled={busy}>{busy ? '저장 중…' : '계좌 인증하고 변경'}</Button>
+    </form>
+  );
+
+  // ── 출고지 · 반품지 관리 ────────────────────────────────────
+  if (section === 'addresses') return (
+    <div className="space-y-0">
+      <Header title="출고지 · 반품지 관리"/>
+      <p className="muted mb-4 text-[12px] leading-relaxed">드롭 상품은 기본 출고지에서 발송돼요. 상품별로 다른<br/>출고지를 지정할 수도 있어요.</p>
+      <div className="mb-4 flex border-b border-[var(--line)]">
+        {(['ship', 'return'] as const).map((t, i) => (
+          <button key={t} onClick={() => setAddrTab(t)} className={`flex-1 border-b-2 py-3 text-[13px] font-bold ${addrTab === t ? 'border-[var(--ink)]' : 'border-transparent muted'}`}>
+            {t === 'ship' ? '출고지 2' : '반품지 1'}
+          </button>
+        ))}
+      </div>
+      {addrTab === 'ship' && (
+        <div className="space-y-3">
+          {[
+            { name: '성수 물류창고', isDefault: true, address: '서울 성동구 성수이로 118, 3층 (04782)', person: '김서윤 · 010-2481-****' },
+            { name: '파주 보관센터', isDefault: false, address: '경기 파주시 문발로 242, B동 (10881)', person: '박도현 · 031-944-****' },
+          ].map(loc => (
+            <div key={loc.name} className="rounded-[8px] border border-[var(--line)] p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <p className="text-[14px] font-bold">{loc.name}</p>
+                  {loc.isDefault && <span className="rounded-full bg-[var(--canvas)] px-2 py-0.5 text-[10px] font-bold">기본</span>}
+                </div>
+                <div className="flex gap-2">
+                  {!loc.isDefault && <button className="muted text-[12px]">기본 설정</button>}
+                  <Link to="/seller/settings/ship-edit" className="text-[12px] font-bold">수정</Link>
+                  {!loc.isDefault && <button onClick={() => setDeleteConfirm(true)} className="text-[12px] text-[var(--red)]">삭제</button>}
+                </div>
+              </div>
+              <p className="muted text-[12px]">{loc.address}</p>
+              <p className="muted text-[12px]">{loc.person}</p>
+            </div>
+          ))}
+          <button className="btn btn-outline w-full">출고지 추가</button>
+        </div>
+      )}
+      {addrTab === 'return' && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="muted text-[12px]">반품지를 기본 출고지와 동일하게</p>
+            <button onClick={() => { change('returnAddress', form.shippingAddress); setForm(f => ({ ...f, returnPostal: f.shippingPostal })); toast('반품지를 출고지와 동일하게 설정했습니다.'); }} className="muted text-[12px] underline">적용</button>
+          </div>
+          <div className="rounded-[8px] border border-[var(--line)] p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <p className="text-[14px] font-bold">성수 물류창고</p>
+                <span className="rounded-full bg-[var(--green-soft)] px-2 py-0.5 text-[10px] font-bold text-[var(--green)]">출고지와 동일</span>
+              </div>
+              <div className="flex gap-2">
+                <Link to="/seller/settings/returns" className="text-[12px] font-bold">수정</Link>
+                <button className="text-[12px] text-[var(--red)]">삭제</button>
+              </div>
+            </div>
+            <p className="muted text-[12px]">서울 성동구 성수이로 118, 3층 (04782)</p>
+            <p className="muted text-[12px]">김서윤 · 010-2481-****</p>
+          </div>
+          <Link to="/seller/settings/returns" className="btn btn-outline block w-full text-center">반품지 추가</Link>
+        </div>
+      )}
+      <div className="mt-6 rounded-[8px] bg-[var(--canvas)] p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <p className="text-[14px] font-bold">반품 · 교환 설정</p>
+        </div>
+        <div className="flex items-center justify-between text-[13px]">
+          <span>반품지를 기본 출고지와 동일하게</span>
+          <span className="muted text-[12px]">성수 물류창고로 반품을 받아요</span>
+        </div>
+        <InfoRow label="반품 택배사" value="CJ대한통운"/>
+        <InfoRow label="반품 배송비 (편도)" value="3,000원"/>
+        <InfoRow label="교환 배송비 (왕복)" value="6,000원"/>
+        <Link to="/seller/settings/shipping" className="btn btn-outline block w-full text-center text-[12px]!">택배사 · 배송비 변경</Link>
+      </div>
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{background:'rgba(0,0,0,0.45)'}} onClick={e => e.target === e.currentTarget && setDeleteConfirm(false)}>
+          <div className="mx-4 w-full max-w-[318px] rounded-[8px] bg-[var(--surface)] p-5 space-y-4">
+            <h2 className="text-[17px] font-bold">출고지를 삭제할까요?</h2>
+            <p className="text-[13px] text-[var(--muted)]">이 출고지로 지정된 판매 예정 드롭 1건은<br/>기본 출고지(성수 물류창고)로 바뀌어요.</p>
+            <div className="rounded-[4px] bg-[var(--canvas)] p-3 space-y-1">
+              <p className="text-[13px] font-bold">파주 보관센터</p>
+              <p className="muted text-[12px]">[10881] 경기 파주시 문발로 242, B동</p>
+            </div>
+            <div className="flex gap-2">
+              <Button outline className="flex-1" onClick={() => setDeleteConfirm(false)}>취소</Button>
+              <Button className="flex-1" onClick={() => { toast('출고지를 삭제했습니다.'); setDeleteConfirm(false); }}>삭제</Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  // ── 출고지 수정 ──────────────────────────────────────────────
+  if (section === 'ship-edit') return (
+    <form className="space-y-5" onSubmit={handleSubmit}>
+      <Header title="출고지 수정"/>
+      <Field label="출고지명"><input aria-label="출고지명" className="field" defaultValue="성수 물류창고"/></Field>
+      <Field label="출고 담당자" required><input aria-label="출고 담당자" className="field" value={user.name} readOnly/></Field>
+      <Field label="연락처" required><input aria-label="연락처" className="field" value={phone} onChange={e => setPhone(e.target.value)} type="tel"/></Field>
+      <Field label="주소" required>
+        <div className="space-y-2">
+          <div className="flex gap-2">
+            <input aria-label="우편번호" className="field flex-1" defaultValue="04782" readOnly/>
+            <button type="button" className="btn btn-outline shrink-0 text-[12px]!">주소 검색</button>
+          </div>
+          <input aria-label="도로명 주소" className="field" defaultValue="서울특별시 성동구 성수이로 118"/>
+          <input aria-label="상세 주소" className="field" defaultValue="3층 물류팀"/>
+        </div>
+      </Field>
+      <Field label="택배 집하 시간">
+        <select aria-label="택배 집하 시간" defaultValue="평일 16:00" className="field">
+          {['평일 14:00', '평일 15:00', '평일 16:00 · CJ대한통운', '평일 17:00'].map(t => <option key={t}>{t}</option>)}
+        </select>
+      </Field>
+      <label className="flex items-center gap-3">
+        <input type="checkbox" className="h-4 w-4" defaultChecked/>
+        <div>
+          <p className="text-[13px] font-bold">기본 출고지로 설정</p>
+          <p className="muted text-[11px]">새 드롭 상품의 출고지로 자동 지정돼요</p>
+        </div>
+      </label>
+      <ErrorBox message={error}/>
+      <Button type="submit" className="w-full" disabled={busy}>{busy ? '저장 중…' : '저장하기'}</Button>
+    </form>
+  );
+
+  // ── 반품지 관리 (별도 페이지) ───────────────────────────────
+  if (section === 'returns') return (
+    <form className="space-y-5" onSubmit={handleSubmit}>
+      <Header title="반품지 추가"/>
+      <div className="flex items-center gap-3 rounded-[8px] bg-[var(--canvas)] p-3">
+        <input type="checkbox" id="same-as-ship" className="h-4 w-4" onChange={e => { if (e.target.checked) { change('returnAddress', form.shippingAddress); setForm(f => ({ ...f, returnPostal: f.shippingPostal })); } }}/>
+        <div>
+          <label htmlFor="same-as-ship" className="text-[13px] font-bold">반품지를 기본 출고지와 동일하게</label>
+          <p className="muted text-[11px]">성수 물류창고 주소를 그대로 불러와요</p>
+        </div>
+      </div>
+      <Field label="반품지명" required><input aria-label="반품지명" className="field" value={form.returnAddress ? '파주 보관센터' : ''} onChange={() => {}} placeholder="파주 보관센터"/></Field>
+      <Field label="반품 담당자" required><input aria-label="반품 담당자" className="field" value={user.name} readOnly/></Field>
+      <Field label="연락처" required hint="반품 · 교환 관련 연락에 사용돼요."><input aria-label="연락처" className="field" value={phone} onChange={e => setPhone(e.target.value)} type="tel"/></Field>
+      <Field label="주소" required>
+        <div className="space-y-2">
+          <div className="flex gap-2">
+            <input aria-label="우편번호" className="field flex-1" value={form.returnPostal ?? ''} onChange={e => change('returnPostal', e.target.value)} placeholder="10881"/>
+            <button type="button" className="btn btn-outline shrink-0 text-[12px]!">주소 검색</button>
+          </div>
+          <input aria-label="도로명 주소" className="field" value={form.returnAddress ?? ''} onChange={e => change('returnAddress', e.target.value)} placeholder="경기 파주시 문발로 242"/>
+          <input aria-label="상세 주소" className="field" placeholder="B동"/>
+        </div>
+      </Field>
+      <label className="flex items-center gap-3">
+        <input type="checkbox" className="h-4 w-4"/>
+        <div>
+          <p className="text-[13px] font-bold">기본 반품지로 설정</p>
+          <p className="muted text-[11px]">구매자 반품 접수 시 이 주소로 안내돼요</p>
+        </div>
+      </label>
+      <ErrorBox message={error}/>
+      <Button type="submit" className="w-full" disabled={busy}>{busy ? '저장 중…' : '저장하기'}</Button>
+    </form>
+  );
+
+  // ── 배송 설정 변경 ──────────────────────────────────────────
+  if (section === 'shipping') return (
+    <form className="space-y-5" onSubmit={async e => { e.preventDefault(); toast('배송 설정을 저장했습니다.'); }}>
+      <Header title="택배사 · 배송비 변경"/>
+      <Field label="반품 택배사" required><select aria-label="반품 택배사" value={shipCarrier} onChange={e => setShipCarrier(e.target.value)} className="field">{['CJ대한통운', '한진택배', '롯데택배', '우체국택배'].map(c => <option key={c}>{c}</option>)}</select></Field>
+      <Field label="택배 집하 시간" required><select aria-label="택배 집하 시간" value={shipPickup} onChange={e => setShipPickup(e.target.value)} className="field">{['평일 14:00', '평일 15:00', '평일 16:00', '평일 17:00'].map(t => <option key={t}>{t}</option>)}</select></Field>
+      <Field label="반품 배송비 (편도)" required><input aria-label="반품 배송비" type="number" inputMode="numeric" min={0} step={500} value={returnFee} onChange={e => setReturnFee(e.target.value)} className="field"/></Field>
+      <Field label="교환 배송비 (왕복)" required><input aria-label="교환 배송비" type="number" inputMode="numeric" min={0} step={500} value={exchangeFee} onChange={e => setExchangeFee(e.target.value)} className="field"/></Field>
+      <Note>변경 내용은 새로 등록하는 드롭부터 적용돼요. 이미 등록된 상품은 등록 시점의 배송 설정을 유지해요.</Note>
+      <Button type="submit" className="w-full">저장하기</Button>
+    </form>
+  );
+
+  // ── 계정 설정 (account) ─────────────────────────────────────
+  if (section === 'account') return (
+    <form className="space-y-5" onSubmit={handleSubmit}>
+      <Header title="계정 설정"/>
+      <div className="flex items-start gap-4">
+        <div className="relative shrink-0">
+          <div className="grid h-[64px] w-[64px] place-items-center rounded-[8px] bg-[var(--ink)] text-[24px] font-bold text-white">L</div>
+          <button type="button" aria-label="로고 변경" className="absolute -bottom-1 -right-1 grid h-[26px] w-[26px] place-items-center rounded-full border border-[var(--line)] bg-[var(--surface)]">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><rect x="1" y="2.5" width="11" height="8.5" rx="1.5" stroke="#7B7B7B" strokeWidth="1.2"/><path d="M4.5 2.5V2a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v.5" stroke="#7B7B7B" strokeWidth="1.2"/><circle cx="6.5" cy="6.75" r="1.75" stroke="#7B7B7B" strokeWidth="1.2"/></svg>
+          </button>
+        </div>
+        <div className="space-y-1">
+          <p className="text-[14px] font-bold">스토어 로고</p>
+          <p className="muted text-[12px]">사업자 프로필을 등록할 수 있습니다.</p>
+        </div>
+      </div>
+      <Field label="스토어 이름" required>
+        <div className="relative">
+          <input aria-label="스토어 이름" className="field pr-10" value={form.displayName ?? ''} onChange={e => change('displayName', e.target.value)}/>
+          <button type="button" aria-label="지우기" onClick={() => change('displayName', '')} className="absolute right-3 top-1/2 -translate-y-1/2"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" stroke="#949494" strokeWidth="1.2"/><path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="#949494" strokeWidth="1.2" strokeLinecap="round"/></svg></button>
+        </div>
+        <p className="muted mt-1 text-[12px]">이름 변경은 30일에 한 번 가능해요</p>
+      </Field>
+      <Field label="스토어 한 줄 소개">
+        <div className="relative">
+          <input aria-label="스토어 한 줄 소개" className="field pr-14" placeholder="오래 입는 기본 니트를 만듭니다" maxLength={40}/>
+          <span className="muted absolute right-3 top-1/2 -translate-y-1/2 text-[12px]">0/40</span>
+        </div>
+      </Field>
+      <Button type="submit" className="w-full" disabled={busy}>{busy ? '저장 중…' : '저장하기'}</Button>
+      <div className="h-px bg-[var(--line)]"/>
+      <h2 className="text-[14px] font-bold text-[var(--muted)]">로그인 정보</h2>
+      <div className="divider flex items-center justify-between py-4">
+        <span className="text-[15px]">로그인 이메일</span>
+        <div className="flex items-center gap-2">
+          <span className="muted text-[12px]">{user.email}</span>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1" y="4" width="11" height="8" rx="1.5" stroke="#949494" strokeWidth="1.2"/><path d="M3 4V3a3 3 0 0 1 6 0v1" stroke="#949494" strokeWidth="1.2"/></svg>
+        </div>
+      </div>
+      <div className="divider flex items-center justify-between py-4">
+        <span className="text-[15px]">비밀번호 변경</span>
+        <div className="flex items-center gap-2">
+          <span className="muted text-[12px]">마지막 변경 2026.08.12</span>
+          <ChevronRight size={16} className="muted"/>
+        </div>
+      </div>
+      <ErrorBox message={error}/>
+      <div className="flex gap-4 justify-center pt-2 text-[12px]">
+        <LogoutButton/>
+        <Link to="/seller/settings/withdraw" className="muted py-4 text-[12px] underline underline-offset-4">계정 탈퇴</Link>
+      </div>
+    </form>
+  );
+
+  // ── 회원 탈퇴 ───────────────────────────────────────────────
+  if (section === 'withdraw') return (
+    <form className="space-y-5" onSubmit={e => { e.preventDefault(); toast('탈퇴 처리 중입니다.'); }}>
+      <Header title="회원 탈퇴"/>
+      <h2 className="text-[18px] font-bold">탈퇴 전에 꼭 확인해 주세요.</h2>
+      <div className="rounded-[8px] bg-[var(--canvas)] p-4 space-y-3">
+        {[['진행 중인 주문', '없음'], ['정산 대기 금액', '0원'], ['판매 중인 드롭', '없음']].map(([label, value]) => (
+          <div key={label} className="flex items-center justify-between">
+            <span className="text-[13px]">{label}</span>
+            <span className="muted text-[13px]">{value}</span>
+          </div>
+        ))}
+      </div>
+      <Note>진행 중인 거래가 있으면 완료된 뒤에 탈퇴할 수 있어요</Note>
+      <div className="space-y-3">
+        <p className="text-[13px] font-bold">탈퇴하면 이렇게 돼요</p>
+        {['계정 정보, 배송지, 알림 설정이 바로 삭제돼요', '보유한 적립금과 쿠폰은 소멸되고 복구할 수 없어요', '주문·결제 기록은 관계 법령에 따라 5년간 보관돼요', '같은 이메일로는 30일 후에 다시 가입할 수 있어요'].map(text => (
+          <div key={text} className="flex items-start gap-2">
+            <span className="mt-0.5 text-[var(--muted)]">·</span>
+            <p className="text-[13px] leading-relaxed">{text}</p>
+          </div>
+        ))}
+      </div>
+      <Field label="탈퇴 사유">
+        <select aria-label="탈퇴 사유" className="field"><option>사용 빈도가 낮아요</option><option>다른 사유</option></select>
+      </Field>
+      <Field label="비밀번호 확인" required><input aria-label="비밀번호 확인" className="field" type="password" placeholder="••••••••"/></Field>
+      <label className="flex items-center gap-3">
+        <input type="checkbox" className="h-4 w-4"/>
+        <span className="text-[13px]">안내 사항을 모두 확인했고 탈퇴에 동의해요</span>
+      </label>
+      <Button type="submit" className="w-full">탈퇴하기</Button>
+    </form>
+  );
+
+  // ── 알림 설정 fallback ──────────────────────────────────────
+  return (
+    <form className="space-y-5" onSubmit={handleSubmit}>
+      <Header title="알림 설정"/>
+      {['신규주문', '문의', '판매일정', '마케팅'].map(key => (
+        <label key={key} className="divider flex min-h-[60px] items-center justify-between gap-4">
+          <span>{({ 신규주문: '신규 주문', 문의: '상품 · 주문 문의', 판매일정: '판매 시작 · 종료', 마케팅: '혜택 및 이벤트' } as Record<string, string>)[key]}</span>
+          <input role="switch" aria-label={key + ' 알림'} type="checkbox" className="h-5 w-5" checked={form.notifications[key] ?? false} onChange={e => setForm({ ...form, notifications: { ...form.notifications, [key]: e.target.checked } })}/>
+        </label>
+      ))}
+      <ErrorBox message={error}/>
+      <Button type="submit" className="w-full" disabled={busy}>{busy ? '저장 중…' : '수정 내용 저장'}</Button>
+    </form>
+  );
+}
+export function SellerSupportPage() {
+  const [tab, setTab] = useState('전체');
+  const faqs: [string, string][] = [
+    ['정산', '정산은 언제 입금되나요?'],
+    ['출고', '출고 마감 시간을 넘기면 어떻게 되나요?'],
+    ['검수', '검수에서 반려되면 다시 신청할 수 있나요?'],
+    ['반품', '구매자가 반품을 요청하면?'],
+  ];
+  const faqTabs = ['전체', '정산', '출고', '검수', '반품'];
+  const filtered = faqs.filter(([cat]) => tab === '전체' || cat === tab);
+  return (
+    <div className="space-y-0">
+      <Header title="이용 안내 · 고객지원"/>
+      <label className="mb-5 flex h-10 items-center gap-2.5 rounded-[6px] bg-[var(--canvas)] px-3.5">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" className="muted shrink-0"><circle cx="8" cy="8" r="6" stroke="#949494" strokeWidth="1.5"/><path d="M13 13l3 3" stroke="#949494" strokeWidth="1.5" strokeLinecap="round"/></svg>
+        <input aria-label="고객지원 검색" placeholder="정산, 출고, 검수 기준 검색" className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-[var(--muted)]" readOnly/>
+      </label>
+      <section className="mb-5 space-y-3">
+        <h2 className="text-[15px] font-bold">판매 가이드</h2>
+        {[['첫 드롭', '등록하기', '등록부터\n승인까지 5단계'], ['출고 · 배송', '규칙', '결제 후 48시간\n내 출고']].map(([title, sub, desc]) => (
+          <div key={title} className="rounded-[8px] bg-[var(--canvas)] p-4">
+            <p className="text-[13px] font-bold">{title}</p>
+            <p className="muted mt-0.5 text-[11px]">{sub}</p>
+            <p className="muted mt-2 whitespace-pre-line text-[12px] leading-relaxed">{desc}</p>
+          </div>
+        ))}
+      </section>
+      <div className="mb-5 h-px bg-[var(--line)]"/>
+      <section className="mb-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-[15px] font-bold">판매자 자주 묻는 질문</h2>
+          <button className="muted text-[12px]">전체보기</button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {faqTabs.map(t => (
+            <button key={t} onClick={() => setTab(t)} className={`inline-flex h-8 items-center rounded-full px-3.5 text-[12px] transition-colors ${tab === t ? 'bg-[var(--ink)] font-bold text-[var(--surface)]' : 'border border-[var(--line)] muted'}`}>{t}</button>
+          ))}
+        </div>
+        {filtered.map(([, q], i) => (
+          <div key={i} className="flex items-center justify-between gap-3 border-b border-[var(--line)] py-4">
+            <div className="flex items-start gap-3">
+              <span className="text-[14px] font-bold text-[var(--muted)]">Q</span>
+              <span className="text-[14px]">{q}</span>
+            </div>
+            <span className="shrink-0 muted text-[12px]">›</span>
+          </div>
+        ))}
+      </section>
+      <div className="mb-5 h-px bg-[var(--line)]"/>
+      <section className="mb-5 space-y-3">
+        <h2 className="text-[15px] font-bold">정책</h2>
+        {[['판매자 이용약관', '/seller/terms'], ['판매 수수료 안내', '/seller/terms'], ['운영 정책 · 패널티 기준', '/seller/terms']].map(([label, to]) => (
+          <Link key={label} to={to} className="divider flex h-[52px] items-center justify-between">
+            <span className="text-[13px]">{label}</span>
+            <span className="muted text-[12px]">{label === '판매 수수료 안내' ? '판매가의 9.8%' : ''}<ChevronRight size={16} className="inline muted ml-1"/></span>
+          </Link>
+        ))}
+      </section>
+      <div className="rounded-[8px] bg-[var(--canvas)] p-4 space-y-3">
+        <p className="text-[14px] font-bold">원하는 답을 못 찾으셨나요?</p>
+        <div className="flex gap-2">
+          <Link to="/inquiries/compose" className="btn btn-outline flex-1 text-[12px]!">1:1 문의하기</Link>
+          <Link to="/inquiries" className="btn btn-outline flex-1 text-[12px]!">내 문의 내역</Link>
+        </div>
+      </div>
+    </div>
+  );
 }
 export function InspectionFailPage() {
   const { id } = useParams(); const s = useStore(), user = activeUser(s), navigate = useNavigate(); const p = s.products.find(p => p.id === id && p.sellerId === user.id); if (!user.seller) return <Unavailable/>; if (!p) return <Empty title="상품을 찾을 수 없어요"><Link to="/seller" className="btn">판매자 홈</Link></Empty>;
