@@ -338,13 +338,19 @@ export function AdminDetailPage() {
       </div>
       {/* 신청 정보 */}
       <h2 className="mb-3 text-[15px] font-bold">신청 정보</h2>
-      <div className="mb-6 space-y-2 border-b border-[var(--line)] pb-4">
-        <InfoRow label="이름" value={app.name}/>
-        <InfoRow label="이메일" value={app.email}/>
-        <InfoRow label="연락처" value={app.phone}/>
-        <InfoRow label="정산계좌" value={app.bank ? `${app.bank} · ***${app.account.slice(-4)}` : '—'}/>
-        <InfoRow label="출고지" value={app.shippingAddress || '—'}/>
-        <InfoRow label="반품 주소" value={app.returnAddress || '—'}/>
+      <div className="mb-6 space-y-4 border-b border-[var(--line)] pb-4">
+        <div className="space-y-2">
+          <p className="text-[11px] font-bold text-[#949494]">판매자</p>
+          <InfoRow label="표시 이름" value={app.displayName || `${app.name}의 스토어`}/>
+          <InfoRow label="담당자" value={`${app.name} · ${app.phone}`}/>
+          <InfoRow label="이메일" value={app.email}/>
+        </div>
+        <div className="space-y-2">
+          <p className="text-[11px] font-bold text-[#949494]">정산 · 배송</p>
+          <InfoRow label="정산 계좌" value={app.bank ? `${app.bank} ${app.account.slice(0, 3)}-***-***${app.account.slice(-3)}` : '—'}/>
+          <InfoRow label="출고지" value={app.shippingAddress || '—'}/>
+          <InfoRow label="반품지" value={app.returnAddress || '출고지와 같음'}/>
+        </div>
       </div>
       <ErrorBox message={error}/>
       {app.status === 'approved'
@@ -914,9 +920,12 @@ export function InquiryDetailPage() {
   return (
     <div className="space-y-5">
       <Header title="문의 상세" back={true}/>
-      {/* 상품 정보 — Figma: 브랜드 · 상품명 · 수량, 주문번호 */}
+      {/* 상품 정보 — Figma: 브랜드 · 상품명, 주문번호 */}
       <div className="space-y-0.5">
-        <p className="text-[15px] font-bold">{q.productName}</p>
+        {q.productName.includes(' · ') ? <>
+          <p className="text-[15px] font-bold">{q.productName.split(' · ')[0]}</p>
+          <p className="text-[13px]">{q.productName.split(' · ').slice(1).join(' · ')}</p>
+        </> : <p className="text-[15px] font-bold">{q.productName}</p>}
         {q.orderId && <p className="muted text-[12px]">주문번호 {q.orderId}</p>}
       </div>
       <div className="flex items-center justify-between gap-2">

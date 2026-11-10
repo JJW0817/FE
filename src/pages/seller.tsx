@@ -802,7 +802,7 @@ export function SellerSupportPage() {
       </label>
       <section className="mb-5 space-y-3">
         <h2 className="text-[15px] font-bold">판매 가이드</h2>
-        {[['첫 드롭', '등록하기', '등록부터\n승인까지 5단계'], ['출고 · 배송', '규칙', '결제 후 48시간\n내 출고']].map(([title, sub, desc]) => (
+        {[['첫 드롭', '등록하기', '등록부터\n승인까지 5단계'], ['출고 · 배송', '규칙', '결제 후 48시간\n내 출고'], ['검수 기준 안내', '반려 없이 통과하는', '사진 · 상태']].map(([title, sub, desc]) => (
           <div key={title} className="rounded-[8px] bg-[var(--canvas)] p-4">
             <p className="text-[13px] font-bold">{title}</p>
             <p className="muted mt-0.5 text-[11px]">{sub}</p>
