@@ -4,11 +4,12 @@ let _token: string | null = null;
 export const getAccessToken = () => _token;
 export const setAccessToken = (t: string | null) => { _token = t; };
 
+export class ApiError extends Error { constructor(message: string, public status: number) { super(message); } }
 async function parse(r: Response): Promise<unknown> {
   if (r.ok) return r.status === 204 ? null : r.json().catch(() => null);
   let msg = '요청에 실패했어요. 잠시 후 다시 시도해 주세요.';
   try { const b = await r.json(); msg = b.message || b.error || msg; } catch {}
-  throw new Error(msg);
+  throw new ApiError(msg, r.status);
 }
 
 export async function fetchCSRF(): Promise<{ token: string; headerName: string }> {

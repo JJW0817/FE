@@ -1,7 +1,7 @@
 import { initialAuth } from './domain';
 import type { State } from './domain';
 import { atomic, getState, mutate } from './store';
-import { apiPost, apiGet, fetchCSRF, setAccessToken } from './api';
+import { apiPost, apiGet, fetchCSRF, setAccessToken, ApiError } from './api';
 export const DEMO_PASSWORD = 'Stockdrop123!';
 export const normalizeEmail = (value: string) => value.trim().toLowerCase();
 export const validEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizeEmail(value));
@@ -85,8 +85,8 @@ export async function restoreSession(): Promise<boolean> {
     return true;
   } catch (e) {
     setAccessToken(null);
-    // shortcut: TypeError = network unreachable (no backend), keep mock session intact; real auth errors log out
-    if (!(e instanceof TypeError)) mutate(endSession);
+    // only log out on explicit auth rejection (401/403); network errors and 404 keep mock session intact
+    if (e instanceof ApiError && (e.status === 401 || e.status === 403)) mutate(endSession);
     return false;
   }
 }
