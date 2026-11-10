@@ -25,6 +25,7 @@ export interface AuthData {
   challenges: Record<string, { email: string; code: string; purpose: 'signup' | 'reset'; expiresAt: number; sentAt: number; attempts: number; verified: boolean; challengeId?: string; token?: string }>;
   loginFailures: Record<string, { count: number; until: number }>;
   consents: Record<string, { acceptedAt: number; marketing: boolean }>;
+  /** 데모 로그인(VITE_DEMO_LOGIN)으로 시작한 세션 */ demo?: boolean;
 }
 export const initialAuth = (): AuthData => ({ onboarded: false, userId: null, credentials: {}, challenges: {}, loginFailures: {}, consents: {} });
 export interface Address { name: string; phone: string; address: string; detail: string; request: string; postalCode?: string }
