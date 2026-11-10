@@ -146,7 +146,9 @@ const FLOWS = {
   ],
 };
 
-const screens = FLOWS[flowNum]?.(Date.now());
+// 세 번째 인자로 화면 이름 일부를 주면 그 화면만 찍는다. 예: node scripts/shot-flow.mjs 06 apply
+const only = process.argv[3];
+const screens = FLOWS[flowNum]?.(Date.now())?.filter(s => !only || s.name.includes(only));
 if (!screens) { console.error(`흐름 ${flowNum}은 정의되지 않았습니다. 정의된 흐름: ${Object.keys(FLOWS).join(', ')}`); process.exit(1); }
 
 const outDir = `screenshots/flow-${flowNum}`;

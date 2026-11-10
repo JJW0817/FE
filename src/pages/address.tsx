@@ -54,6 +54,8 @@ export async function deleteAddress(id: string) {
 /* ── 주소 검색 → 폼 복귀 시 선택 값 전달 ───────────────────────────────────────────── */
 const DRAFT_KEY = 'stockdrop:address-form';
 const PICK_KEY = 'stockdrop:address-pick';
+/** 주소 검색에서 고른 값(우편번호·도로명 주소)을 한 번 꺼낸다 */
+export function takeAddressPick(): { postalCode: string; roadAddress: string } | null { try { const v = JSON.parse(sessionStorage.getItem(PICK_KEY) || 'null'); sessionStorage.removeItem(PICK_KEY); return v; } catch { return null; } }
 type FormValue = AddressBody & { makeDefault: boolean };
 const emptyForm: FormValue = { label: '', recipientName: '', recipientPhone: '', postalCode: '', roadAddress: '', detailAddress: '', deliveryMemo: '', makeDefault: true };
 
