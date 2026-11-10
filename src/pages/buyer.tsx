@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Search, Bell, ExternalLink, Bookmark, Clock3, Plus, Minus, Truck, CheckCircle2, ChevronRight, PackageCheck, Calendar } from 'lucide-react';
+import { Camera, ChevronDown, Info, Search, Bell, ExternalLink, Bookmark, Clock3, Plus, Minus, Truck, CheckCircle2, ChevronRight, PackageCheck, Calendar } from 'lucide-react';
 import { Badge, BottomSheet, Button, Chip, CopyButton, DeliveryProgress, Empty, ErrorBox, Field, Header, InfoRow, Modal, Note, ORDER_LABELS, ProductCard, ProductImage, ProductSummary, useToast } from '../components/ui';
 import { activeUser, available, beginPayment, DomainError, money, nowOf, reserve, resolvePayment, saleState, uid } from '../domain';
 import type { Address, Hold, Product, Order } from '../domain';
 import { atomic, getState, mutate, useStore } from '../store';
-import { externalHref } from '../files';
+import { externalHref, imageData } from '../files';
 import { countdown, dateTime, shortDate, useClock } from '../hooks';
 import { loginHref, signedIn } from '../auth';
 import { listAddresses, toAddress } from './address';
@@ -109,11 +109,11 @@ export function CheckoutPage() {
 export function OrdersPage() {
   const s = useStore(), now = useClock(); const [tab, setTab] = useState('전체'); const orders = s.orders.filter(o => o.userId === s.activeUserId); const activeHolds = s.holds.filter(h => h.userId === s.activeUserId && (h.status === 'pending' || h.status === 'reserved' && h.expiresAt > now)); const tabs = ['전체', '배송 준비', '배송 중', '배송 완료', '취소·환불'];
   const filtered = orders.filter(o => tab === '전체' || tab === '배송 준비' && ['paid', 'preparing'].includes(o.status) || ORDER_LABELS[o.status] === tab || tab === '취소·환불' && ['cancelled', 'refunded'].includes(o.status));
-  return <><Header title="주문 · 배송" subtitle="주문 상세와 배송 조회를 구분해서 확인하세요." back={false}/>{activeHolds.map(h => <Link key={h.id} to={`/checkout/${h.id}`} className="mb-4 block rounded-[4px] bg-[var(--blue-soft)] p-4"><b className="text-[12px]">{h.status === 'pending' ? '결제 결과 확인 중' : '확보한 주문 이어서 결제'}</b><p className="muted mt-2 text-[11px]">{s.products.find(p => p.id === h.productId)?.name} · {h.status === 'pending' ? '결제 완료 여부를 확인해 주세요.' : `${countdown(h.expiresAt, now)} 남음`} ›</p></Link>)}<div className="divider flex justify-between gap-1 pb-2">{tabs.map(t => <button key={t} onClick={() => setTab(t)} className={`border-b-2 py-2 text-[10px] ${tab === t ? 'border-[var(--ink)] font-bold' : 'muted border-transparent'}`}>{t}</button>)}</div>{filtered.map(o => <article key={o.id} className="divider space-y-4 py-5"><div className="flex items-center justify-between"><span className="muted max-w-[235px] truncate text-[10px]">{o.id}</span><Badge live={['shipping', 'delivered'].includes(o.status)}>{ORDER_LABELS[o.status]}</Badge></div><ProductSummary product={o.product} option={o.lines.map(l => `${l.name} ${l.quantity}개`).join(' · ')} amount={o.total}/><div className="grid grid-cols-2 gap-2"><Link className="btn" to={`/orders/${o.id}${['shipping', 'delivered'].includes(o.status) ? '?tracking=1' : ''}`}>{['shipping', 'delivered'].includes(o.status) ? '배송 조회' : '주문 상세'}</Link><Link className="btn btn-outline" to={`/orders/${o.id}`}>{['shipping', 'delivered'].includes(o.status) ? '주문 상세' : '판매자 문의'}</Link></div></article>)}{!filtered.length && <Empty title="주문 내역이 없어요"><Link className="btn" to="/">상품 둘러보기</Link></Empty>}</>;
+  return <><Header title="주문 · 배송" subtitle="주문 상세와 배송 조회를 구분해서 확인하세요." back={false}/>{activeHolds.map(h => <Link key={h.id} to={`/checkout/${h.id}`} className="mb-4 block rounded-[4px] bg-[var(--blue-soft)] p-4"><b className="text-[12px]">{h.status === 'pending' ? '결제 결과 확인 중' : '확보한 주문 이어서 결제'}</b><p className="muted mt-2 text-[11px]">{s.products.find(p => p.id === h.productId)?.name} · {h.status === 'pending' ? '결제 완료 여부를 확인해 주세요.' : `${countdown(h.expiresAt, now)} 남음`} ›</p></Link>)}<div className="divider flex justify-between gap-1 pb-2">{tabs.map(t => <button key={t} onClick={() => setTab(t)} className={`border-b-2 py-2 text-[10px] ${tab === t ? 'border-[var(--ink)] font-bold' : 'muted border-transparent'}`}>{t}</button>)}</div>{filtered.map(o => <article key={o.id} className="divider space-y-4 py-5"><div className="flex items-center justify-between"><span className="muted max-w-[235px] truncate text-[10px]">{o.id}</span><Badge live={['shipping', 'delivered'].includes(o.status)}>{ORDER_LABELS[o.status]}</Badge></div><ProductSummary product={o.product} option={o.lines.map(l => `${l.name} ${l.quantity}개`).join(' · ')} amount={o.total}/><div className="grid grid-cols-2 gap-2"><Link className="btn" to={`/orders/${o.id}${['shipping', 'delivered'].includes(o.status) ? '?tracking=1' : ''}`}>{['shipping', 'delivered'].includes(o.status) ? '배송 조회' : '주문 상세'}</Link><Link className="btn btn-outline" to={['shipping', 'delivered'].includes(o.status) ? `/orders/${o.id}` : `/orders/${o.id}/inquiry`}>{['shipping', 'delivered'].includes(o.status) ? '주문 상세' : '판매자 문의'}</Link></div></article>)}{!filtered.length && <Empty title="주문 내역이 없어요"><Link className="btn" to="/">상품 둘러보기</Link></Empty>}</>;
 }
 
 export function OrderDetailPage() {
-  const { id } = useParams(); const [params, setParams] = useSearchParams(); const s = useStore(), user = activeUser(s); const o = s.orders.find(o => o.id === id && o.userId === user.id); const [contact, setContact] = useState(false); const complete = params.has('complete'), tracking = params.has('tracking');
+  const { id } = useParams(); const [params, setParams] = useSearchParams(); const s = useStore(), user = activeUser(s); const o = s.orders.find(o => o.id === id && o.userId === user.id); const navigate = useNavigate(); const complete = params.has('complete'), tracking = params.has('tracking');
   if (!o) return <Empty title="주문을 찾을 수 없어요"><Link to="/orders" className="btn">주문 목록</Link></Empty>;
   const events: [number, string, string][] = [...(o.processedAt ? [[o.processedAt, '배송 완료', o.deliveredPlace ?? '수령 완료'] as [number, string, string]] : []), ...(o.shippedAt ? [[o.shippedAt, '배송 출발', o.carrier ?? ''] as [number, string, string]] : []), [o.createdAt, '상품 발송', '판매자가 상품을 택배사에 전달했어요'], [o.createdAt, '결제 완료', '주문이 확정되었어요']];
   const deliveredDate = o.deliveredAt ? new Date(o.deliveredAt) : null;
@@ -125,32 +125,39 @@ export function OrderDetailPage() {
     <section className="space-y-2"><h3 className="mb-3 text-[15px] font-bold">주문 및 결제 정보</h3>{o.tracking && <><InfoRow label="택배사" value={o.carrier}/><InfoRow label="운송장 번호" value={<span className="inline-flex items-center gap-1">{o.tracking}<CopyButton value={o.tracking}/></span>}/></>}<InfoRow label="상품금액" value={money(o.total - o.shipping)}/><InfoRow label="고정 배송비" value={money(o.shipping)}/><InfoRow label="최종 결제금액" value={money(o.total)} strong/><InfoRow label="결제 방법" value="카드 결제"/></section>
     <section className="divider space-y-3 py-4"><h3 className="text-[15px] font-bold">배송지</h3><p className="text-[12px]">{o.address.name} · {o.address.phone}</p><p className="muted text-[12px] leading-relaxed">{o.address.address}{o.address.detail ? ` ${o.address.detail}` : ''}</p>{o.address.request && <p className="muted text-[12px]">요청사항 · {o.address.request}</p>}</section>
     {!complete && <section><h3 className="mb-3 text-[15px] font-bold">주문 진행 내역</h3>{events.map(([time, title, desc], i) => <div key={i} className="divider flex gap-3 py-3"><PackageCheck size={17} className={i ? 'muted' : 'text-[var(--green)]'}/><div className="min-w-0 flex-1"><div className="flex justify-between gap-2"><b className="text-[12px]">{title}</b><span className="muted text-[10px]">{dateTime(time)}</span></div><p className="muted mt-1 text-[11px]">{desc}</p></div></div>)}</section>}
-    {o.status === 'delivered' && !complete ? <section className="space-y-3 rounded-[4px] bg-[var(--blue-soft)] p-4"><h3 className="text-[13px] font-bold">상품에 문제가 있나요?</h3><p className="muted text-[12px]">구매 확정 전까지 반품·교환을 신청할 수 있어요.</p><p className="muted text-[12px]">단순 변심 반품은 왕복 배송비 3000원이 부과돼요.</p><div className="flex gap-2"><Button outline className="flex-1" onClick={() => setContact(true)}>반품·교환</Button><Button className="flex-1" onClick={() => setContact(true)}>구매 확정</Button></div></section> : <><Note title="상품을 확인해 주세요">취소·반품·하자·오배송은 판매자에게 문의해 주세요. 교환은 지원하지 않습니다.</Note><Button outline className="w-full" onClick={() => setContact(true)}>판매자 문의 · 반품 문의</Button></>}{complete ? <><Link className="btn w-full" to="/">쇼핑 계속하기</Link><Button outline className="w-full" onClick={() => setParams({})}>상세 배송조회</Button></> : <Link className="btn w-full" to="/orders">주문 목록으로</Link>}{contact && <OrderContactModal order={o} onClose={() => setContact(false)}/>}
+    {o.status === 'delivered' && !complete ? <section className="space-y-3 rounded-[4px] bg-[var(--blue-soft)] p-4"><h3 className="text-[13px] font-bold">상품에 문제가 있나요?</h3><p className="muted text-[12px]">구매 확정 전까지 반품·교환을 신청할 수 있어요.</p><p className="muted text-[12px]">단순 변심 반품은 왕복 배송비 3000원이 부과돼요.</p><div className="flex gap-2"><Button outline className="flex-1" onClick={() => navigate(`/orders/${o.id}/inquiry`)}>반품·교환</Button><Button className="flex-1" onClick={() => navigate(`/orders/${o.id}/inquiry`)}>구매 확정</Button></div></section> : <><Note title="상품을 확인해 주세요">취소·반품·하자·오배송은 판매자에게 문의해 주세요. 교환은 지원하지 않습니다.</Note><Button outline className="w-full" onClick={() => navigate(`/orders/${o.id}/inquiry`)}>판매자 문의 · 반품 문의</Button></>}{complete ? <><Link className="btn w-full" to="/">쇼핑 계속하기</Link><Button outline className="w-full" onClick={() => setParams({})}>상세 배송조회</Button></> : <Link className="btn w-full" to="/orders">주문 목록으로</Link>}
   </div>;
 }
-function OrderContactModal({ order, onClose }: { order: Order; onClose: () => void }) {
-  const toast = useToast(); const [kind, setKind] = useState('하자·파손'), [question, setQuestion] = useState(''), [error, setError] = useState('');
-  const kinds = ['하자·파손', '배송 지연', '오배송', '반품', '교환', '기타'];
-  return <Modal title="판매자에게 문의" onClose={onClose}><form className="space-y-4" onSubmit={e => { e.preventDefault(); if (!question.trim()) { setError('문의 내용을 입력해 주세요.'); return; } try { mutate(s => { s.inquiries.unshift({ id: uid('q-'), userId: s.activeUserId, sellerId: order.sellerId, productId: order.productId, orderId: order.id, productName: `${order.product.brand} · ${order.product.name}`, kind, question: question.trim(), public: false, createdAt: nowOf(s) }); }); toast('문의가 판매자에게 전달되었습니다.'); onClose(); } catch (e) { setError((e as Error).message); } }}>
-    {/* 상품 요약 — Figma: 브랜드 · 상품명 · 수량, 주문번호 */}
-    <div className="rounded-[6px] bg-[var(--soft)] p-3 space-y-0.5">
-      <p className="text-[13px] font-semibold">{order.product.brand}</p>
-      <p className="text-[13px]">{order.product.name} · {order.lines.reduce((n,l)=>n+l.quantity,0)}개</p>
-      <p className="muted text-[11px]">주문번호 {order.id}</p>
-    </div>
-    <div className="space-y-2">
-      <p className="label">문의 유형 <span className="muted text-[10px]">· 필수</span></p>
-      <div className="flex flex-wrap gap-2">{kinds.map(k => <Chip key={k} selected={kind === k} onClick={() => setKind(k)}>{k}</Chip>)}</div>
-    </div>
-    <Field label="문의 내용"><textarea aria-label="문의 내용" className="field field-box" value={question} onChange={e => setQuestion(e.target.value)} maxLength={1000} placeholder="문의 내용을 입력해 주세요" required/><p className="muted mt-1 text-right text-[10px]">{question.length} / 1000</p></Field>
-    <p className="muted text-[11px]">사진 첨부 <span className="text-[10px]">· 선택 · 최대 5장</span></p>
-    <p className="muted text-[10px] leading-relaxed">하자·오배송은 사진이 있으면 더 빠르게 처리돼요</p>
-    <p className="muted text-[10px] leading-relaxed">판매자는 영업일 기준 1일 안에 답변해요.<br/>2영업일 안에 답변이 없으면 StockDrop이 직접 확인하고 연락드려요.</p>
+/** 판매자에게 문의 — Figma "문의" (전체 화면) */
+const INQUIRY_KINDS = ['하자·파손', '배송 지연', '오배송', '반품', '교환', '기타'];
+export function OrderInquiryPage() {
+  const { id } = useParams(); const s = useStore(), user = activeUser(s), navigate = useNavigate(), toast = useToast();
+  const order = s.orders.find(o => o.id === id && o.userId === user.id);
+  const [kind, setKind] = useState('하자·파손'), [question, setQuestion] = useState(''), [images, setImages] = useState<string[]>([]), [error, setError] = useState(''), [busy, setBusy] = useState(false);
+  if (!order) return <Empty title="주문을 찾을 수 없어요"><Link to="/orders" className="btn">주문 목록</Link></Empty>;
+  const quantity = order.lines.reduce((n, l) => n + l.quantity, 0);
+  async function attach(files: FileList | null) { if (!files?.length) return; try { if (images.length + files.length > 5) throw new Error('사진은 최대 5장까지 첨부할 수 있어요.'); const added = await Promise.all([...files].map(imageData)); setImages([...images, ...added]); } catch (e) { setError((e as Error).message); } }
+  function submit() {
+    if (!question.trim()) { setError('문의 내용을 입력해 주세요.'); return; }
+    setBusy(true);
+    try {
+      const inquiryId = uid('q-');
+      mutate(st => { st.inquiries.unshift({ id: inquiryId, userId: st.activeUserId, sellerId: order!.sellerId, productId: order!.productId, orderId: order!.id, productName: `${order!.product.brand} · ${order!.product.name}`, quantity, kind, question: question.trim(), images, public: false, createdAt: nowOf(st) }); });
+      toast('문의가 판매자에게 전달되었습니다.'); navigate(`/inquiries/${inquiryId}`, { replace: true });
+    } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  }
+  const label = (text: string, hint: string) => <p className="mb-2.5 text-[13px] font-bold">{text}<span className="ml-1.5 text-[11px] font-normal text-[var(--meta)]">{hint}</span></p>;
+  return <form className="space-y-7 pb-4" onSubmit={e => { e.preventDefault(); submit(); }}>
+    <Header title="판매자에게 문의" bare/>
+    <div className="-mt-2 flex items-center gap-3 rounded-[6px] bg-[var(--soft)] p-3.5"><ProductImage src={order.product.image} alt={order.product.name} className="h-12 w-12 shrink-0"/><div className="min-w-0 space-y-0.5"><p className="text-[11px] font-bold text-[var(--meta)]">{order.product.brand}</p><p className="text-[14px]">{order.product.name} · {quantity}개</p><p className="text-[12px] text-[var(--meta)]">주문번호 {order.id}</p></div></div>
+    <div>{label('문의 유형', '· 필수')}<label className="relative block"><select aria-label="문의 유형" value={kind} onChange={e => setKind(e.target.value)} className="h-12 w-full appearance-none rounded-[6px] border border-[var(--line)] bg-[var(--surface)] px-4 text-[14px] outline-none">{INQUIRY_KINDS.map(k => <option key={k}>{k}</option>)}</select><ChevronDown size={18} className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-[var(--muted)]"/></label></div>
+    <div>{label('문의 내용', '· 필수')}<div className="rounded-[6px] border border-[var(--line)] p-4"><textarea aria-label="문의 내용" className="h-[84px] w-full resize-none bg-transparent text-[14px] leading-[1.7] outline-none" value={question} onChange={e => { setError(''); setQuestion(e.target.value.slice(0, 1000)); }}/><p className="text-right text-[11px] text-[var(--meta)]">{question.length} / 1000</p></div></div>
+    <div>{label('사진 첨부', '· 선택 · 최대 5장')}<div className="flex gap-2 overflow-x-auto"><label className="flex h-[72px] w-[72px] shrink-0 cursor-pointer flex-col items-center justify-center gap-1 rounded-[6px] border border-[var(--border)]"><Camera size={18}/><span className="text-[11px] text-[var(--meta)]">{images.length}/5</span><input aria-label="사진 첨부" type="file" accept="image/jpeg,image/png,image/webp" multiple className="sr-only" disabled={images.length >= 5} onChange={e => { void attach(e.target.files); e.target.value = ''; }}/></label>{images.map((src, i) => <button type="button" key={i} aria-label={`사진 ${i + 1} 삭제`} onClick={() => setImages(images.filter((_, j) => j !== i))}><ProductImage src={src} alt={`첨부 사진 ${i + 1}`} className="h-[72px] w-[72px]"/></button>)}</div><p className="mt-3 text-[12px] text-[var(--meta)]">하자·오배송은 사진이 있으면 더 빠르게 처리돼요</p></div>
+    <div className="flex gap-2 rounded-[6px] bg-[var(--soft)] p-4"><Info size={15} className="mt-[2px] shrink-0 text-[var(--aux)]"/><p className="text-[12px] leading-[1.5] text-[var(--aux)]">판매자는 영업일 기준 1일 안에 답변해요.<br/>2영업일 안에 답변이 없으면 StockDrop이<br/>직접 확인하고 연락드려요.</p></div>
     <ErrorBox message={error}/>
-    <Button type="submit" className="w-full">문의 보내기</Button>
-  </form></Modal>;
+    <Button type="submit" className="w-full text-[15px]!" disabled={busy}>문의 보내기</Button>
+  </form>;
 }
-
 
 export function CalendarPage() {
   const s = useStore(), now = useClock();

@@ -650,7 +650,7 @@ export function SupportPage() {
                 <p className="text-[12px] text-[#949494]">10.24 결제 · {money(recentOrder.total)}</p>
               </div>
             </div>
-            <Link to={`/orders/${recentOrder.id}`} className="flex w-full items-center justify-center gap-2 rounded-[6px] bg-[var(--soft)] py-2.5 text-[13px] font-bold">
+            <Link to={`/orders/${recentOrder.id}/inquiry`} className="flex w-full items-center justify-center gap-2 rounded-[6px] bg-[var(--soft)] py-2.5 text-[13px] font-bold">
               이 주문 판매자에게 문의
             </Link>
           </div>
@@ -903,7 +903,7 @@ export function InquiryDetailPage() {
       <div className="space-y-0.5">
         {q.productName.includes(' · ') ? <>
           <p className="text-[15px] font-bold">{q.productName.split(' · ')[0]}</p>
-          <p className="text-[13px]">{q.productName.split(' · ').slice(1).join(' · ')}</p>
+          <p className="text-[13px]">{q.productName.split(' · ').slice(1).join(' · ')}{q.quantity ? ` · ${q.quantity}개` : ''}</p>
         </> : <p className="text-[15px] font-bold">{q.productName}</p>}
         {q.orderId && <p className="muted text-[12px]">주문번호 {q.orderId}</p>}
       </div>

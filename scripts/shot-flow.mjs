@@ -96,6 +96,9 @@ const FLOWS = {
       url: '/#/reset-password/new?email=buyer%40example.com',
       state: withChallenge(loggedOutState(), 'buyer@example.com', 'reset', true) },
   ],
+  '05': () => [
+    { name: '01-order-inquiry',      url: '/#/orders/SD-2026-001/inquiry',      state: null },
+  ],
   '04': (now) => [
     { name: '01-address-manage',     url: '/#/addresses',                       state: loggedInState(now) },
     { name: '02-address-edit',       url: '/#/addresses/addr-home/edit',        state: loggedInState(now) },
@@ -114,10 +117,12 @@ fs.mkdirSync(outDir, { recursive: true });
 
 const browser = await chromium.launch();
 
-for (const { name, url, state, setup } of screens) {
+for (const { name, url, state, setup, clock } of screens) {
   const ctx = await browser.newContext({ viewport: VIEWPORT });
   const page = await ctx.newPage();
-  await page.addInitScript((s) => { localStorage.setItem('stockdrop:v1', JSON.stringify(s)); }, state);
+  // state: null → 앱 기본 목업(seedState) 사용. clock → 해당 시각으로 브라우저 시계 고정 후 진행
+  if (clock) await page.clock.install({ time: clock });
+  if (state) await page.addInitScript((s) => { localStorage.setItem('stockdrop:v1', JSON.stringify(s)); }, state);
   await page.goto(BASE + url);
   await page.waitForTimeout(1500);
   if (setup) await setup(page);
