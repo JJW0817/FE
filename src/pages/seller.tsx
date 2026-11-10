@@ -453,11 +453,12 @@ export function SellerSettingsPage() {
           <p className="muted text-[12px]">lomfield_biz.pdf · 2026.05.02 업로드</p>
           <button type="button" className="muted text-[12px] underline">보기</button>
         </div>
-        <div className="rounded-[6px] bg-[var(--canvas)] p-4 space-y-2">
-          <InfoRow label="상호" value="로엠필드 (LOMFIELD)"/>
-          <InfoRow label="사업자등록번호" value="214-87-*****"/>
-          <InfoRow label="대표자" value="김서윤"/>
-        </div>
+        {form.business && <div className="rounded-[6px] bg-[var(--canvas)] p-4 space-y-2">
+          {form.business.name && <InfoRow label="상호" value={form.business.name}/>}
+          {form.business.registrationNumber && <InfoRow label="사업자등록번호" value={form.business.registrationNumber}/>}
+          {form.business.representative && <InfoRow label="대표자" value={form.business.representative}/>}
+          {form.business.businessType && <InfoRow label="업태 · 종목" value={form.business.businessType}/>}
+        </div>}
         <Note>사업자 정보 변경은 고객지원으로 요청해 주세요.</Note>
       </section>
       <div className="h-2 -mx-4 bg-[var(--canvas)]"/>

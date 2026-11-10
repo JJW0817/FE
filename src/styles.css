@@ -27,6 +27,7 @@
   --positive-soft: #EEF8F3;
   --action: #EF6253;
   --soft: #F5F5F5;
+  --urgent: #E5484D;
   --soft-btn: #EEEEEE;
 }
 @layer base {

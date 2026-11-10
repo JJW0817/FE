@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
-import { ArrowLeft, X, Home, CalendarDays, Package, UserRound, LayoutDashboard, Shirt, MessageSquare, ClipboardList, ChevronRight, Info, Copy } from 'lucide-react';
+import { ArrowLeft, Bell, Timer, X, Home, CalendarDays, Package, UserRound, LayoutDashboard, Shirt, MessageSquare, ClipboardList, ChevronRight, Info, Copy } from 'lucide-react';
 import type { Product, Order } from '../domain';
 import { money, saleState } from '../domain';
 const ToastContext = createContext<(message: string) => void>(() => {});
@@ -25,25 +25,39 @@ export function InfoRow({ label, value, strong = false }: { label: string; value
 export function MenuRow({ label, to, children }: { label: string; to: string; children?: ReactNode }) { return <Link to={to} className="divider flex min-h-[52px] items-center gap-3"><span className="min-w-0 flex-1 text-[13px]">{label}</span>{children}<ChevronRight size={17} className="muted"/></Link>; }
 export function ProductImage({ src, alt, className = '' }: { src: string; alt: string; className?: string }) { return <img src={typeof src === 'string' && src.startsWith('/images/') ? `.${src}` : src || './images/generated.png'} alt={alt} className={`block rounded-[4px] bg-[var(--blue-soft)] object-cover ${className}`} loading="lazy"/>; }
 export function ProductSummary({ product, option, amount }: { product: { name: string; brand: string; image: string }; option?: ReactNode; amount?: number }) { return <div className="divider flex items-center gap-3 pb-4"><ProductImage src={product.image} alt={product.name} className="h-[86px] w-[76px] shrink-0"/><div className="min-w-0 flex-1 space-y-1.5"><p className="muted text-[10px]">{product.brand}</p><p className="text-[14px] font-semibold">{product.name}</p>{option && <div className="muted whitespace-pre-line text-[11px] leading-relaxed">{option}</div>}{amount !== undefined && <p className="font-number text-[14px] font-bold">{money(amount)}</p>}</div></div>; }
-export function ProductCard({ product, now, availableCount }: { product: Product; now: number; availableCount?: number }) {
-  const status = saleState(product, now);
-  const totalStock = product.options.reduce((n, o) => n + o.stock, 0);
-  const soldOut = availableCount === 0 && status === '판매 중';
-  const pct = availableCount !== undefined && totalStock > 0 ? Math.min(100, Math.max(0, (1 - availableCount / totalStock) * 100)) : null;
-  const seconds = Math.max(0, Math.floor(((status === '판매 중' ? product.endsAt : product.startsAt) - now) / 1000));
-  const h = Math.floor(seconds / 3600), m = Math.floor(seconds % 3600 / 60), s = seconds % 60;
-  const timer = [h, m, s].map(n => String(n).padStart(2, '0')).join(':');
-  return <Link to={`/product/${product.id}`} className="min-w-0 space-y-1.5">
+/** 판매 시작 알림 신청 목록 (Notification 연동 전 로컬 저장) */
+const NOTIFY_KEY = 'stockdrop:notified-products';
+export function readNotified(): string[] { try { const v = JSON.parse(localStorage.getItem(NOTIFY_KEY) || 'null'); return Array.isArray(v) ? v : ['basket']; } catch { return []; } }
+export function useNotified() {
+  const [ids, setIds] = useState<string[]>(readNotified);
+  const toggle = (id: string) => setIds(prev => { const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]; try { localStorage.setItem(NOTIFY_KEY, JSON.stringify(next)); } catch { /* 저장 차단 시 화면 상태만 유지 */ } return next; });
+  return [ids, toggle] as const;
+}
+const pad = (n: number) => String(n).padStart(2, '0');
+export const clockLeft = (ms: number) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${pad(Math.floor(s / 3600))}:${pad(Math.floor(s % 3600 / 60))}:${pad(s % 60)}`; };
+export const openLabel = (t: number, now: number) => { const d = new Date(t), n = new Date(now); const same = d.toDateString() === n.toDateString(); return `${same ? '오늘' : `${d.getMonth() + 1}월 ${d.getDate()}일`} ${pad(d.getHours())}:${pad(d.getMinutes())} 오픈`; };
+export const soldOutLabel = (p: Product) => { if (!p.soldOutAt) return '판매 종료'; const m = Math.max(1, Math.round((p.soldOutAt - p.startsAt) / 60_000)); return `${m >= 60 ? `${Math.floor(m / 60)}시간 ${m % 60}분` : `${m}분`} 만에 완판됐어요`; };
+export function ProductCard({ product: p, now, availableCount, notified, onNotify }: { product: Product; now: number; availableCount?: number; notified?: boolean; onNotify?: () => void }) {
+  const status = saleState(p, now);
+  const total = p.options.reduce((n, o) => n + o.stock, 0), left = availableCount ?? total;
+  const soldOut = (status === '판매 중' && availableCount === 0) || (status === '판매 종료' && !!p.soldOutAt);
+  const urgent = status === '판매 중' && !soldOut && p.endsAt - now <= 3_600_000;
+  const pct = total ? Math.min(100, Math.max(0, (1 - left / total) * 100)) : 0;
+  return <Link to={`/product/${p.id}`} className="block min-w-0">
     <div className="relative">
-      <ProductImage src={product.images[0]} alt={product.name} className="aspect-square w-full"/>
-      {soldOut && <div className="absolute inset-0 flex items-center justify-center rounded-[4px] bg-black/50"><span className="text-[13px] font-black tracking-widest text-white">SOLD OUT</span></div>}
-      {(status === '판매 중' || status === '판매 예정') && <div className="absolute bottom-1.5 right-1.5 rounded-[3px] bg-black/60 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-white">{timer}</div>}
+      <ProductImage src={p.images[0]} alt={p.name} className={`aspect-square w-full ${soldOut ? 'opacity-50' : ''}`}/>
+      {status === '판매 중' && !soldOut && <span className="absolute left-2 top-2 flex items-center gap-1 rounded-[4px] bg-black/75 px-1.5 py-1 text-[11px] font-bold tabular-nums text-white"><Timer size={12}/>{clockLeft(p.endsAt - now)}</span>}
+      {status === '판매 예정' && <span className="absolute left-2 top-2 flex items-center gap-1 rounded-[4px] bg-black/75 px-1.5 py-1 text-[11px] font-bold text-white"><Bell size={12}/>{openLabel(p.startsAt, now)}</span>}
+      {urgent && <span className="absolute bottom-2 left-2 rounded-[4px] bg-[var(--urgent)] px-1.5 py-1 text-[11px] font-bold text-white">마감 임박</span>}
+      {soldOut && <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-[4px] bg-[#333333] px-3 py-1.5 text-[12px] font-bold text-white">SOLD OUT</span>}
     </div>
-    <p className="mt-2 text-[10px] font-bold">{product.brand}</p>
-    <h3 className="text-[13px] leading-[1.6]">{product.name}</h3>
-    <p className="font-number text-[14px] font-bold">{money(product.price)}</p>
-    {pct !== null && <div className="h-1 w-full rounded-full bg-[var(--line)]"><div className="h-1 rounded-full bg-[var(--red)] transition-all" style={{ width: `${pct}%` }}/></div>}
-    <div className="flex items-center justify-between gap-1"><Badge live={status === '판매 중'}>{status}</Badge>{status === '판매 중' && availableCount !== undefined && <span className="text-[10px] text-[var(--muted)]">{totalStock}개 중 {availableCount}개 남음</span>}</div>
+    <p className="mt-2.5 text-[11px] font-bold text-[var(--aux)]">{p.brand}</p>
+    <h3 className={`mt-0.5 text-[14px] ${soldOut ? 'text-[var(--meta)]' : ''}`}>{p.name}</h3>
+    <p className={`mt-0.5 text-[16px] font-bold ${soldOut ? 'text-[var(--meta)]' : ''}`}>{money(p.price)}</p>
+    {status === '판매 중' && !soldOut && <><div className="mt-2 h-1 w-full rounded-full bg-[var(--line)]"><div className={`h-1 rounded-full ${urgent ? 'bg-[var(--urgent)]' : 'bg-[var(--ink)]'}`} style={{ width: `${pct}%` }}/></div><p className={`mt-1.5 text-[12px] ${urgent ? 'font-bold text-[var(--urgent)]' : 'text-[var(--aux)]'}`}>{urgent ? `서두르세요! ${left}개 남음` : `${total}개 중 ${left}개 남음`}</p></>}
+    {status === '판매 예정' && <><p className="mt-2 text-[12px] text-[var(--aux)]">{total}개 한정 · 1인 {p.maxPerAccount}개</p>{onNotify && <button type="button" onClick={e => { e.preventDefault(); onNotify(); }} className={`mt-2 flex h-8 w-full items-center justify-center gap-1 rounded-[4px] text-[12px] font-bold ${notified ? 'bg-[var(--ink)] text-white' : 'border border-[var(--border)]'}`}><Bell size={13}/>{notified ? '알림 설정됨' : '오픈 알림 받기'}</button>}</>}
+    {soldOut && <p className="mt-2 text-[12px] text-[var(--aux)]">{soldOutLabel(p)}</p>}
+    {status === '판매 종료' && !soldOut && <p className="mt-2 text-[12px] text-[var(--aux)]">판매 종료</p>}
   </Link>;
 }
 export function Progress({ step }: { step: number }) { return <div aria-label={`상품 등록 ${step} / 7단계`} className="mb-5 flex gap-[5px]">{Array.from({ length: 7 }, (_, i) => <div key={i} className={`h-1 flex-1 rounded-[2px] ${i < step ? 'bg-[var(--ink)]' : 'bg-[var(--line)]'}`}/>)}</div>; }

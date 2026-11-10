@@ -313,7 +313,7 @@ export function AdminDetailPage() {
           <div className="w-[150px] rounded-[2px] bg-white p-3 shadow-sm space-y-1.5">
             <p className="text-center text-[10px] font-bold">사업자등록증</p>
             <p className="text-center text-[6px] text-[#949494]">( 일반과세자 )</p>
-            {[['등록번호','214-86-12345'],['상호','나의 상점'],['대표자','김서윤'],['개업연월일','2023년 04월 12일'],['소재지','서울 성동구 성수이로 118'],['업태 · 종목','소매업 · 의류']].map(([k,v]) => (
+            {([['등록번호', app.business?.registrationNumber], ['상호', app.business?.name], ['대표자', app.business?.representative], ['업태 · 종목', app.business?.businessType]] as [string, string | undefined][]).filter(([, v]) => v).map(([k,v]) => (
               <div key={k} className="flex gap-2">
                 <span className="w-[52px] shrink-0 text-[6px] text-[#949494]">{k}</span>
                 <span className="text-[6px]">{v}</span>
@@ -340,6 +340,13 @@ export function AdminDetailPage() {
       {/* 신청 정보 */}
       <h2 className="mb-3 text-[15px] font-bold">신청 정보</h2>
       <div className="mb-6 space-y-4 border-b border-[var(--line)] pb-4">
+        {app.business && <div className="space-y-2">
+          <p className="text-[11px] font-bold text-[#949494]">사업자</p>
+          {app.business.name && <InfoRow label="상호" value={app.business.name}/>}
+          {app.business.representative && <InfoRow label="대표자" value={app.business.representative}/>}
+          {app.business.registrationNumber && <InfoRow label="등록번호" value={app.business.registrationNumber}/>}
+          {app.business.businessType && <InfoRow label="업태 · 종목" value={app.business.businessType}/>}
+        </div>}
         <div className="space-y-2">
           <p className="text-[11px] font-bold text-[#949494]">판매자</p>
           <InfoRow label="표시 이름" value={app.displayName || `${app.name}의 스토어`}/>

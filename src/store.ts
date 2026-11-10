@@ -4,7 +4,7 @@ import type { State } from './domain';
 const KEY = 'stockdrop:v1';
 const listeners = new Set<() => void>();
 function read(): State | undefined { try { const value = JSON.parse(localStorage.getItem(KEY) || 'null'); if (value?.version === 1 && Array.isArray(value.users) && Array.isArray(value.products) && Array.isArray(value.orders) && value.addresses && value.drafts) { if (!value.auth) { value.auth = initialAuth(); value.activeUserId = ''; value.mode = 'buyer'; } return value as State; } } catch { /* Recover invalid local data without preventing access. */ } }
-let current = read() ?? seedState();
+let current = read() ?? seedState(Date.now(), true);
 try { localStorage.setItem(KEY, JSON.stringify(current)); } catch { /* A later write reports storage restrictions. */ }
 export const getState = () => current;
 export function mutate<T>(fn: (state: State) => T): T {
@@ -20,7 +20,7 @@ export async function atomic<T>(fn: (state: State) => T): Promise<T> {
 }
 export function useStore() { return useSyncExternalStore(listener => { listeners.add(listener); return () => { listeners.delete(listener); }; }, getState, getState); }
 export function resetStore() {
-  const next = seedState(); localStorage.setItem(KEY, JSON.stringify(next)); current = next; listeners.forEach(l => l());
+  const next = seedState(Date.now(), true); localStorage.setItem(KEY, JSON.stringify(next)); current = next; listeners.forEach(l => l());
 }
-window.addEventListener('storage', event => { if (event.key === KEY) { current = read() ?? seedState(); listeners.forEach(l => l()); } });
+window.addEventListener('storage', event => { if (event.key === KEY) { current = read() ?? seedState(Date.now(), true); listeners.forEach(l => l()); } });
 export function sweep() { const now = nowOf(current); if (current.holds.some(h => h.status === 'reserved' && h.expiresAt <= now)) mutate(s => { expireHolds(s, now); }); }

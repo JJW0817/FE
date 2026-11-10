@@ -116,6 +116,23 @@ const FLOWS = {
       { name: '05-edit',             url: '/#/seller/new?edit=notebook', full: true, prepare: asSeller(s => { const p = s.products.find(p => p.id === 'notebook'); Object.assign(p, knit, { startsAt: tue.getTime(), endsAt: tue.getTime() + 10800000, maxPerAccount: 1, notifySubscribers: 12, reference, dimensions: [{ name: '색상', values: '차콜, 오트밀' }, { name: '사이즈', values: 'S, M, L, XL' }], options }); delete s.drafts.seller; }) },
     ];
   },
+  '02': (now) => {
+    const at = (h, m) => { const t = new Date(now); t.setHours(h, m, 0, 0); return t; };
+    return [
+      { name: '01-schedule',          url: '/#/schedule',            clock: at(22, 8), state: null },
+      { name: '02-sold-out',          url: '/#/product/basket',      clock: at(15, 0), state: null, full: true },
+    ];
+  },
+  '03': () => [
+    { name: '01-orders',              url: '/#/orders',              state: null, full: true },
+  ],
+  '06': (now) => {
+    const at = (h, m) => { const t = new Date(now); t.setHours(h, m, 0, 0); return t; };
+    return [
+      { name: '01-seller-home',       url: '/#/',                    clock: at(15, 0), full: true, prepare: (s) => { s.activeUserId = 'seller'; s.auth.userId = 'seller'; return s; } },
+      { name: '02-apply',             url: '/#/apply',               state: null, full: true },
+    ];
+  },
   '05': () => [
     { name: '01-order-inquiry',      url: '/#/orders/SD-2026-001/inquiry',      state: null },
   ],
