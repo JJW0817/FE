@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Check, Eye, EyeOff, PackageCheck, Package, Tag, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Bell, Check, Eye, EyeOff, PackageCheck, Package, Tag, ShieldCheck } from 'lucide-react';
 import { Button, ErrorBox, Field, Header, Modal, Note, useToast } from '../components/ui';
 import { mutate, useStore } from '../store';
 import { initialAuth } from '../domain';
@@ -28,10 +28,39 @@ export function LoginPage() {
   return <AuthShell title="로그인"><form className="space-y-6" onSubmit={async e => { e.preventDefault(); if (busy) return; setBusy(true); setError(''); try { await login(email, password); navigate(next, { replace: true }); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }}><Field label="이메일" required><input aria-label="이메일" autoComplete="username" autoCapitalize="none" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="예: stockdrop@example.com" className={inputClass}/></Field><PasswordField value={password} onChange={setPassword} autoComplete="current-password"/><ErrorBox message={error}/><Button type="submit" className="w-full" disabled={busy || !validEmail(email) || !password}>{busy ? '로그인 중…' : '로그인'}</Button></form><div className="mt-5 flex items-center justify-center gap-5 text-[12px]"><Link to={`/signup?next=${encodeURIComponent(next)}`}>이메일 회원가입</Link><span className="text-[var(--line)]">|</span><Link to={`/reset-password?next=${encodeURIComponent(next)}`}>비밀번호 재설정</Link></div><div className="mt-12 border-t border-[var(--line)] pt-6"><p className="muted text-center text-[11px]">하나의 계정으로 구매하고, 승인 후 판매까지.</p><button className="muted mt-5 w-full py-2 text-[12px] underline underline-offset-4" onClick={() => { markOnboarded(); navigate('/'); }}>상품 먼저 둘러보기</button></div></AuthShell>;
 }
 function EmailVerification({ email, setEmail, purpose, onError }: { email: string; setEmail: (v: string) => void; purpose: 'signup' | 'reset'; onError: (v: string) => void }) {
-  const s = useStore(), c = s.auth?.challenges[`${purpose}:${normalizeEmail(email)}`]; const [code, setCode] = useState(''), [busy, setBusy] = useState(false), [now, setNow] = useState(Date.now());
+  const s = useStore(), c = s.auth?.challenges[`${purpose}:${normalizeEmail(email)}`]; const [code, setCode] = useState(''), [busy, setBusy] = useState(false), [now, setNow] = useState(Date.now()), [codeError, setCodeError] = useState('');
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
   const verified = !!c?.verified && c.expiresAt > now, remain = Math.max(0, Math.ceil(((c?.expiresAt ?? now) - now) / 1000)), cooldown = c ? Math.max(0, Math.ceil((c.sentAt + 60000 - now) / 1000)) : 0;
-  return <div className="space-y-5"><Field label="이메일" required><div className="flex items-center gap-3"><input aria-label="이메일" type="email" autoComplete="email" autoCapitalize="none" value={email} onChange={e => { setEmail(e.target.value); setCode(''); onError(''); }} placeholder="가입할 이메일 주소" className={`${inputClass} flex-1`}/><Button outline className="min-h-9! shrink-0 px-3 text-[11px]!" disabled={busy || !validEmail(email) || cooldown > 0 || verified} onClick={async () => { setBusy(true); onError(''); try { await sendCode(email, purpose); setNow(Date.now()); setCode(''); } catch (e) { onError((e as Error).message); } finally { setBusy(false); } }}>{verified ? '인증 완료' : cooldown ? `재요청 ${cooldown}초` : c ? '다시 요청' : '인증번호 요청'}</Button></div></Field>{c && !verified && <Field label="이메일 인증번호" hint={remain ? `남은 시간 ${Math.floor(remain / 60)}:${String(remain % 60).padStart(2, '0')} · 3분간 유효` : '인증 시간이 지났어요. 다시 요청해 주세요.'}><div className="flex items-center gap-3"><input aria-label="이메일 인증번호" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={e => setCode(e.target.value.replace(/\D/g, ''))} placeholder="6자리 인증번호" className={`${inputClass} flex-1`}/><Button outline className="min-h-9! px-4 text-[11px]!" disabled={busy || code.length !== 6 || !remain} onClick={async () => { setBusy(true); onError(''); try { const error = await verifyCode(email, purpose, code); if (error) onError(error); } catch (e) { onError((e as Error).message); } finally { setBusy(false); } }}>확인</Button></div></Field>}{verified && <p role="status" className="flex items-center gap-2 text-[12px] text-[var(--green)]"><ShieldCheck size={15}/>이메일 인증이 완료되었어요.</p>}</div>;
+  const remainLabel = remain ? `${Math.floor(remain / 60).toString().padStart(2, '0')}:${String(remain % 60).padStart(2, '0')}` : '';
+  return <div className="space-y-5">
+    <Field label="이메일" required><div className="flex items-center gap-3"><input aria-label="이메일" type="email" autoComplete="email" autoCapitalize="none" value={email} onChange={e => { setEmail(e.target.value); setCode(''); onError(''); setCodeError(''); }} placeholder="가입할 이메일 주소" className={`${inputClass} flex-1`}/><Button outline className="min-h-9! shrink-0 px-3 text-[11px]!" disabled={busy || !validEmail(email) || cooldown > 0 || verified} onClick={async () => { setBusy(true); onError(''); try { await sendCode(email, purpose); setNow(Date.now()); setCode(''); setCodeError(''); } catch (e) { onError((e as Error).message); } finally { setBusy(false); } }}>{verified ? '인증 완료' : cooldown ? `재요청 ${cooldown}초` : c ? '다시 요청' : '인증번호 요청'}</Button></div></Field>
+    {c && !verified && <>
+      <p className="text-[13px] text-[var(--muted)]">입력하신 이메일로 인증번호를 보냈어요.<br/>{email}</p>
+      <div className="space-y-1">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2"><span className="text-[13px] font-bold">인증번호</span><span className="text-[11px] text-[var(--muted)]">· 필수</span></div>
+          {remainLabel && <span className="text-[12px] font-bold text-[var(--red)]">{remainLabel}</span>}
+        </div>
+        <div className="flex gap-1.5 py-3">
+          {[0,1,2,3,4,5].map(i => <div key={i} className={`flex h-[55px] flex-1 items-center justify-center rounded-[4px] border text-[22px] font-bold ${codeError ? 'border-[var(--red)]' : code.length > i ? 'border-[var(--ink)]' : 'border-[var(--line)]'}`}>{code[i] ?? ''}</div>)}
+        </div>
+        {/* hidden real input for keyboard input */}
+        <input aria-label="이메일 인증번호" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={e => { setCode(e.target.value.replace(/\D/g, '')); setCodeError(''); }} className="sr-only"/>
+        {codeError && <p className="text-[12px] text-[var(--red)]">인증번호가 일치하지 않아요.</p>}
+        {!remain && <p className="text-[12px] text-[var(--muted)]">인증 시간이 지났어요. 다시 요청해 주세요.</p>}
+      </div>
+      <div className="flex items-center justify-between">
+        <span className="text-[12px] text-[var(--muted)]">메일을 받지 못했나요?</span>
+        <Button outline className="min-h-9! px-3 text-[11px]!" disabled={cooldown > 0} onClick={async () => { setBusy(true); onError(''); try { await sendCode(email, purpose); setNow(Date.now()); setCode(''); setCodeError(''); } catch (e) { onError((e as Error).message); } finally { setBusy(false); } }}>{cooldown ? `재전송 (${cooldown}초 후 활성화)` : '재전송'}</Button>
+      </div>
+      <div className="rounded-[4px] bg-[var(--blue-soft)] px-4 py-3 text-[12px] text-[var(--muted)]">
+        인증번호는 3분 동안 유효해요. 메일이 보이지 않으면 스팸함도 확인해 주세요.
+      </div>
+      {/* invisible submit button to allow verify on code complete */}
+      {code.length === 6 && remain > 0 && <Button outline className="w-full" disabled={busy} onClick={async () => { setBusy(true); onError(''); setCodeError(''); try { const error = await verifyCode(email, purpose, code); if (error) { setCodeError(error); onError(error); setCode(''); } } catch (e) { setCodeError((e as Error).message); onError((e as Error).message); } finally { setBusy(false); } }}>인증 확인</Button>}
+    </>}
+    {verified && <p role="status" className="flex items-center gap-2 text-[12px] text-[var(--green)]"><ShieldCheck size={15}/>이메일 인증이 완료되었어요.</p>}
+  </div>;
 }
 export function LegalContent({ kind }: { kind: string }) { return <div className="space-y-5 text-[12px] leading-[1.9]"><p className="text-[10px] font-bold tracking-[1px]">STOCKDROP · {kind === 'privacy' ? 'PRIVACY' : 'TERMS'}</p>{kind === 'privacy' ? <><h2 className="font-bold">개인정보 수집·이용 안내</h2><p>계정 생성과 로그인, 주문·배송, 문의 응대를 위해 이메일·이름·연락처를 이용합니다. 배송지는 주문 시 별도로 입력합니다.</p><p>판매자 신청 시 사업자등록증 PDF, 담당자 정보, 정산·출고·반품 정보를 추가로 수집합니다. 판매자 승인은 제출 서류 검토 후 진행됩니다.</p><p>주문 이행에 필요한 수령인·연락처·배송지는 해당 주문의 판매자에게 제공됩니다. 주문 문의의 개인정보는 공개 FAQ로 게시하지 않습니다.</p><p>수집 목적이 달성되면 정보를 삭제하며, 관련 법령상 보관이 필요한 거래 정보는 해당 기간 보관합니다.</p><p>필수 정보 수집에 동의하지 않을 수 있으나 회원가입과 거래 이용이 제한됩니다.</p></> : <><h2 className="text-[15px] font-bold">서비스 이용 안내</h2><p className="muted">STOCKDROP을 이용하기 전에 꼭 알아두실 내용이에요.</p><div className="grid grid-cols-3 gap-2 rounded-[4px] bg-[var(--blue-soft)] p-4 text-center"><div><p className="font-number text-[20px] font-bold">3시간</p><p className="muted text-[10px]">판매 진행 시간</p></div><div><p className="font-number text-[20px] font-bold">5분</p><p className="muted text-[10px]">확보 후 결제 기한</p></div><div><p className="font-number text-[20px] font-bold">새 상품</p><p className="muted text-[10px]">거래 대상</p></div></div><section className="space-y-4"><h3 className="font-bold">01 {'  '}회원 및 판매자 자격</h3><p>회원은 구매자로 시작하며, 판매는 사업자등록증 PDF 제출 및 운영자 승인 후 가능합니다. 판매자 승인 후에도 구매 권한과 기존 내역은 유지됩니다.</p><h3 className="font-bold">02 {'  '}거래 가능 상품</h3><p>의류·패션잡화·문구·일반 생활잡화의 미판매 새 상품을 거래합니다. 중고·전시·하자 상품과 식품·건강기능식품·화장품·전기제품은 지원하지 않습니다.</p><h3 className="font-bold">03 {'  '}판매 시간과 결제</h3><p>판매는 시작 후 3시간입니다. 옵션 선택만으로 재고가 확보되지 않으며, 구매하기로 확보에 성공한 뒤 5분 안에 결제해야 합니다. 결제 결과 확인 중인 재고는 결과가 확정되기 전 반환되지 않습니다.</p><h3 className="font-bold">04 {'  '}취소 · 반품 · 오배송</h3><p>취소·반품·하자·오배송은 주문 상세에서 판매자에게 문의합니다. 법령상 소비자의 권리는 별도로 보장됩니다.</p><h3 className="font-bold">05 {'  '}배송완료 처리</h3><p>판매자의 수동 배송완료 처리는 구매확정이나 정산 송금을 의미하지 않습니다.</p></section></>}</div>; }
 export function LegalPage() { const [params] = useSearchParams(); const kind = params.get('kind') || 'terms'; return <><Header title={kind === 'privacy' ? '개인정보 수집·이용' : '서비스 이용약관'}/><LegalContent kind={kind}/></>; }
@@ -89,7 +118,7 @@ export function SignupInfoPage() {
           {([['age', '[필수] 만 14세 이상입니다'], ['terms', '[필수] 서비스 이용약관 동의'], ['privacy', '[필수] 개인정보 수집·이용 동의'], ['marketing', '[선택] 혜택 및 마케팅 정보 수신 동의']] as const).map(([key, label]) => <div key={key} className="flex items-center gap-2"><label className="flex min-w-0 flex-1 items-center gap-3 text-[11px]"><input type="checkbox" checked={checks[key]} onChange={e => setChecks({ ...checks, [key]: e.target.checked })} className="h-4 w-4 shrink-0"/>{label}</label>{(key === 'terms' || key === 'privacy') && <button type="button" aria-label={key === 'terms' ? '이용약관 보기' : '개인정보 동의 내용 보기'} onClick={() => setLegal(key)} className="muted p-2 text-[11px] underline">보기</button>}</div>)}
         </fieldset>
         <ErrorBox message={error}/>
-        <Button type="submit" className="w-full" disabled={busy || !verified || !phone || !validPassword(password) || password !== confirmation || !checks.age || !checks.terms || !checks.privacy}>{busy ? '가입 중…' : '동의하고 가입하기'}</Button>
+        <Button type="submit" className="w-full" disabled={busy || !verified || !phone || !validPassword(password) || password !== confirmation || !checks.age || !checks.terms || !checks.privacy}>{busy ? '가입 중…' : '가입하기'}</Button>
       </form>
       {legal && <Modal title={legal === 'terms' ? '서비스 이용약관' : '개인정보 수집·이용'} onClose={() => setLegal('')}><LegalContent kind={legal}/><Button className="mt-6 w-full" onClick={() => setLegal('')}>내용 확인</Button></Modal>}
     </AuthShell>
@@ -134,8 +163,14 @@ export function ResetPasswordNewPage() {
       ) : (
         <form className="space-y-6" onSubmit={async e => { e.preventDefault(); if (busy) return; setError(''); if (password !== confirmation) return setError('비밀번호가 일치하지 않습니다.'); setBusy(true); try { await resetPassword(email, password); setDone(true); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }}>
           <h1 className="text-[22px] font-bold">새 비밀번호를 설정해 주세요.</h1>
+          <p className="text-[13px] text-[var(--muted)]">변경이 끝나면 로그인 화면으로 이동해요.</p>
           <PasswordField label="새 비밀번호" value={password} onChange={setPassword}/>
+          {password && <div className="flex gap-4 text-[12px] font-bold">
+            <span className={password.length >= 8 && password.length <= 32 ? 'text-[var(--green)]' : 'text-[var(--muted)]'} style={{display:'flex',alignItems:'center',gap:4}}><Check size={13} strokeWidth={2}/>8~32자</span>
+            <span className={/[a-zA-Z]/.test(password) && /\d/.test(password) && /[^a-zA-Z0-9]/.test(password) ? 'text-[var(--green)]' : 'text-[var(--muted)]'} style={{display:'flex',alignItems:'center',gap:4}}><Check size={13} strokeWidth={2}/>영문·숫자·특수문자</span>
+          </div>}
           <PasswordField label="새 비밀번호 확인" value={confirmation} onChange={setConfirmation}/>
+          {confirmation && confirmation === password && <p className="text-[12px] text-[var(--green)]">비밀번호가 일치해요.</p>}
           {confirmation && confirmation !== password && <p className="text-[11px] text-[var(--red)]">비밀번호가 일치하지 않아요.</p>}
           <ErrorBox message={error}/>
           <Button type="submit" className="w-full" disabled={busy || !validPassword(password) || password !== confirmation}>{busy ? '변경 중…' : '비밀번호 변경하기'}</Button>
@@ -146,11 +181,25 @@ export function ResetPasswordNewPage() {
 }
 export function CategorySelectionPage() {
   const navigate = useNavigate(); const [params] = useSearchParams(); const next = safeNext(params.get('next'));
-  const CATS = ['의류·패션', '뷰티·헬스', '생활용품', '가전제품', '전자기기', '인테리어·가구', '공구·자재', '식품·음료', '스포츠·레저', '문구·도서', '유아·아동', '기타'];
+  const CATS = ['의류·패션', '생활용품', '전자기기', '가전제품', '인테리어·가구', '공구·자재', '식품·음료', '뷰티·헬스', '스포츠·레저', '문구·도서', '유아·아동', '기타'];
   const [selected, setSelected] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem('stockdrop:categories') || '[]'); } catch { return []; } });
   const toggle = (cat: string) => setSelected(s => s.includes(cat) ? s.filter(c => c !== cat) : [...s, cat]);
   const proceed = (cats: string[]) => { try { localStorage.setItem('stockdrop:categories', JSON.stringify(cats)); } catch {} navigate(`/notifications/settings?next=${encodeURIComponent(next)}`); };
-  return <div className="flex min-h-[calc(100dvh-60px)] flex-col"><header className="flex items-center justify-between py-3"><span className="muted text-[11px]">1 / 2</span><button className="muted py-2 text-[12px]" onClick={() => proceed([])}>건너뛰기</button></header><div className="flex-1 space-y-4 pt-2"><h1 className="text-[24px] font-bold leading-[1.4] tracking-[-0.7px]">관심 카테고리를<br/>선택해주세요</h1><p className="muted text-[12px] leading-relaxed">선택한 카테고리를 기반으로 맞춤 상품과 알림을 보내드려요.<br/>복수 선택이 가능합니다.</p><div className="grid grid-cols-3 gap-2 pt-1">{CATS.map(cat => <button key={cat} onClick={() => toggle(cat)} className={`rounded-[6px] border py-3.5 text-[12px] font-medium transition-colors ${selected.includes(cat) ? 'border-[var(--ink)] bg-[var(--ink)] text-[var(--surface)]' : 'border-[var(--line)] bg-[var(--surface)]'}`}>{cat}</button>)}</div></div><div className="pb-6 pt-4"><Button className="w-full" onClick={() => proceed(selected)} disabled={!selected.length}>{selected.length ? `${selected.length}개 선택 · 다음으로` : '카테고리를 선택해주세요'}</Button></div></div>;
+  return <div className="flex min-h-[calc(100dvh-60px)] flex-col">
+    <header className="flex items-center justify-between py-3">
+      <button className="muted py-2" aria-label="이전 화면" onClick={() => navigate(-1)}><ArrowLeft size={18}/></button>
+      <button className="muted py-2 text-[12px]" onClick={() => proceed([])}>건너뛰기</button>
+    </header>
+    <div className="mb-1 h-[3px] w-full bg-[var(--line)]"><div className="h-[3px] w-1/2 rounded-r-full bg-[var(--ink)]"/></div>
+    <div className="flex justify-end py-2 text-[11px] text-[var(--muted)]"><span className="font-bold text-[var(--ink)]">1</span><span> / 2</span></div>
+    <div className="flex-1 space-y-4 pt-2">
+      <h1 className="text-[20px] font-bold leading-[1.4] tracking-[-0.5px]">관심 카테고리를 선택해주세요</h1>
+      <p className="text-[13px] text-[var(--muted)]">선택한 카테고리를 기반으로 맞춤 상품과 알림을 보내드려요.<br/>복수 선택이 가능합니다.</p>
+      <div className="h-[1px] bg-[var(--line)]"/>
+      <div className="grid grid-cols-2 gap-2 pt-1">{CATS.map(cat => { const on = selected.includes(cat); return <button key={cat} onClick={() => toggle(cat)} className={`relative flex items-center justify-between rounded-[10px] border px-4 py-[17px] text-[14px] transition-colors ${on ? 'border-[#858585] bg-[#EBEBEB] font-bold' : 'border-[var(--line)] bg-[var(--surface)]'}`}>{cat}{on && <Check size={16} className="shrink-0 rounded-full bg-[var(--ink)] p-[2px] text-[var(--surface)]"/>}</button>; })}</div>
+    </div>
+    <div className="pb-6 pt-4"><Button className="w-full" onClick={() => proceed(selected)} disabled={!selected.length}>{selected.length ? `${selected.length}개 선택 · 다음으로` : '카테고리를 선택해주세요'}</Button></div>
+  </div>;
 }
 export function NotificationSettingsPage() {
   const navigate = useNavigate(); const [params] = useSearchParams(); const next = safeNext(params.get('next'));
@@ -169,6 +218,33 @@ export function NotificationSettingsPage() {
     apiPut('/accounts/me/marketing-consent', { marketingConsent: marketing }).catch(() => {});
     navigate(next, { replace: true });
   };
-  return <div className="flex min-h-[calc(100dvh-60px)] flex-col"><header className="flex items-center justify-between py-3"><button className="muted py-2 text-[12px]" onClick={() => navigate(-1)}><ArrowLeft size={16} className="inline mr-1"/>이전</button><span className="muted text-[11px]">2 / 2</span><button className="muted py-2 text-[12px]" onClick={proceed}>건너뛰기</button></header><div className="flex-1 space-y-5 pt-2"><div><h1 className="text-[24px] font-bold leading-[1.4] tracking-[-0.7px]">나에게 딱 맞는<br/>알림을 받아보세요</h1><p className="muted mt-2 text-[12px] leading-relaxed">구매 이력을 분석해 꼭 필요한 판매 알림만 보내드려요.</p></div><div className="rounded-[6px] border border-[var(--line)] p-4 space-y-3"><div className="flex items-center justify-between"><div><p className="text-[13px] font-semibold">푸시 알림</p><p className="muted text-[11px]">{pushState === 'granted' ? '허용됨 · 알림을 받을 수 있어요' : pushState === 'denied' ? '차단됨 · 브라우저 설정에서 허용해 주세요' : '알림을 받으려면 허용해 주세요'}</p></div><Button outline disabled={pushState === 'granted' || pushState === 'denied' || pushState === 'busy'} onClick={allowPush} className="shrink-0 !py-1.5 !text-[11px]">{pushState === 'granted' ? '허용됨' : pushState === 'denied' ? '차단됨' : pushState === 'busy' ? '요청 중…' : '허용하기'}</Button></div>{pushToken && <p className="break-all rounded bg-[var(--blue-soft)] p-2 text-[9px] select-all">{pushToken}</p>}</div><div>{NOTIFS.map(n => <div key={n.id} className="divider flex items-center justify-between gap-4 py-4"><div className="flex-1"><p className="text-[13px] font-semibold">{n.title}</p><p className="muted mt-0.5 text-[11px]">{n.desc}</p></div><button role="switch" aria-checked={!!enabled[n.id]} onClick={() => toggle(n.id)} className={`relative h-[26px] w-[46px] shrink-0 rounded-full transition-colors ${enabled[n.id] ? 'bg-[var(--ink)]' : 'bg-[var(--line)]'}`}><span className={`absolute top-[3px] h-5 w-5 rounded-full bg-white shadow-sm transition-all ${enabled[n.id] ? 'left-[23px]' : 'left-[3px]'}`}/></button></div>)}</div><label className="flex items-start gap-3 rounded-[6px] bg-[var(--blue-soft)] p-4 text-[11px]"><input type="checkbox" checked={marketing} onChange={e => setMarketing(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0"/><div><p className="font-semibold">광고성 정보 수신 동의 (선택)</p><p className="muted mt-1 leading-relaxed">개인 맞춤 알림 서비스를 위해 마케팅 정보 수신에 동의합니다.</p></div></label></div><div className="pb-6 pt-4"><Button className="w-full" onClick={proceed}>알림 받기 시작</Button></div></div>;
+  return <div className="flex min-h-[calc(100dvh-60px)] flex-col">
+    <header className="flex items-center justify-between py-3">
+      <button className="muted" aria-label="이전 화면" onClick={() => navigate(-1)}><ArrowLeft size={18}/></button>
+      <span className="text-[17px] font-bold">알림 설정</span>
+      <button className="muted py-2 text-[13px]" onClick={proceed}>건너뛰기</button>
+    </header>
+    <div className="mb-1 h-[3px] w-full bg-[var(--line)]"><div className="h-[3px] w-full rounded-r-full bg-[var(--ink)]"/></div>
+    <div className="flex justify-end py-2 text-[11px] text-[var(--muted)]"><span className="font-bold text-[var(--ink)]">2</span><span> / 2</span></div>
+    <div className="flex-1 space-y-5 pt-2">
+      <div className="flex flex-col items-center gap-3 py-6">
+        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--line)]"><Bell size={22} strokeWidth={1.5}/></div>
+        <h1 className="text-[16px] font-bold">나에게 딱 맞는 알림을 받아보세요</h1>
+        <p className="text-center text-[12px] text-[var(--muted)]">구매 이력을 분석해 꼭 필요한 판매 알림만 보내드려요.</p>
+      </div>
+      <div className="h-[1px] bg-[var(--line)]"/>
+      <div>{NOTIFS.map(n => <div key={n.id} className="divider flex items-center justify-between gap-4 py-4">
+        <div className="flex-1"><p className="text-[14px] font-bold">{n.title}</p><p className="muted mt-0.5 text-[12px]">{n.desc}</p></div>
+        <button role="switch" aria-checked={!!enabled[n.id]} onClick={() => toggle(n.id)} className={`relative h-[28px] w-[48px] shrink-0 rounded-full transition-colors ${enabled[n.id] ? 'bg-[var(--ink)]' : 'bg-[var(--line)]'}`}><span className={`absolute top-[3px] h-[22px] w-[22px] rounded-full bg-white shadow-sm transition-all ${enabled[n.id] ? 'left-[23px]' : 'left-[3px]'}`}/></button>
+      </div>)}</div>
+      <div className="h-[1px] bg-[var(--line)]"/>
+      <label className="flex items-start gap-3 rounded-[6px] bg-[#FBFBFB] p-4 text-[13px] font-bold">
+        <input type="checkbox" checked={marketing} onChange={e => setMarketing(e.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 rounded-[4px]"/>
+        <div><p>광고성 정보 수신 동의 (선택)</p><p className="muted mt-1 text-[11px] font-normal leading-relaxed">개인 맞춤 알림 서비스를 위해 마케팅 정보 수신에 동의합니다.</p></div>
+      </label>
+      {pushToken && <p className="break-all rounded bg-[var(--blue-soft)] p-2 text-[9px] select-all">{pushToken}</p>}
+    </div>
+    <div className="pb-6 pt-4"><Button className="w-full" onClick={proceed}>알림 받기 시작</Button></div>
+  </div>;
 }
 export function LogoutButton() { const [open, setOpen] = useState(false), [busy, setBusy] = useState(false), navigate = useNavigate(), toast = useToast(); return <><button className="muted py-4 text-[12px] underline underline-offset-4" onClick={() => setOpen(true)}>로그아웃</button>{open && <Modal title="로그아웃할까요?" onClose={() => setOpen(false)}><Note>주문과 신청 내역은 유지됩니다. 진행 중인 재고 확보 시간은 로그아웃해도 멈추거나 연장되지 않습니다.</Note><div className="mt-6 flex gap-3"><Button outline className="flex-1" onClick={() => setOpen(false)}>취소</Button><Button className="flex-1" disabled={busy} onClick={async () => { setBusy(true); await logout(); navigate('/', { replace: true }); toast('로그아웃했습니다.'); }}>로그아웃하기</Button></div></Modal>}</>; }

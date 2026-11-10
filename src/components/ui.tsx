@@ -43,7 +43,7 @@ export function ProductCard({ product, now, availableCount }: { product: Product
     <h3 className="text-[13px] leading-[1.6]">{product.name}</h3>
     <p className="font-number text-[14px] font-bold">{money(product.price)}</p>
     {pct !== null && <div className="h-1 w-full rounded-full bg-[var(--line)]"><div className="h-1 rounded-full bg-[var(--red)] transition-all" style={{ width: `${pct}%` }}/></div>}
-    <div className="flex items-center justify-between gap-1"><Badge live={status === '판매 중'}>{status}</Badge>{status === '판매 중' && availableCount !== undefined && <span className="text-[10px] text-[var(--red)]">{availableCount}개 남음</span>}</div>
+    <div className="flex items-center justify-between gap-1"><Badge live={status === '판매 중'}>{status}</Badge>{status === '판매 중' && availableCount !== undefined && <span className="text-[10px] text-[var(--muted)]">{totalStock}개 중 {availableCount}개 남음</span>}</div>
   </Link>;
 }
 export function Progress({ step }: { step: number }) { return <div aria-label={`상품 등록 ${step} / 7단계`} className="mb-5 flex gap-[5px]">{Array.from({ length: 7 }, (_, i) => <div key={i} className={`h-1 flex-1 rounded-[2px] ${i < step ? 'bg-[var(--ink)]' : 'bg-[var(--line)]'}`}/>)}</div>; }
