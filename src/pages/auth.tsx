@@ -121,7 +121,7 @@ export function SignupInfoPage() {
     </AuthShell>
   );
 }
-export function SignupDonePage() { const s = useStore(), next = useNext(); if (!signedIn(s)) return <Navigate to="/login" replace/>; const user = s.users.find(u => u.id === s.activeUserId)!; return <div className="flex min-h-[calc(100dvh-60px)] flex-col"><Wordmark/><div className="flex flex-1 flex-col justify-center py-12"><Check size={38} strokeWidth={1.5}/><p className="mt-7 text-[10px] font-bold tracking-[2px]">WELCOME TO STOCKDROP</p><h1 className="mt-4 break-words text-[30px] font-bold leading-[1.5] tracking-[-1px]">{user.name}님,<br/>가입을 환영해요.</h1><p className="muted mt-4 text-[12px] leading-[1.9]">지금부터 3시간 한정 드롭에<br/>바로 참여할 수 있어요.</p></div><div className="space-y-3 pb-6"><Link className="btn w-full" to={`/categories?next=${encodeURIComponent(next)}`}>상품 둘러보기</Link><Link className="btn btn-outline w-full" to="/apply">판매자 입점 신청</Link><p className="muted text-center text-[10px]">입점 신청만으로 판매 권한이 추가되지는 않습니다.</p></div></div>; }
+export function SignupDonePage() { const s = useStore(), next = useNext(); if (!signedIn(s)) return <Navigate to="/login" replace/>; const user = s.users.find(u => u.id === s.activeUserId)!; return <div className="flex min-h-[calc(100dvh-60px)] flex-col"><Wordmark/><div className="flex flex-1 flex-col justify-center py-12"><Check size={38} strokeWidth={1.5}/><p className="mt-7 text-[10px] font-bold tracking-[2px]">WELCOME TO STOCKDROP</p><h1 className="mt-4 break-words text-[30px] font-bold leading-[1.5] tracking-[-1px]">{user.name}님,<br/>가입을 환영해요</h1><p className="muted mt-4 text-[12px] leading-[1.9]">지금부터 3시간 한정 드롭에<br/>바로 참여할 수 있어요.</p></div><div className="space-y-3 pb-6"><Link className="btn w-full" to={`/categories?next=${encodeURIComponent(next)}`}>상품 둘러보기</Link><Link className="btn btn-outline w-full" to="/apply">판매자 입점 신청</Link><p className="muted text-center text-[10px]">입점 신청만으로 판매 권한이 추가되지는 않습니다.</p></div></div>; }
 /** 비밀번호 재설정 1단계: 이메일 인증 → /reset-password/new 로 이동 */
 export function ResetPasswordPage() {
   const next = useNext(), navigate = useNavigate();
@@ -129,12 +129,12 @@ export function ResetPasswordPage() {
   const authNow = useAuthNow(), s = useStore(), c = s.auth?.challenges[`reset:${normalizeEmail(email)}`], verified = !!c?.verified && c.expiresAt > authNow;
   return (
     <AuthShell title="비밀번호 재설정" onBack={() => navigate(`/login?next=${encodeURIComponent(next)}`)}>
-      <h1 className="text-[22px] font-bold">가입한 이메일을 확인해요</h1>
+      <h1 className="text-[22px] font-bold">가입한 이메일을 확인해요.</h1>
       <p className="mb-7 mt-2 text-[13px] text-[var(--muted)]">인증이 끝나면 새 비밀번호를 설정할 수 있어요.</p>
       <div className="space-y-6">
         <EmailVerification email={email} setEmail={setEmail} purpose="reset" onError={setError}/>
         <ErrorBox message={error}/>
-        <Button className="w-full" disabled={!verified} onClick={() => navigate(`/reset-password/new?email=${encodeURIComponent(email)}&next=${encodeURIComponent(next)}`)}>다음 · 새 비밀번호 설정</Button>
+        <Button className="w-full" disabled={!verified} onClick={() => navigate(`/reset-password/new?email=${encodeURIComponent(email)}&next=${encodeURIComponent(next)}`)}>비밀번호 변경하기</Button>
         <p className="text-center text-[11px] text-[var(--muted)]">가입하지 않은 이메일이면 인증번호가 발송되지 않아요.</p>
       </div>
     </AuthShell>
@@ -151,7 +151,7 @@ export function ResetPasswordNewPage() {
   if (!email) return <Navigate to="/reset-password" replace/>;
   if (!verified) return <Navigate to={`/reset-password?next=${encodeURIComponent(next)}`} replace/>;
   return (
-    <AuthShell title="새 비밀번호 설정" onBack={() => navigate(-1)}>
+    <AuthShell title="비밀번호 재설정" onBack={() => navigate(-1)}>
       {done ? (
         <div className="space-y-6">
           <Check size={30}/>
