@@ -77,12 +77,23 @@ export async function restoreSession(): Promise<boolean> {
     const { token, headerName } = await fetchCSRF();
     const data = await apiPost('/auth/refresh', {}, { [headerName]: token }) as { accessToken: string; accountId: string; roles: string[] };
     setAccessToken(data.accessToken);
+    if (data.accountId && Array.isArray(data.roles)) {
+      const seller = data.roles.some(r => r.toUpperCase() === 'SELLER');
+      const admin = data.roles.some(r => r.toUpperCase() === 'ADMIN');
+      mutate(s => { const u = s.users.find(u => u.id === data.accountId); if (u) { u.seller = seller; u.admin = admin; } });
+    }
     return true;
-  } catch {
+  } catch (e) {
     setAccessToken(null);
-    mutate(endSession);
+    // shortcut: TypeError = network unreachable (no backend), keep mock session intact; real auth errors log out
+    if (!(e instanceof TypeError)) mutate(endSession);
     return false;
   }
+}
+export async function changePassword(currentPassword: string, newPassword: string) {
+  if (!validPassword(newPassword)) throw new Error('비밀번호는 영문·숫자·특수문자를 포함한 8~32자로 입력해 주세요.');
+  const { token, headerName } = await fetchCSRF();
+  await apiPost('/accounts/me/password', { currentPassword, newPassword }, { [headerName]: token });
 }
 export async function resetPassword(emailValue: string, password: string) {
   if (!validPassword(password)) throw new Error('영문·숫자·특수문자를 포함한 8~32자로 입력해 주세요.');

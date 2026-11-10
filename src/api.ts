@@ -28,14 +28,14 @@ export async function apiGet(path: string): Promise<unknown> {
   const r = await fetch(`${BASE}${path}`, { method: 'GET', credentials: 'include', headers: h });
   return parse(r);
 }
-export async function apiPut(path: string, body: unknown): Promise<unknown> {
-  const h: Record<string, string> = { 'Content-Type': 'application/json' };
+export async function apiPut(path: string, body: unknown, extraHeaders?: Record<string, string>): Promise<unknown> {
+  const h: Record<string, string> = { 'Content-Type': 'application/json', ...extraHeaders };
   if (_token) h['Authorization'] = `Bearer ${_token}`;
   const r = await fetch(`${BASE}${path}`, { method: 'PUT', credentials: 'include', headers: h, body: JSON.stringify(body) });
   return parse(r);
 }
-export async function apiPatch(path: string, body: unknown): Promise<unknown> {
-  const h: Record<string, string> = { 'Content-Type': 'application/json' };
+export async function apiPatch(path: string, body: unknown, extraHeaders?: Record<string, string>): Promise<unknown> {
+  const h: Record<string, string> = { 'Content-Type': 'application/json', ...extraHeaders };
   if (_token) h['Authorization'] = `Bearer ${_token}`;
   const r = await fetch(`${BASE}${path}`, { method: 'PATCH', credentials: 'include', headers: h, body: JSON.stringify(body) });
   return parse(r);

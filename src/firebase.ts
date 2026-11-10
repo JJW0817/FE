@@ -1,5 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
+import { apiPost } from './api';
 
 const app = initializeApp({
   apiKey: 'AIzaSyCLuSb4QYE966wGT-T7LItN4xqy3J2GoGk',
@@ -19,7 +20,9 @@ export async function requestPushPermission(): Promise<string | null> {
   if (permission !== 'granted') return null;
   await navigator.serviceWorker.register('/firebase-messaging-sw.js');
   const reg = await navigator.serviceWorker.ready;
-  return getToken(messaging, { vapidKey: VAPID, serviceWorkerRegistration: reg });
+  const token = await getToken(messaging, { vapidKey: VAPID, serviceWorkerRegistration: reg });
+  if (token) apiPost('/accounts/me/device-tokens', { token }).catch(() => {});
+  return token || null;
 }
 
 export function onForegroundMessage(cb: (payload: any) => void) {
