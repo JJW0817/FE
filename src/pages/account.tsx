@@ -95,7 +95,77 @@ export function SupportPage() {
   const recentOrder = s.orders.filter(o => o.userId === s.activeUserId).sort((a, b) => b.createdAt - a.createdAt)[0];
   const faqs: [string, string, string][] = [['구매·선착순', '선착순 재고는 어떻게 확보하나요?', '판매가 열리는 순간 결제를 먼저 완료한 순서대로 재고가 확보돼요. 장바구니에 담거나 결제 화면에 들어간 것만으로는 재고가 잡히지 않아요. 판매 30분 전 알림을 켜두고 배송지와 결제 수단을 미리 등록해 두면 더 빠르게 결제할 수 있어요.'], ['구매·선착순', '결제 중에 품절되면 어떻게 되나요?', '재고 확보에 실패하면 결제가 진행되지 않으며 금액이 청구되지 않아요. 다음 판매 일정을 확인해 주세요.'], ['구매·선착순', '1인당 몇 개까지 살 수 있나요?', '상품마다 계정당 구매 상한이 설정되어 있어요. 상품 상세에서 확인할 수 있습니다.'], ['구매·선착순', '다른 쇼핑몰보다 정말 저렴한가요?', '미판매 새 상품을 정리하는 판매자가 직접 가격을 설정해요. 기존 판매처보다 저렴한 경우가 많지만, 상품마다 다를 수 있어요.'], ['배송·반품', '판매 알림은 언제 오나요?', '판매 시작 30분 전과 시작 직후에 알림이 발송돼요. 알림 설정에서 원하는 알림을 켜거나 끌 수 있어요.'], ['결제', '어떤 결제 수단을 사용할 수 있나요?', '신용카드·체크카드 결제를 지원합니다. 결제 수단은 마이페이지에서 미리 등록할 수 있어요.'], ['판매자', '판매자가 되려면 어떻게 하나요?', '사업자등록증 PDF와 담당자 정보를 제출하고 운영자 승인을 받으면 판매자가 될 수 있어요.']];
   const filtered = faqs.filter(([cat]) => tab === '전체' || cat === tab);
-  return <div className="space-y-5"><Header title="고객 지원"/><p className="muted text-[12px]">궁금한 내용을 검색해 보세요</p>{recentOrder && <section className="divider space-y-3 pb-4"><h2 className="text-[15px] font-bold">주문 관련 문의</h2><Link to={`/orders/${recentOrder.id}`} className="block space-y-2 rounded-[4px] bg-[var(--blue-soft)] p-3"><p className="muted text-[10px]">전체 주문</p><p className="text-[12px] font-bold">{recentOrder.product.name}</p><p className="muted text-[10px]">{dateTime(recentOrder.createdAt)} 결제 · {money(recentOrder.total)}</p></Link><Link className="btn btn-outline w-full" to={`/orders/${recentOrder.id}`}>이 주문 판매자에게 문의</Link><p className="muted text-[10px]">취소·반품·하자·오배송은 해당 주문의 판매자에게 전달돼요.</p></section>}<section className="space-y-3"><h2 className="text-[15px] font-bold">자주 묻는 질문</h2><div className="divider flex gap-2 pb-3">{faqTabs.map(t => <button key={t} onClick={() => setTab(t)} className={`rounded-[4px] px-2.5 py-1.5 text-[11px] ${tab === t ? 'bg-[var(--ink)] font-semibold text-[var(--surface)]' : 'muted'}`}>{t}</button>)}</div>{filtered.map(([, q, a], i) => <details key={i} className="divider py-4"><summary className="font-bold">Q {'  '}{q}</summary><p className="muted mt-3 text-[12px] leading-relaxed">{a}</p></details>)}</section><section className="divider space-y-3 py-4"><h2 className="text-[15px] font-bold">1:1 문의하기</h2><p className="muted text-[12px]">계정·결제·앱 오류</p><Link className="btn w-full" to="/inquiries/compose">1:1 문의 작성</Link><Link className="btn btn-outline w-full" to="/inquiries">내 문의 내역</Link><p className="muted text-[10px]">1:1 문의 운영시간 평일 10:00–18:00 · 주말·공휴일 휴무</p></section></div>;
+  const newAnswerCount = s.inquiries.filter(q => q.userId === s.activeUserId && q.sellerId === 'stockdrop' && q.answer).length;
+  return (
+    <div className="space-y-0">
+      <Header title="고객 지원"/>
+      {/* 검색 — Figma: F5F5F5 filled, placeholder 15px */}
+      <label className="mb-5 flex h-10 items-center gap-2.5 rounded-[6px] bg-[var(--soft)] px-3.5">
+        <Search size={18} className="muted shrink-0"/>
+        <input aria-label="고객 지원 검색" placeholder="궁금한 내용을 검색해 보세요" className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-[var(--placeholder)]" readOnly/>
+      </label>
+      {/* 주문 관련 문의 */}
+      {recentOrder && (
+        <section className="mb-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-[16px] font-bold">주문 관련 문의</h2>
+            <Link to="/orders" className="flex items-center gap-1 text-[12px] text-[var(--muted)]">전체 주문 <span className="text-[10px]">›</span></Link>
+          </div>
+          <div className="rounded-[6px] border border-[var(--line)] p-4 space-y-3">
+            <div className="flex items-start gap-3">
+              <div className="h-14 w-14 shrink-0 rounded-[4px] bg-[var(--soft)]"/>
+              <div className="min-w-0 flex-1 space-y-0.5">
+                <p className="text-[11px] font-bold text-[var(--muted)]">배송 중 · 10.25 도착 예정</p>
+                <p className="text-[14px]">LOWFIELD · {recentOrder.product.name}</p>
+                <p className="text-[12px] text-[#949494]">10.24 결제 · {money(recentOrder.total)}</p>
+              </div>
+            </div>
+            <Link to={`/orders/${recentOrder.id}`} className="flex w-full items-center justify-center gap-2 rounded-[6px] bg-[var(--soft)] py-2.5 text-[13px] font-bold">
+              이 주문 판매자에게 문의
+            </Link>
+          </div>
+          <p className="text-[12px] text-[#949494]">취소·반품·하자·오배송은 해당 주문의 판매자에게 전달돼요.</p>
+        </section>
+      )}
+      {/* 구분선 */}
+      <div className="mb-5 h-px bg-[#F2F2F2]"/>
+      {/* 자주 묻는 질문 */}
+      <section className="mb-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-[16px] font-bold">자주 묻는 질문</h2>
+          <Link to="/faq" className="flex items-center gap-1 text-[12px] text-[var(--muted)]">전체 보기 <span className="text-[10px]">›</span></Link>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {faqTabs.map(t => (
+            <button key={t} onClick={() => setTab(t)} className={`inline-flex h-8 items-center rounded-full px-3.5 text-[13px] transition-colors ${tab === t ? 'bg-[var(--ink)] font-bold text-[var(--surface)]' : 'border border-[#DEDEDE] text-[var(--muted)]'}`}>{t}</button>
+          ))}
+        </div>
+        {filtered.map(([, q], i) => (
+          <div key={i} className="flex items-center justify-between gap-3 border-b border-[#F2F2F2] py-4">
+            <div className="flex items-start gap-3">
+              <span className="text-[14px] font-bold text-[var(--muted)]">Q</span>
+              <span className="text-[14px]">{q}</span>
+            </div>
+            <span className="shrink-0 text-[12px] text-[var(--muted)]">›</span>
+          </div>
+        ))}
+      </section>
+      {/* 1:1 문의 + 내 문의 내역 */}
+      <div className="flex gap-3">
+        <Link to="/inquiries/compose" className="flex flex-1 flex-col items-start gap-2 rounded-[6px] bg-[var(--soft)] p-4 space-y-1">
+          <span className="text-[14px] font-bold">1:1 문의하기</span>
+          <span className="text-[12px] text-[#949494]">계정·결제·앱 오류</span>
+        </Link>
+        <Link to="/inquiries" className="flex flex-1 flex-col items-start gap-2 rounded-[6px] bg-[var(--soft)] p-4 space-y-1">
+          <span className="text-[14px] font-bold">내 문의 내역</span>
+          {newAnswerCount > 0
+            ? <span className="text-[12px] font-bold text-[#3FB181]">새 답변 {newAnswerCount}건</span>
+            : <span className="text-[12px] text-[#949494]">내역 보기</span>}
+        </Link>
+      </div>
+      <p className="mt-4 text-[11px] text-[#949494]">1:1 문의 운영시간 평일 10:00–18:00 · 주말·공휴일 휴무</p>
+    </div>
+  );
 }
 
 type ApiAddr = { addressId: string; label: string; recipientName: string; recipientPhone: string; postalCode: string; roadAddress: string; detailAddress: string; deliveryMemo: string; defaultAddress: boolean };
@@ -139,49 +209,73 @@ export function AddressManagePage() {
 
   const defaultAddr = addrs.find(a => a.defaultAddress);
   const others = addrs.filter(a => !a.defaultAddress);
-  return (
-    <div className="space-y-5">
-      <Header title="배송지 관리" subtitle="주문 시 기본 배송지가 자동으로 선택돼요" back={true}/>
-      {defaultAddr ? (
-        <section className="space-y-3">
-          <h2 className="text-[14px] font-bold">기본 배송지</h2>
-          <div className="rounded-[6px] border border-[var(--line)] p-4 space-y-2">
-            <div className="flex items-center justify-between">
-              <p className="text-[13px] font-semibold">{defaultAddr.label || '기본 배송지'}</p>
-              <div className="flex gap-3">
-                <button onClick={() => setEditing(defaultAddr)} className="text-[12px] underline">수정</button>
-                <button onClick={() => setConfirmDelete(defaultAddr)} className="text-[12px] text-[var(--red)] underline">삭제</button>
-              </div>
+
+  function AddrCard({ addr, isDefault }: { addr: ApiAddr; isDefault: boolean }) {
+    return (
+      <div className={`rounded-[6px] p-4 space-y-3 ${isDefault ? 'border-[1.5px] border-[var(--ink)]' : ''}`}>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-3">
+            {/* radio indicator */}
+            <div className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${isDefault ? 'border-[var(--ink)]' : 'border-[#DEDEDE]'}`}>
+              {isDefault && <div className="h-2.5 w-2.5 rounded-full bg-[var(--ink)]"/>}
             </div>
-            <p className="text-[12px]">{defaultAddr.recipientName} · {defaultAddr.recipientPhone}</p>
-            <p className="muted text-[12px] leading-relaxed">{defaultAddr.roadAddress}{defaultAddr.detailAddress ? `, ${defaultAddr.detailAddress}` : ''}</p>
-            {defaultAddr.deliveryMemo && <p className="muted text-[11px]">{defaultAddr.deliveryMemo}</p>}
+            <span className="text-[15px] font-bold">{addr.label || (isDefault ? '집' : '배송지')}</span>
           </div>
+          <div className="flex items-center gap-2 text-[12px]">
+            {!isDefault && <button onClick={() => handleSetDefault(addr)} className="font-bold text-[var(--ink)]">기본 설정</button>}
+            {!isDefault && <div className="h-[10px] w-px bg-[#DEDEDE]"/>}
+            <button onClick={() => setEditing(addr)} className="text-[#7B7B7B]">수정</button>
+            <div className="h-[10px] w-px bg-[#DEDEDE]"/>
+            <button onClick={() => setConfirmDelete(addr)} className="text-[#7B7B7B]">삭제</button>
+          </div>
+        </div>
+        <div className="ml-8 space-y-1">
+          <p className="text-[13px] font-bold">{addr.recipientName} · {addr.recipientPhone}</p>
+          <p className="text-[13px] text-[#7B7B7B]">{addr.postalCode ? `[${addr.postalCode}] ` : ''}{addr.roadAddress}{addr.detailAddress ? `, ${addr.detailAddress}` : ''}</p>
+          {addr.deliveryMemo && (
+            <div className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-[var(--soft)] px-3 py-1">
+              <span className="text-[12px] text-[#7B7B7B]">{addr.deliveryMemo}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-0 pb-24">
+      <Header title="배송지 관리" back={true}/>
+      {/* InfoBar — Figma: #FBFBFB bg, info icon, 12px text */}
+      <div className="-mx-4 mb-4 flex items-center gap-2 bg-[#FBFBFB] px-4 py-3">
+        <span className="text-[11px] text-[#949494]">ℹ</span>
+        <p className="text-[12px] text-[#7B7B7B]">주문 시 기본 배송지가 자동으로 선택돼요</p>
+      </div>
+      {addrs.length === 0 && <Empty title="등록된 배송지가 없어요" message="새 배송지를 추가해 주세요."/>}
+      {defaultAddr && (
+        <section className="mb-4 space-y-2">
+          <p className="text-[12px] font-bold text-[#949494]">기본 배송지</p>
+          <AddrCard addr={defaultAddr} isDefault={true}/>
         </section>
-      ) : (
-        <Empty title="등록된 배송지가 없어요" message="새 배송지를 추가해 주세요."/>
       )}
       {others.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="text-[14px] font-bold">다른 배송지</h2>
+        <section className="space-y-0">
+          <div className="flex items-center gap-1 mb-2">
+            <p className="text-[12px] font-bold text-[#949494]">다른 배송지</p>
+            <span className="text-[12px] font-bold text-[var(--ink)]">{others.length}</span>
+          </div>
           {others.map(addr => (
-            <div key={addr.addressId} className="rounded-[6px] border border-[var(--line)] p-4 space-y-2">
-              <div className="flex items-center justify-between">
-                <p className="text-[13px] font-semibold">{addr.label || '배송지'}</p>
-                <div className="flex gap-3">
-                  <button onClick={() => handleSetDefault(addr)} className="text-[12px] underline">기본 설정</button>
-                  <button onClick={() => setEditing(addr)} className="text-[12px] underline">수정</button>
-                  <button onClick={() => setConfirmDelete(addr)} className="text-[12px] text-[var(--red)] underline">삭제</button>
-                </div>
-              </div>
-              <p className="text-[12px]">{addr.recipientName} · {addr.recipientPhone}</p>
-              <p className="muted text-[12px] leading-relaxed">{addr.roadAddress}{addr.detailAddress ? `, ${addr.detailAddress}` : ''}</p>
-              {addr.deliveryMemo && <p className="muted text-[11px]">{addr.deliveryMemo}</p>}
+            <div key={addr.addressId} className="border-b border-[#F2F2F2] py-2">
+              <AddrCard addr={addr} isDefault={false}/>
             </div>
           ))}
         </section>
       )}
-      <Button outline className="w-full" onClick={() => setEditing('new')}>새 배송지 추가</Button>
+      {/* CTA Bar — Figma: fixed bottom black button */}
+      <div className="fixed bottom-0 left-1/2 w-full max-w-[390px] -translate-x-1/2 border-t border-[var(--line)] bg-[var(--surface)] px-4 py-3">
+        <button onClick={() => setEditing('new')} className="flex w-full items-center justify-center gap-2 rounded-[6px] bg-[var(--ink)] py-3 text-[15px] font-bold text-[var(--surface)]">
+          + 새 배송지 추가
+        </button>
+      </div>
       {editing !== null && (
         <AddressModal
           title={editing === 'new' ? '새 배송지 추가' : '배송지 수정'}
@@ -193,7 +287,12 @@ export function AddressManagePage() {
       {confirmDelete && (
         <Modal title="배송지를 삭제할까요?" onClose={() => setConfirmDelete(null)}>
           <div className="space-y-4">
-            <p className="muted text-[12px]">삭제한 배송지는 복구할 수 없어요</p>
+            <div className="rounded-[6px] bg-[var(--soft)] p-3 space-y-1">
+              <p className="text-[13px] font-semibold">{confirmDelete.recipientName} · {confirmDelete.recipientPhone}</p>
+              <p className="text-[12px] text-[#7B7B7B]">{confirmDelete.postalCode ? `[${confirmDelete.postalCode}] ` : ''}{confirmDelete.roadAddress}{confirmDelete.detailAddress ? `, ${confirmDelete.detailAddress}` : ''}</p>
+              {confirmDelete.deliveryMemo && <p className="text-[12px] text-[#7B7B7B]">{confirmDelete.deliveryMemo}</p>}
+            </div>
+            <p className="text-[12px] text-[#7B7B7B]">삭제한 배송지는 복구할 수 없어요</p>
             <div className="flex gap-2">
               <Button outline className="flex-1" onClick={() => setConfirmDelete(null)}>취소</Button>
               <Button className="flex-1" onClick={() => handleDelete(confirmDelete)}>삭제</Button>
@@ -344,7 +443,7 @@ export function OpsInquiryComposePage() {
   </form>;
 }
 
-/** 주소 검색 전체 화면 — Figma "주소 검색 결과 없음" */
+/** 주소 검색 전체 화면 — Figma "주소 검색" (12C · Address Search) */
 export function AddressSearchPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
@@ -363,51 +462,84 @@ export function AddressSearchPage() {
   const hasResults = results.length > 0;
   const showEmpty = !!searched && !hasResults;
 
+  const SearchTips = () => (
+    <div className="space-y-5">
+      {/* 도로명 + 건물번호 */}
+      <div className="space-y-2">
+        <p className="text-[14px] font-bold">도로명 + 건물번호</p>
+        <div className="flex items-center gap-2">
+          <span className="text-[12px] text-[#949494]">예)</span>
+          <span className="rounded-[4px] bg-[var(--soft)] px-3 py-1 text-[12px] text-[#7B7B7B]">와우산로 94</span>
+          <span className="rounded-[4px] bg-[var(--soft)] px-3 py-1 text-[12px] text-[#7B7B7B]">테헤란로 152</span>
+        </div>
+        <div className="h-px bg-[#F2F2F2]"/>
+      </div>
+      {/* 동·읍·면 + 지번 */}
+      <div className="space-y-2">
+        <p className="text-[14px] font-bold">동·읍·면 + 지번</p>
+        <div className="flex items-center gap-2">
+          <span className="text-[12px] text-[#949494]">예)</span>
+          <span className="rounded-[4px] bg-[var(--soft)] px-3 py-1 text-[12px] text-[#7B7B7B]">서교동 338-1</span>
+          <span className="rounded-[4px] bg-[var(--soft)] px-3 py-1 text-[12px] text-[#7B7B7B]">역삼동 737</span>
+        </div>
+        <div className="h-px bg-[#F2F2F2]"/>
+      </div>
+      {/* 건물명·아파트명 */}
+      <div className="space-y-2">
+        <p className="text-[14px] font-bold">건물명·아파트명</p>
+        <div className="flex items-center gap-2">
+          <span className="text-[12px] text-[#949494]">예)</span>
+          <span className="rounded-[4px] bg-[var(--soft)] px-3 py-1 text-[12px] text-[#7B7B7B]">강남파이낸스센터</span>
+          <span className="rounded-[4px] bg-[var(--soft)] px-3 py-1 text-[12px] text-[#7B7B7B]">판교 푸르지오</span>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="space-y-4">
       <Header title="주소 검색" back={true}/>
-      <label className="flex h-12 items-center gap-2.5 rounded-[4px] bg-[var(--soft)] px-3.5">
-        <Search size={18} className="muted shrink-0"/>
+      {/* 검색창 — Figma: 검은 테두리 1.5px, 커서, 15px placeholder */}
+      <label className="flex h-12 items-center gap-2.5 rounded-[4px] border-[1.5px] border-[var(--ink)] px-3.5">
+        <Search size={18} className="shrink-0"/>
         <input
           aria-label="주소 검색"
           value={query}
           onChange={e => setQuery(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && search(query)}
           placeholder="도로명, 건물명 또는 지번으로 검색"
-          className="min-w-0 flex-1 bg-transparent text-[15px] outline-none"
+          className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-[#A0A0A0]"
           autoFocus
         />
-        {query && <button aria-label="지우기" onClick={() => { setQuery(''); setSearched(''); setResults([]); }} className="muted"><MapPin size={16}/></button>}
       </label>
+      {/* 현재 위치로 주소 찾기 버튼 — Figma: 테두리 #DEDEDE, 14px Bold */}
+      <button className="flex w-full items-center justify-center gap-2 rounded-[6px] border border-[#DEDEDE] py-3 text-[14px] font-bold">
+        <MapPin size={16}/>
+        현재 위치로 주소 찾기
+      </button>
+      {/* 구분선 */}
+      <div className="-mx-4 h-2 bg-[#F2F2F2]"/>
+      {/* 검색 결과 목록 */}
       {hasResults && results.map((r, i) => (
         <button key={i} onClick={() => navigate(`${returnTo}?address=${encodeURIComponent(r.address)}&postal=${encodeURIComponent(r.postalCode)}`)} className="divider w-full py-4 text-left">
           <p className="text-[13px] font-semibold">{r.address}</p>
           <p className="muted text-[12px]">{r.detail}</p>
         </button>
       ))}
+      {/* 검색 결과 없음 */}
       {showEmpty && (
-        <div className="space-y-6 pt-4">
-          <div className="flex flex-col items-center gap-3 py-6">
-            <div className="grid h-11 w-11 place-items-center rounded-full bg-[var(--soft)]">
-              <MapPin size={22} className="muted"/>
-            </div>
-            <p className="text-[15px] font-bold">'{searched}' 검색 결과가 없어요</p>
-            <p className="muted text-center text-[13px] leading-relaxed">결과가 없으면 띄어쓰기를 바꾸거나 건물번호를 빼고 검색해 보세요.</p>
-          </div>
-          <div className="rounded-[4px] bg-[#FBFBFB] px-4 py-4 space-y-3">
-            <p className="text-[13px] font-bold">이렇게 검색해 보세요</p>
-            <div className="flex items-center justify-between"><span className="muted text-[12px]">도로명 + 건물번호</span><span className="text-[12px]">와우산로 94</span></div>
-            <div className="flex items-center justify-between"><span className="muted text-[12px]">동·읍·면 + 지번</span><span className="text-[12px]">서교동 338-1</span></div>
-            <div className="flex items-center justify-between"><span className="muted text-[12px]">건물명·아파트명</span><span className="text-[12px]">강남파이낸스센터</span></div>
-          </div>
+        <div className="space-y-5">
+          <p className="text-[15px] font-bold">'{searched}' 검색 결과가 없어요</p>
+          <p className="text-[13px] leading-relaxed text-[#7B7B7B]">결과가 없으면 띄어쓰기를 바꾸거나 건물번호를 빼고 검색해 보세요.</p>
         </div>
       )}
-      {!searched && (
-        <div className="rounded-[4px] bg-[#FBFBFB] px-4 py-4 space-y-3">
-          <p className="text-[13px] font-bold">이렇게 검색해 보세요</p>
-          <div className="flex items-center justify-between"><span className="muted text-[12px]">도로명 + 건물번호</span><span className="text-[12px]">와우산로 94</span></div>
-          <div className="flex items-center justify-between"><span className="muted text-[12px]">동·읍·면 + 지번</span><span className="text-[12px]">서교동 338-1</span></div>
-          <div className="flex items-center justify-between"><span className="muted text-[12px]">건물명·아파트명</span><span className="text-[12px]">강남파이낸스센터</span></div>
+      {/* 이렇게 검색해 보세요 — 항상 표시 (Figma 기본 상태) */}
+      {!hasResults && (
+        <div className="space-y-4">
+          <p className="text-[15px] font-bold">이렇게 검색해 보세요</p>
+          <SearchTips/>
+          {/* Note at bottom */}
+          <p className="text-[12px] text-[#949494]">결과가 없으면 띄어쓰기를 바꾸거나 건물번호를 빼고 검색해 보세요.</p>
         </div>
       )}
     </div>
