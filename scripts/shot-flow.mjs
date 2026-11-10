@@ -5,6 +5,7 @@
  *
  * 출력: screenshots/flow-<N>/<이름>.png (390×844)
  * 사전 조건: Vite dev server가 http://localhost:5173 에서 실행 중이어야 함
+ *   목업 계정 상태를 쓰므로 자동 로그인을 켠 dev 서버여야 함: VITE_MOCK_AUTH=true npm run dev
  */
 import { chromium } from 'playwright';
 import fs from 'node:fs';
