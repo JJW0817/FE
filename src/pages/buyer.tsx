@@ -48,9 +48,12 @@ export function ProductPage() {
   if (!p || !p.published) return <Empty title="상품을 찾을 수 없어요"><Link to="/" className="btn">홈으로</Link></Empty>;
   const status = saleState(p, now), qty = p.options.reduce((n, o) => n + available(s, p, o.id, now), 0), saved = s.bookmarks.includes(`${s.activeUserId}:${p.id}`);
   const bookmark = () => mutate(state => { const key = `${state.activeUserId}:${p.id}`; state.bookmarks = saved ? state.bookmarks.filter(k => k !== key) : [...state.bookmarks, key]; });
-  return <div className="space-y-4"><Header title="상품 상세" subtitle="결제가 완료된 주문부터 확정돼요" action={<button aria-label={saved ? '관심 상품 해제' : '관심 상품 저장'} onClick={() => { if (!signedIn(s)) { navigate(loginHref(`/product/${p.id}`)); return; } bookmark(); toast(saved ? '관심 상품에서 해제했습니다.' : '관심 상품에 저장했습니다.'); }} className="grid h-9 w-9 place-items-center"><Bookmark size={20} fill={saved ? 'currentColor' : 'none'}/></button>}/><ProductImage src={p.images[0]} alt={p.name} className="aspect-square w-full rounded-none!"/>
+  const [notified, setNotified] = useState(() => { try { return JSON.parse(localStorage.getItem('stockdrop:notified-products') || '[]').includes(p.id); } catch { return false; } });
+  const toggleNotify = () => { setNotified((v: boolean) => { const next = !v; try { const all = JSON.parse(localStorage.getItem('stockdrop:notified-products') || '[]'); localStorage.setItem('stockdrop:notified-products', JSON.stringify(next ? [...all, p.id] : all.filter((x: string) => x !== p.id))); } catch {} return next; }); };
+  const headerTitle = status === '판매 예정' ? '판매 대기' : status === '판매 종료' && qty <= 0 ? '구매 결과' : '상품 상세';
+  return <div className="space-y-4"><Header title={headerTitle} subtitle={status === '판매 예정' ? '오픈 예정' : '결제가 완료된 주문부터 확정돼요'} action={<button aria-label={saved ? '관심 상품 해제' : '관심 상품 저장'} onClick={() => { if (!signedIn(s)) { navigate(loginHref(`/product/${p.id}`)); return; } bookmark(); toast(saved ? '관심 상품에서 해제했습니다.' : '관심 상품에 저장했습니다.'); }} className="grid h-9 w-9 place-items-center"><Bookmark size={20} fill={saved ? 'currentColor' : 'none'}/></button>}/><ProductImage src={p.images[0]} alt={p.name} className="aspect-square w-full rounded-none!"/>
     <div className="flex items-center justify-between gap-3"><Badge live={status === '판매 중'}>{status === '판매 예정' ? '오픈 예정' : status}</Badge><p className="text-[11px] text-[var(--red)]">{status === '판매 중' ? `마감까지 ${countdown(p.endsAt, now)}` : status === '판매 예정' ? `${p.category} · 3시간 한정` : '신규 구매가 종료되었어요'}</p></div>
-    {status === '판매 예정' && <div className="rounded-[4px] bg-[var(--blue-soft)] p-5 text-center"><p className="muted mb-2 text-[11px]">판매 시작까지</p><p className="font-number text-[32px] font-bold">{countdown(p.startsAt, now)}</p><p className="muted mt-2 text-[10px]">{dateTime(p.startsAt)} 오픈</p></div>}
+    {status === '판매 예정' && <div className="space-y-3"><div className="rounded-[4px] bg-[var(--blue-soft)] p-5 text-center"><p className="muted mb-2 text-[11px]">판매 시작까지</p><p className="font-number text-[32px] font-bold">{countdown(p.startsAt, now)}</p><p className="muted mt-2 text-[10px]">{dateTime(p.startsAt)} 오픈</p></div><button onClick={toggleNotify} className={`flex w-full items-center justify-between rounded-[6px] border px-4 py-3 text-left ${notified ? 'border-[var(--ink)] bg-[var(--ink)] text-[var(--surface)]' : 'border-[var(--line)]'}`}><div><p className="text-[13px] font-bold">판매 시작 알림 신청</p><p className={`mt-0.5 text-[11px] ${notified ? 'opacity-70' : 'muted'}`}>판매 시작 시 즉시 알림을 보내드려요</p></div><span className={`text-[11px] font-semibold ${notified ? '' : 'text-[var(--muted)]'}`}>{notified ? '알림 설정됨' : '신청하기'}</span></button></div>}
     {status === '판매 종료' && qty <= 0 && <div className="space-y-3 rounded-[4px] bg-[var(--blue-soft)] p-5 text-center"><p className="font-number text-[28px] font-extrabold tracking-[-1px]">SOLD OUT</p><p className="text-[14px] font-bold">선착순 판매 종료됐어요</p><p className="muted text-[11px]">선착순 마감되었습니다. 다음 판매를 노려보세요</p></div>}
     <Note title={status === '판매 예정' ? '게시 즉시 공개 · 구매는 시작 시각부터' : '3시간 한정 선착순'}>{status === '판매 예정' ? '판매 시작 전에는 탐색과 Q&A만 가능합니다. 구매하거나 재고를 확보할 수 없습니다.' : '옵션 선택은 재고 확보가 아닙니다. 구매하기로 확보에 성공하면 5분 안에 결제를 완료해 주세요.'}</Note>
     <p className="text-[12px] font-bold">{p.category} · {p.brand}</p><h1 className="text-[22px] tracking-[-.5px]">{p.name}</h1><p className="muted text-[10px]">미판매 새 상품 · 중고·전시·하자 상품 제외</p>
@@ -186,27 +189,39 @@ export function CalendarPage() {
           ))}
         </div>
       </div>
-      {selected && (
-        <div className="space-y-2">
-          <h2 className="text-[14px] font-bold">{month + 1}월 {selected}일 판매 일정</h2>
-          {selectedSales.length ? selectedSales.map(p => (
-            <Link key={p.id} to={`/product/${p.id}`} className="divider flex items-center gap-3 py-3">
-              <Calendar size={16} className="muted shrink-0"/>
-              <div className="min-w-0 flex-1">
-                <p className="text-[12px] font-semibold">{p.brand}</p>
-                <p className="muted text-[11px]">{p.name}</p>
-              </div>
-              <ChevronRight size={16} className="muted shrink-0"/>
-            </Link>
-          )) : <p className="muted text-[12px]">이 날에 예정된 판매가 없어요.</p>}
-        </div>
-      )}
+      {selected && (() => {
+        const dayNames = ['일요일', '월요일', '화요일', '수요일', '목요일', '금요일', '토요일'];
+        const selDate = new Date(year, month, selected);
+        const firstOpen = selectedSales.length ? new Date(Math.min(...selectedSales.map(p => p.startsAt))).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false }) : null;
+        return (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between py-1">
+              <h2 className="text-[14px] font-bold">{month + 1}월 {selected}일 {dayNames[selDate.getDay()]}</h2>
+              {selectedSales.length > 0 && <span className="muted text-[11px]">판매 {selectedSales.length}개 · 첫 오픈 {firstOpen}</span>}
+            </div>
+            {selectedSales.length ? selectedSales.sort((a, b) => a.startsAt - b.startsAt).map(p => (
+              <Link key={p.id} to={`/product/${p.id}`} className="divider flex items-center gap-3 py-3">
+                <Calendar size={16} className="muted shrink-0"/>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="rounded bg-[var(--blue-soft)] px-1.5 py-0.5 text-[10px] font-semibold">오픈 예정</span>
+                    <span className="muted text-[10px]">{new Date(p.startsAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })} 오픈</span>
+                  </div>
+                  <p className="text-[12px] font-semibold">{p.brand}</p>
+                  <p className="muted text-[11px]">{p.name}</p>
+                </div>
+                <ChevronRight size={16} className="muted shrink-0"/>
+              </Link>
+            )) : <p className="muted text-[12px]">이 날에 예정된 판매가 없어요.</p>}
+          </div>
+        );
+      })()}
       <p className="muted text-[10px]">판매 상품 확인하기 버튼을 눌러 상세 일정을 확인하세요.</p>
     </div>
   );
 }
 
-interface Notification { id: string; type: '구매' | '상품'; title: string; desc: string; time: string }
+interface Notification { id: string; type: '구매' | '상품' | '맞춤 추천'; title: string; desc: string; time: string }
 
 export function NotificationsPage() {
   const s = useStore(), now = useClock();
@@ -217,7 +232,7 @@ export function NotificationsPage() {
   const bookmarkedIds = s.bookmarks.filter(k => k.startsWith(`${s.activeUserId}:`)).map(k => k.split(':')[1]);
   const bookmarkedProducts = s.products.filter(p => bookmarkedIds.includes(p.id) && p.published);
 
-  const raw: Array<{ id: string; type: '구매' | '상품'; title: string; desc: string; ts: number }> = [
+  const raw: Array<{ id: string; type: '구매' | '상품' | '맞춤 추천'; title: string; desc: string; ts: number }> = [
     ...userOrders.flatMap(o => {
       if (o.status === 'delivered' && o.deliveredAt)
         return [{ id: `o-${o.id}-d`, type: '구매' as const, title: '배송 완료', desc: `${o.product.name} 배송이 완료되었어요.`, ts: o.deliveredAt }];
@@ -227,16 +242,22 @@ export function NotificationsPage() {
     }),
     ...bookmarkedProducts.flatMap(p => {
       const state = saleState(p, now);
-      if (state === '판매 중')
-        return [{ id: `b-${p.id}-on`, type: '상품' as const, title: '판매 시작', desc: `관심 상품 '${p.name}'의 판매가 시작됐어요.`, ts: p.startsAt }];
+      const avail = p.options.reduce((n, o) => n + available(s, p, o.id, now), 0);
+      const total = p.options.reduce((n, o) => n + o.stock, 0);
+      const items: typeof raw = [];
+      if (state === '판매 중') {
+        items.push({ id: `b-${p.id}-on`, type: '상품', title: '판매 시작', desc: `찜한 상품 '${p.name}'의 판매가 막 시작됐어요.`, ts: p.startsAt });
+        if (avail > 0 && avail <= Math.ceil(total * 0.3))
+          items.push({ id: `b-${p.id}-low`, type: '상품', title: '재고 임박', desc: `관심 상품의 재고가 얼마 남지 않았어요. 지금 확인해보세요.`, ts: p.startsAt + 60_000 });
+      }
       if (state === '판매 예정')
-        return [{ id: `b-${p.id}-up`, type: '상품' as const, title: '판매 예정', desc: `관심 상품 '${p.name}'이 곧 판매 시작돼요.`, ts: p.startsAt }];
-      return [];
+        items.push({ id: `b-${p.id}-up`, type: '맞춤 추천', title: '맞춤 추천', desc: `회원님이 좋아할 것 같은 ${p.name}이 판매 중이에요.`, ts: p.startsAt - 3_600_000 });
+      return items;
     }),
   ].sort((a, b) => b.ts - a.ts);
 
   const notifications: Notification[] = raw.map(n => ({ ...n, time: dateTime(n.ts) }));
-  const filtered = tab === '전체' ? notifications : notifications.filter(n => n.type === tab);
+  const filtered = tab === '전체' ? notifications : notifications.filter(n => n.type === tab || (tab === '상품' && n.type === '맞춤 추천'));
 
   return (
     <div className="space-y-4">
@@ -249,7 +270,7 @@ export function NotificationsPage() {
       {filtered.length ? filtered.map(n => (
         <article key={n.id} className="divider py-4 space-y-1">
           <div className="flex items-center justify-between">
-            <span className="rounded bg-[var(--blue-soft)] px-2 py-0.5 text-[10px] font-semibold">{n.type}</span>
+            <span className={`rounded px-2 py-0.5 text-[10px] font-semibold ${n.type === '맞춤 추천' ? 'bg-[var(--green-soft,#EEF8F3)] text-[var(--green)]' : 'bg-[var(--blue-soft)]'}`}>{n.type}</span>
             <span className="muted text-[10px]">{n.time}</span>
           </div>
           <p className="text-[13px] font-semibold">{n.title}</p>
