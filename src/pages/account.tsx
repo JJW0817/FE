@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { MapPin, Search } from 'lucide-react';
 import { Building2, Store, UserRound, CheckCircle2, FileText } from 'lucide-react';
 import { activeUser, approveApplication, money, nowOf, saleState, uid } from '../domain';
 import type { Address, Application, DocumentFile } from '../domain';
@@ -341,4 +342,74 @@ export function OpsInquiryComposePage() {
     <Button type="submit" className="w-full" disabled={busy || !title.trim() || !content.trim()}>{busy ? '접수 중…' : '문의 보내기'}</Button>
     {leaving && <ConfirmLeave onLeave={() => navigate(-1)} onStay={() => setLeaving(false)}/>}
   </form>;
+}
+
+/** 주소 검색 전체 화면 — Figma "주소 검색 결과 없음" */
+export function AddressSearchPage() {
+  const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const [query, setQuery] = useState('');
+  const [searched, setSearched] = useState('');
+  const [results, setResults] = useState<{ address: string; detail: string; postalCode: string }[]>([]);
+  const returnTo = params.get('returnTo') ?? '/addresses';
+
+  function search(q: string) {
+    setSearched(q);
+    if (!q.trim()) { setResults([]); return; }
+    // shortcut: Daum Postcode API not wired here — shows empty state; wire via /v1/address API when available
+    setResults([]);
+  }
+
+  const hasResults = results.length > 0;
+  const showEmpty = !!searched && !hasResults;
+
+  return (
+    <div className="space-y-4">
+      <Header title="주소 검색" back={true}/>
+      <label className="flex h-12 items-center gap-2.5 rounded-[4px] bg-[var(--soft)] px-3.5">
+        <Search size={18} className="muted shrink-0"/>
+        <input
+          aria-label="주소 검색"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && search(query)}
+          placeholder="도로명, 건물명 또는 지번으로 검색"
+          className="min-w-0 flex-1 bg-transparent text-[15px] outline-none"
+          autoFocus
+        />
+        {query && <button aria-label="지우기" onClick={() => { setQuery(''); setSearched(''); setResults([]); }} className="muted"><MapPin size={16}/></button>}
+      </label>
+      {hasResults && results.map((r, i) => (
+        <button key={i} onClick={() => navigate(`${returnTo}?address=${encodeURIComponent(r.address)}&postal=${encodeURIComponent(r.postalCode)}`)} className="divider w-full py-4 text-left">
+          <p className="text-[13px] font-semibold">{r.address}</p>
+          <p className="muted text-[12px]">{r.detail}</p>
+        </button>
+      ))}
+      {showEmpty && (
+        <div className="space-y-6 pt-4">
+          <div className="flex flex-col items-center gap-3 py-6">
+            <div className="grid h-11 w-11 place-items-center rounded-full bg-[var(--soft)]">
+              <MapPin size={22} className="muted"/>
+            </div>
+            <p className="text-[15px] font-bold">'{searched}' 검색 결과가 없어요</p>
+            <p className="muted text-center text-[13px] leading-relaxed">결과가 없으면 띄어쓰기를 바꾸거나 건물번호를 빼고 검색해 보세요.</p>
+          </div>
+          <div className="rounded-[4px] bg-[#FBFBFB] px-4 py-4 space-y-3">
+            <p className="text-[13px] font-bold">이렇게 검색해 보세요</p>
+            <div className="flex items-center justify-between"><span className="muted text-[12px]">도로명 + 건물번호</span><span className="text-[12px]">와우산로 94</span></div>
+            <div className="flex items-center justify-between"><span className="muted text-[12px]">동·읍·면 + 지번</span><span className="text-[12px]">서교동 338-1</span></div>
+            <div className="flex items-center justify-between"><span className="muted text-[12px]">건물명·아파트명</span><span className="text-[12px]">강남파이낸스센터</span></div>
+          </div>
+        </div>
+      )}
+      {!searched && (
+        <div className="rounded-[4px] bg-[#FBFBFB] px-4 py-4 space-y-3">
+          <p className="text-[13px] font-bold">이렇게 검색해 보세요</p>
+          <div className="flex items-center justify-between"><span className="muted text-[12px]">도로명 + 건물번호</span><span className="text-[12px]">와우산로 94</span></div>
+          <div className="flex items-center justify-between"><span className="muted text-[12px]">동·읍·면 + 지번</span><span className="text-[12px]">서교동 338-1</span></div>
+          <div className="flex items-center justify-between"><span className="muted text-[12px]">건물명·아파트명</span><span className="text-[12px]">강남파이낸스센터</span></div>
+        </div>
+      )}
+    </div>
+  );
 }

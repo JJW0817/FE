@@ -132,7 +132,7 @@ export function LoginRequired({ returnTo, onClose }: { returnTo: string; onClose
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{ background: 'var(--overlay)' }}>
       <div className="w-[318px] rounded-[8px] bg-[var(--surface)] p-6 space-y-4">
         <h2 className="text-[16px] font-bold">로그인이 필요해요</h2>
-        <p className="muted text-[13px] leading-relaxed">로그인 후 계속할 수 있어요.</p>
+        <p className="muted text-[13px] leading-relaxed">로그인하면 보고 있던 상품으로 바로 돌아와요.</p>
         <div className="space-y-2">
           <Link to={`/login?next=${encodeURIComponent(returnTo)}`} className="btn w-full">로그인</Link>
           <Link to={`/signup?next=${encodeURIComponent(returnTo)}`} className="btn btn-outline w-full">이메일로 회원가입</Link>
