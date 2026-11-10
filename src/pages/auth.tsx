@@ -67,9 +67,17 @@ export function LegalPage() { const [params] = useSearchParams(); const kind = p
 /** 회원가입 1단계: 이름 + 이메일 인증 → /signup/info 로 이동 */
 export function SignupPage() {
   const s = useStore(), next = useNext(), navigate = useNavigate();
-  const [email, setEmail] = useState(''), [name, setName] = useState(''), [error, setError] = useState('');
-  const authNow = useAuthNow(), c = s.auth?.challenges[`signup:${normalizeEmail(email)}`], verified = !!c?.verified && c.expiresAt > authNow;
+  const [email, setEmail] = useState(''), [name, setName] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState('');
   if (signedIn(s)) return <Navigate to={next} replace/>;
+  const handleSend = async () => {
+    if (!validEmail(email) || !name.trim() || busy) return;
+    setBusy(true); setError('');
+    try {
+      await sendCode(email, 'signup');
+      navigate(`/signup/verify?email=${encodeURIComponent(email)}&name=${encodeURIComponent(name)}&next=${encodeURIComponent(next)}`);
+    } catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  };
   return (
     <AuthShell title="이메일 회원가입" onBack={() => navigate(`/welcome?next=${encodeURIComponent(next)}`)}>
       <div className="mb-7 flex items-center justify-between">
@@ -78,10 +86,50 @@ export function SignupPage() {
       </div>
       <div className="space-y-6">
         <Field label="이름" required><input aria-label="이름" value={name} onChange={e => setName(e.target.value)} autoComplete="name" maxLength={30} placeholder="실명을 입력해 주세요" className={inputClass}/></Field>
-        <EmailVerification email={email} setEmail={setEmail} purpose="signup" onError={setError}/>
+        <Field label="이메일" required><div className="flex items-center gap-3"><input aria-label="이메일" type="email" autoComplete="email" autoCapitalize="none" value={email} onChange={e => { setEmail(e.target.value); setError(''); }} placeholder="가입할 이메일 주소" className={`${inputClass} flex-1`}/><Button outline className="min-h-9! shrink-0 px-3 text-[11px]!" disabled={busy || !validEmail(email) || !name.trim()} onClick={handleSend}>{busy ? '전송 중…' : '인증번호 요청'}</Button></div></Field>
         <p className="muted text-[11px] leading-relaxed">구매와 판매에 사용할 하나의 계정을 만들어요.<br/>판매자 신청은 가입 후 마이페이지에서 진행할 수 있어요.</p>
         <ErrorBox message={error}/>
-        <Button className="w-full" disabled={!verified || !name.trim()} onClick={() => navigate(`/signup/info?email=${encodeURIComponent(email)}&name=${encodeURIComponent(name)}&next=${encodeURIComponent(next)}`)}>다음 · 가입 정보</Button>
+      </div>
+    </AuthShell>
+  );
+}
+export function SignupVerifyPage() {
+  const s = useStore(), navigate = useNavigate();
+  const [params] = useSearchParams();
+  const email = params.get('email') || '', name = params.get('name') || '', next = safeNext(params.get('next'));
+  if (!email || !name) return <Navigate to={`/signup?next=${encodeURIComponent(next)}`} replace/>;
+  if (signedIn(s)) return <Navigate to={next} replace/>;
+  const [code, setCode] = useState(''), [busy, setBusy] = useState(false), [codeError, setCodeError] = useState(''), [error, setError] = useState(''), [now, setNow] = useState(Date.now());
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
+  const c = s.auth?.challenges[`signup:${normalizeEmail(email)}`];
+  const remain = Math.max(0, Math.ceil(((c?.expiresAt ?? now) - now) / 1000));
+  const cooldown = c ? Math.max(0, Math.ceil((c.sentAt + 60000 - now) / 1000)) : 0;
+  const remainLabel = remain ? `${Math.floor(remain / 60).toString().padStart(2, '0')}:${String(remain % 60).padStart(2, '0')}` : '';
+  const goNext = () => navigate(`/signup/info?email=${encodeURIComponent(email)}&name=${encodeURIComponent(name)}&next=${encodeURIComponent(next)}`, { replace: true });
+  const resend = async () => { setBusy(true); setError(''); try { await sendCode(email, 'signup'); setNow(Date.now()); setCode(''); setCodeError(''); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } };
+  const verify = async () => { setBusy(true); setError(''); setCodeError(''); try { const err = await verifyCode(email, 'signup', code); if (err) { setCodeError(err); setCode(''); } else goNext(); } catch (e) { setCodeError((e as Error).message); } finally { setBusy(false); } };
+  return (
+    <AuthShell title="이메일 인증" onBack={() => navigate(`/signup?next=${encodeURIComponent(next)}`)}>
+      <p className="mb-7 text-[20px] font-bold tracking-[-.7px]">입력하신 이메일로 인증번호를 보냈어요.</p>
+      <div className="space-y-5">
+        <p className="text-[13px] text-[var(--muted)]">{normalizeEmail(email)}</p>
+        <div className="space-y-1">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2"><span className="text-[13px] font-bold">인증번호</span><span className="text-[11px] text-[var(--muted)]">· 필수</span></div>
+            {remainLabel && <span className="text-[12px] font-bold text-[var(--red)]">{remainLabel}</span>}
+          </div>
+          <div className="flex gap-1.5 py-3">{[0,1,2,3,4,5].map(i => <div key={i} className={`flex h-[55px] flex-1 items-center justify-center rounded-[4px] border text-[22px] font-bold ${codeError ? 'border-[var(--red)]' : code.length > i ? 'border-[var(--ink)]' : 'border-[var(--line)]'}`}>{code[i] ?? ''}</div>)}</div>
+          <input aria-label="이메일 인증번호" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={e => { setCode(e.target.value.replace(/\D/g, '')); setCodeError(''); }} className="sr-only"/>
+          {codeError && <p className="text-[12px] text-[var(--red)]">인증번호가 일치하지 않아요.</p>}
+          {!remain && <p className="text-[12px] text-[var(--muted)]">인증 시간이 지났어요. 다시 요청해 주세요.</p>}
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-[12px] text-[var(--muted)]">메일을 받지 못했나요?</span>
+          <Button outline className="min-h-9! px-3 text-[11px]!" disabled={busy || cooldown > 0} onClick={resend}>{cooldown ? `재전송 (${cooldown}초 후 활성화)` : '재전송'}</Button>
+        </div>
+        <div className="rounded-[4px] bg-[var(--blue-soft)] px-4 py-3 text-[12px] text-[var(--muted)]">인증번호는 3분 동안 유효해요. 메일이 보이지 않으면 스팸함도 확인해 주세요.</div>
+        <ErrorBox message={error}/>
+        {code.length === 6 && remain > 0 && <Button className="w-full" disabled={busy} onClick={verify}>인증 확인</Button>}
       </div>
     </AuthShell>
   );
@@ -91,20 +139,22 @@ export function SignupPage() {
 export function SignupInfoPage() {
   const s = useStore(), navigate = useNavigate();
   const [params] = useSearchParams();
-  const email = params.get('email') || '', name = params.get('name') || '', next = safeNext(params.get('next'));
+  const email = params.get('email') || '', nameParam = params.get('name') || '', next = safeNext(params.get('next'));
+  const [nameValue, setNameValue] = useState(nameParam);
   const [password, setPassword] = useState(''), [confirmation, setConfirmation] = useState(''), [phone, setPhone] = useState(''), [checks, setChecks] = useState({ age: false, terms: false, privacy: false, marketing: false }), [legal, setLegal] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false);
   const authNow = useAuthNow(), c = s.auth?.challenges[`signup:${normalizeEmail(email)}`], verified = !!c?.verified && c.expiresAt > authNow;
   if (signedIn(s) && !busy) return <Navigate to={next} replace/>;
-  if (!email || !name) return <Navigate to={`/signup?next=${encodeURIComponent(next)}`} replace/>;
+  if (!email || !nameParam) return <Navigate to={`/signup?next=${encodeURIComponent(next)}`} replace/>;
   return (
     <AuthShell title="가입 정보 입력" onBack={() => navigate(`/signup?next=${encodeURIComponent(next)}`)}>
       <p className="mb-6 text-[13px] text-[var(--muted)]">구매와 판매에 사용할 하나의 계정을 만들어요.</p>
-      <form className="space-y-6" onSubmit={async e => { e.preventDefault(); if (busy) return; setError(''); if (password !== confirmation) return setError('비밀번호가 일치하지 않습니다.'); setBusy(true); try { await signup({ email, password, name, phone, ...checks }); navigate(`/signup/done?next=${encodeURIComponent(next)}`, { replace: true }); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }}>
+      <form className="space-y-6" onSubmit={async e => { e.preventDefault(); if (busy) return; setError(''); if (password !== confirmation) return setError('비밀번호가 일치하지 않습니다.'); setBusy(true); try { await signup({ email, password, name: nameValue.trim(), phone, ...checks }); navigate(`/signup/done?next=${encodeURIComponent(next)}`, { replace: true }); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }}>
         <div className="flex items-center justify-between border-b border-[var(--line)] pb-4">
           <div className="flex items-center gap-2 min-w-0"><span className="min-w-0 break-all text-[12px]">{normalizeEmail(email)}</span><span className="shrink-0 rounded-full bg-[var(--green-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--green)]">인증 완료</span></div>
           <button type="button" onClick={() => navigate(`/signup?next=${encodeURIComponent(next)}`)} className="muted shrink-0 p-2 text-[11px] underline">이메일 변경</button>
         </div>
         {!verified && <Note>인증 시간이 지났어요. 이메일을 다시 인증해 주세요.</Note>}
+        <Field label="이름" required><input aria-label="이름" value={nameValue} onChange={e => setNameValue(e.target.value)} autoComplete="name" maxLength={30} className={inputClass}/></Field>
         <Field label="휴대폰 번호" required hint="주문·배송 및 문의 연락처로 사용해요."><input aria-label="휴대폰 번호" type="tel" value={phone} onChange={e => setPhone(e.target.value)} autoComplete="tel" maxLength={13} placeholder="01012345678" className={inputClass}/></Field>
         <PasswordField value={password} onChange={setPassword}/>
         <PasswordField label="비밀번호 확인" value={confirmation} onChange={setConfirmation} placeholder="비밀번호를 한 번 더 입력해 주세요"/>
@@ -115,7 +165,7 @@ export function SignupInfoPage() {
           {([['age', '만 14세 이상', '필수', false], ['terms', '서비스 이용약관', '필수', true], ['privacy', '개인정보 수집·이용', '필수', true], ['marketing', '혜택 및 마케팅 정보 수신', '선택', false]] as const).map(([key, label, badge, hasView]) => <div key={key} className="flex items-center gap-2"><label className="flex min-w-0 flex-1 items-center gap-2 text-[11px]"><input type="checkbox" checked={checks[key]} onChange={e => setChecks({ ...checks, [key]: e.target.checked })} className="h-4 w-4 shrink-0"/><span className={`shrink-0 rounded px-1 py-px text-[9px] font-bold ${badge === '필수' ? 'bg-[var(--ink)] text-[var(--surface)]' : 'border border-[var(--line)] text-[var(--muted)]'}`}>{badge}</span>{label}</label>{hasView && <button type="button" aria-label={key === 'terms' ? '이용약관 보기' : '개인정보 동의 내용 보기'} onClick={() => setLegal(key)} className="muted shrink-0 p-2 text-[11px] underline">보기</button>}</div>)}
         </fieldset>
         <ErrorBox message={error}/>
-        <Button type="submit" className="w-full" disabled={busy || !verified || !phone || !validPassword(password) || password !== confirmation || !checks.age || !checks.terms || !checks.privacy}>{busy ? '가입 중…' : '가입하기'}</Button>
+        <Button type="submit" className="w-full" disabled={busy || !verified || !nameValue.trim() || !phone || !validPassword(password) || password !== confirmation || !checks.age || !checks.terms || !checks.privacy}>{busy ? '가입 중…' : '가입하기'}</Button>
       </form>
       {legal && <Modal title={legal === 'terms' ? '서비스 이용약관' : '개인정보 수집·이용'} onClose={() => setLegal('')}><LegalContent kind={legal}/><Button className="mt-6 w-full" onClick={() => setLegal('')}>내용 확인</Button></Modal>}
     </AuthShell>
