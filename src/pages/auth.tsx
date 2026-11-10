@@ -14,7 +14,7 @@ function useNext() { const [params] = useSearchParams(); return safeNext(params.
 function markOnboarded() { mutate(s => { (s.auth ??= initialAuth()).onboarded = true; }); if (!location.hash.startsWith('#/onboarding')) sessionStorage.setItem('stockdrop:guest-session', '1'); }
 function Wordmark() { return <div className="py-8 text-center"><p className="text-[38px] font-black italic tracking-[-2px]">STOCKDROP</p><p className="muted mt-1 text-[11px] tracking-[2px]">NEW FINDS. LIMITED TIME.</p></div>; }
 function AuthShell({ title, children, onBack }: { title: string; children: ReactNode; onBack?: () => void }) { return <div className="min-h-[calc(100dvh-60px)] pb-8">{onBack ? <header className="divider mb-5 flex min-h-[50px] items-center gap-3 pb-3"><button aria-label="이전 화면" onClick={onBack} className="-ml-1 grid h-9 w-9 place-items-center"><ArrowLeft size={20}/></button><h1 className="text-[18px] font-bold tracking-[-.5px]">{title}</h1></header> : <Header title={title}/>}<Wordmark/>{children}</div>; }
-function PasswordField({ label = '비밀번호', value, onChange, autoComplete = 'new-password' }: { label?: string; value: string; onChange: (v: string) => void; autoComplete?: string }) { const [visible, setVisible] = useState(false); return <Field label={label} required><div className="relative"><input aria-label={label} type={visible ? 'text' : 'password'} value={value} onChange={e => onChange(e.target.value)} autoComplete={autoComplete} maxLength={32} placeholder="영문·숫자·특수문자 8~32자" className={`${inputClass} pr-10`}/><button type="button" aria-label={`${label} ${visible ? '숨기기' : '보기'}`} onClick={() => setVisible(!visible)} className="absolute right-0 top-1 grid h-10 w-10 place-items-center text-[var(--muted)]">{visible ? <EyeOff size={18}/> : <Eye size={18}/>}</button></div></Field>; }
+function PasswordField({ label = '비밀번호', value, onChange, autoComplete = 'new-password', placeholder = '영문·숫자·특수문자 8~32자' }: { label?: string; value: string; onChange: (v: string) => void; autoComplete?: string; placeholder?: string }) { const [visible, setVisible] = useState(false); return <Field label={label} required><div className="relative"><input aria-label={label} type={visible ? 'text' : 'password'} value={value} onChange={e => onChange(e.target.value)} autoComplete={autoComplete} maxLength={32} placeholder={placeholder} className={`${inputClass} pr-10`}/><button type="button" aria-label={`${label} ${visible ? '숨기기' : '보기'}`} onClick={() => setVisible(!visible)} className="absolute right-0 top-1 grid h-10 w-10 place-items-center text-[var(--muted)]">{visible ? <EyeOff size={18}/> : <Eye size={18}/>}</button></div></Field>; }
 export function OnboardingPage() {
   const [step, setStep] = useState(0), navigate = useNavigate(), next = useNext();
   const slides = [ { tag: 'NEW FINDS', title: <>남은 새 상품,<br/>새로운 발견.</>, text: '쇼핑몰에서 팔리지 않은 새 상품을\n3시간 동안만 특별한 가격에 만나 보세요.', image: './images/onboarding-hero.jpg' }, { tag: 'JUST 3 HOURS', title: <>기회는 짧게,<br/>선택은 확실하게.</>, text: '판매는 시작부터 단 3시간.\n구매하기로 재고를 확보한 뒤 5분 안에 결제해요.', image: './images/generated-5.png' }, { tag: 'ONE ACCOUNT', title: <>사고, 팔고.\n하나의 계정으로.</>, text: '누구나 구매자로 시작해요. 판매를 원한다면\n사업자등록증 PDF 제출 후 승인을 받아 주세요.', image: './images/generated-4.png' } ];
@@ -97,11 +97,8 @@ export function SignupInfoPage() {
   if (signedIn(s) && !busy) return <Navigate to={next} replace/>;
   if (!email || !name) return <Navigate to={`/signup?next=${encodeURIComponent(next)}`} replace/>;
   return (
-    <AuthShell title="이메일 회원가입" onBack={() => navigate(`/signup?next=${encodeURIComponent(next)}`)}>
-      <div className="mb-7 flex items-center justify-between">
-        <p className="text-[20px] font-bold tracking-[-.7px]">가입 정보를 입력해 주세요.</p>
-        <span className="muted text-[11px]">02 / 02</span>
-      </div>
+    <AuthShell title="가입 정보 입력" onBack={() => navigate(`/signup?next=${encodeURIComponent(next)}`)}>
+      <p className="mb-6 text-[13px] text-[var(--muted)]">구매와 판매에 사용할 하나의 계정을 만들어요.</p>
       <form className="space-y-6" onSubmit={async e => { e.preventDefault(); if (busy) return; setError(''); if (password !== confirmation) return setError('비밀번호가 일치하지 않습니다.'); setBusy(true); try { await signup({ email, password, name, phone, ...checks }); navigate(`/signup/done?next=${encodeURIComponent(next)}`, { replace: true }); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }}>
         <div className="flex items-center justify-between border-b border-[var(--line)] pb-4">
           <div className="flex items-center gap-2 min-w-0"><span className="min-w-0 break-all text-[12px]">{normalizeEmail(email)}</span><span className="shrink-0 rounded-full bg-[var(--green-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--green)]">인증 완료</span></div>
@@ -110,12 +107,12 @@ export function SignupInfoPage() {
         {!verified && <Note>인증 시간이 지났어요. 이메일을 다시 인증해 주세요.</Note>}
         <Field label="휴대폰 번호" required hint="주문·배송 및 문의 연락처로 사용해요."><input aria-label="휴대폰 번호" type="tel" value={phone} onChange={e => setPhone(e.target.value)} autoComplete="tel" maxLength={13} placeholder="01012345678" className={inputClass}/></Field>
         <PasswordField value={password} onChange={setPassword}/>
-        <PasswordField label="비밀번호 확인" value={confirmation} onChange={setConfirmation}/>
+        <PasswordField label="비밀번호 확인" value={confirmation} onChange={setConfirmation} placeholder="비밀번호를 한 번 더 입력해 주세요"/>
         {confirmation && confirmation !== password && <p className="text-[11px] text-[var(--red)]">비밀번호가 일치하지 않아요.</p>}
         <fieldset className="space-y-3 border-t border-[var(--line)] pt-5">
           <legend className="sr-only">약관 동의</legend>
           <label className="divider flex items-center gap-3 pb-4 text-[14px] font-bold"><input aria-label="약관 전체 동의" type="checkbox" checked={Object.values(checks).every(Boolean)} onChange={e => setChecks({ age: e.target.checked, terms: e.target.checked, privacy: e.target.checked, marketing: e.target.checked })} className="h-4 w-4"/>전체 동의</label>
-          {([['age', '[필수] 만 14세 이상입니다'], ['terms', '[필수] 서비스 이용약관 동의'], ['privacy', '[필수] 개인정보 수집·이용 동의'], ['marketing', '[선택] 혜택 및 마케팅 정보 수신 동의']] as const).map(([key, label]) => <div key={key} className="flex items-center gap-2"><label className="flex min-w-0 flex-1 items-center gap-3 text-[11px]"><input type="checkbox" checked={checks[key]} onChange={e => setChecks({ ...checks, [key]: e.target.checked })} className="h-4 w-4 shrink-0"/>{label}</label>{(key === 'terms' || key === 'privacy') && <button type="button" aria-label={key === 'terms' ? '이용약관 보기' : '개인정보 동의 내용 보기'} onClick={() => setLegal(key)} className="muted p-2 text-[11px] underline">보기</button>}</div>)}
+          {([['age', '만 14세 이상', '필수', false], ['terms', '서비스 이용약관', '필수', true], ['privacy', '개인정보 수집·이용', '필수', true], ['marketing', '혜택 및 마케팅 정보 수신', '선택', false]] as const).map(([key, label, badge, hasView]) => <div key={key} className="flex items-center gap-2"><label className="flex min-w-0 flex-1 items-center gap-2 text-[11px]"><input type="checkbox" checked={checks[key]} onChange={e => setChecks({ ...checks, [key]: e.target.checked })} className="h-4 w-4 shrink-0"/><span className={`shrink-0 rounded px-1 py-px text-[9px] font-bold ${badge === '필수' ? 'bg-[var(--ink)] text-[var(--surface)]' : 'border border-[var(--line)] text-[var(--muted)]'}`}>{badge}</span>{label}</label>{hasView && <button type="button" aria-label={key === 'terms' ? '이용약관 보기' : '개인정보 동의 내용 보기'} onClick={() => setLegal(key)} className="muted shrink-0 p-2 text-[11px] underline">보기</button>}</div>)}
         </fieldset>
         <ErrorBox message={error}/>
         <Button type="submit" className="w-full" disabled={busy || !verified || !phone || !validPassword(password) || password !== confirmation || !checks.age || !checks.terms || !checks.privacy}>{busy ? '가입 중…' : '가입하기'}</Button>
@@ -132,11 +129,13 @@ export function ResetPasswordPage() {
   const authNow = useAuthNow(), s = useStore(), c = s.auth?.challenges[`reset:${normalizeEmail(email)}`], verified = !!c?.verified && c.expiresAt > authNow;
   return (
     <AuthShell title="비밀번호 재설정" onBack={() => navigate(`/login?next=${encodeURIComponent(next)}`)}>
-      <h1 className="mb-7 text-[22px] font-bold">가입한 이메일을 확인해요.</h1>
+      <h1 className="text-[22px] font-bold">가입한 이메일을 확인해요</h1>
+      <p className="mb-7 mt-2 text-[13px] text-[var(--muted)]">인증이 끝나면 새 비밀번호를 설정할 수 있어요.</p>
       <div className="space-y-6">
         <EmailVerification email={email} setEmail={setEmail} purpose="reset" onError={setError}/>
         <ErrorBox message={error}/>
         <Button className="w-full" disabled={!verified} onClick={() => navigate(`/reset-password/new?email=${encodeURIComponent(email)}&next=${encodeURIComponent(next)}`)}>다음 · 새 비밀번호 설정</Button>
+        <p className="text-center text-[11px] text-[var(--muted)]">가입하지 않은 이메일이면 인증번호가 발송되지 않아요.</p>
       </div>
     </AuthShell>
   );
@@ -162,7 +161,7 @@ export function ResetPasswordNewPage() {
         </div>
       ) : (
         <form className="space-y-6" onSubmit={async e => { e.preventDefault(); if (busy) return; setError(''); if (password !== confirmation) return setError('비밀번호가 일치하지 않습니다.'); setBusy(true); try { await resetPassword(email, password); setDone(true); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }}>
-          <h1 className="text-[22px] font-bold">새 비밀번호를 설정해 주세요.</h1>
+          <h1 className="text-[22px] font-bold">새 비밀번호를 설정해 주세요</h1>
           <p className="text-[13px] text-[var(--muted)]">변경이 끝나면 로그인 화면으로 이동해요.</p>
           <PasswordField label="새 비밀번호" value={password} onChange={setPassword}/>
           {password && <div className="flex gap-4 text-[12px] font-bold">
