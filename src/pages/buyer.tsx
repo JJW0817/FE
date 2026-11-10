@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Search, Bell, ExternalLink, Bookmark, Clock3, Plus, Minus, Truck, CheckCircle2, ChevronRight, PackageCheck, Calendar } from 'lucide-react';
-import { Badge, BottomSheet, Button, CopyButton, DeliveryProgress, Empty, ErrorBox, Field, Header, InfoRow, Modal, Note, ORDER_LABELS, ProductCard, ProductImage, ProductSummary, useToast } from '../components/ui';
+import { Badge, BottomSheet, Button, Chip, CopyButton, DeliveryProgress, Empty, ErrorBox, Field, Header, InfoRow, Modal, Note, ORDER_LABELS, ProductCard, ProductImage, ProductSummary, useToast } from '../components/ui';
 import { activeUser, available, beginPayment, DomainError, money, nowOf, reserve, resolvePayment, saleState, uid } from '../domain';
 import type { Address, Hold, Product, Order } from '../domain';
 import { atomic, getState, mutate, useStore } from '../store';
@@ -133,7 +133,28 @@ export function OrderDetailPage() {
     <Note title="상품을 확인해 주세요">취소·반품·하자·오배송은 판매자에게 문의해 주세요. 교환은 지원하지 않습니다.</Note><Button outline className="w-full" onClick={() => setContact(true)}>판매자 문의 · 반품 문의</Button>{complete ? <><Link className="btn w-full" to="/">쇼핑 계속하기</Link><Button outline className="w-full" onClick={() => setParams({})}>상세 배송조회</Button></> : <Link className="btn w-full" to="/orders">주문 목록으로</Link>}{contact && <OrderContactModal order={o} onClose={() => setContact(false)}/>}
   </div>;
 }
-function OrderContactModal({ order, onClose }: { order: Order; onClose: () => void }) { const toast = useToast(); const [kind, setKind] = useState('배송 문의'), [question, setQuestion] = useState(''), [error, setError] = useState(''); return <Modal title="판매자에게 문의" onClose={onClose}><form className="space-y-4" onSubmit={e => { e.preventDefault(); if (!question.trim()) { setError('문의 내용을 입력해 주세요.'); return; } try { mutate(s => { s.inquiries.unshift({ id: uid('q-'), userId: s.activeUserId, sellerId: order.sellerId, productId: order.productId, orderId: order.id, productName: order.product.name, kind, question: question.trim(), public: false, createdAt: nowOf(s) }); }); toast('문의가 판매자에게 전달되었습니다.'); onClose(); } catch (e) { setError((e as Error).message); } }}><Field label="문의 유형"><select aria-label="문의 유형" className="field" value={kind} onChange={e => setKind(e.target.value)}>{['배송 문의', '주문 취소', '반품', '하자', '오배송'].map(k => <option key={k}>{k}</option>)}</select></Field><Note title={order.product.name}>{order.lines.map(l => `${l.name} ${l.quantity}개`).join(' · ')}</Note><Field label="문의 내용"><textarea aria-label="문의 내용" className="field field-box" value={question} onChange={e => setQuestion(e.target.value)} maxLength={1500} required/></Field><p className="muted text-[10px]">주문 관련 문의는 AI를 거치지 않고 판매자에게 전달됩니다.</p><ErrorBox message={error}/><Button type="submit" className="w-full">문의 보내기</Button></form></Modal>; }
+function OrderContactModal({ order, onClose }: { order: Order; onClose: () => void }) {
+  const toast = useToast(); const [kind, setKind] = useState('하자·파손'), [question, setQuestion] = useState(''), [error, setError] = useState('');
+  const kinds = ['하자·파손', '배송 지연', '오배송', '반품', '교환', '기타'];
+  return <Modal title="판매자에게 문의" onClose={onClose}><form className="space-y-4" onSubmit={e => { e.preventDefault(); if (!question.trim()) { setError('문의 내용을 입력해 주세요.'); return; } try { mutate(s => { s.inquiries.unshift({ id: uid('q-'), userId: s.activeUserId, sellerId: order.sellerId, productId: order.productId, orderId: order.id, productName: order.product.name, kind, question: question.trim(), public: false, createdAt: nowOf(s) }); }); toast('문의가 판매자에게 전달되었습니다.'); onClose(); } catch (e) { setError((e as Error).message); } }}>
+    {/* 상품 요약 — Figma: 브랜드 · 상품명 · 수량, 주문번호 */}
+    <div className="rounded-[6px] bg-[var(--soft)] p-3 space-y-0.5">
+      <p className="text-[13px] font-semibold">{order.product.brand} · {order.product.name}</p>
+      <p className="muted text-[11px]">{order.lines.map(l => `${l.name} · ${l.quantity}개`).join(' ')}</p>
+      <p className="muted text-[11px]">주문번호 {order.id}</p>
+    </div>
+    <div className="space-y-2">
+      <p className="label">문의 유형 <span className="muted text-[10px]">· 필수</span></p>
+      <div className="flex flex-wrap gap-2">{kinds.map(k => <Chip key={k} selected={kind === k} onClick={() => setKind(k)}>{k}</Chip>)}</div>
+    </div>
+    <Field label="문의 내용"><textarea aria-label="문의 내용" className="field field-box" value={question} onChange={e => setQuestion(e.target.value)} maxLength={1500} placeholder="문의 내용을 입력해 주세요" required/><p className="muted mt-1 text-right text-[10px]">{question.length} / 1500</p></Field>
+    <p className="muted text-[11px]">사진 첨부 <span className="text-[10px]">· 선택 · 최대 5장</span></p>
+    <p className="muted text-[10px] leading-relaxed">하자·오배송은 사진이 있으면 더 빠르게 처리돼요</p>
+    <p className="muted text-[10px] leading-relaxed">판매자는 영업일 기준 1일 안에 답변해요.<br/>2영업일 안에 답변이 없으면 StockDrop이 직접 확인하고 연락드려요.</p>
+    <ErrorBox message={error}/>
+    <Button type="submit" className="w-full">문의 보내기</Button>
+  </form></Modal>;
+}
 
 
 export function CalendarPage() {

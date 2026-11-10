@@ -358,16 +358,18 @@ export function InquiryListPage() {
         ))}
       </div>
       {filtered.map(q => (
-        <Link key={q.id} to={`/inquiries/${q.id}`} className="divider block py-4 space-y-1">
-          <div className="flex items-center justify-between">
-            <span className={`rounded px-2 py-0.5 text-[10px] font-semibold ${q.answer ? 'bg-[var(--green)] text-white' : 'bg-[var(--blue-soft)] text-[var(--muted)]'}`}>{q.answer ? '답변 완료' : q.sellerId === 'stockdrop' ? '접수됨' : '답변 대기'}</span>
-            <span className="muted text-[10px]">{new Date(q.createdAt).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}</span>
+        <Link key={q.id} to={`/inquiries/${q.id}`} className="divider block py-4 space-y-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className={`rounded px-2 py-0.5 text-[10px] font-semibold ${q.answer ? 'bg-[#EEF8F3] text-[#3FB181]' : 'bg-[var(--soft)] text-[var(--muted)]'}`}>{q.answer ? '답변 완료' : q.sellerId === 'stockdrop' ? '접수됨' : '답변 대기'}</span>
+            <span className="muted text-[10px]">{new Date(q.createdAt).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' }).replace('. ', '.').replace('.', '.')}{' '}{new Date(q.createdAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
           </div>
-          <p className="text-[12px] font-semibold">{q.kind} · {q.productName}</p>
+          <p className="text-[13px] font-semibold">{q.sellerId === 'stockdrop' ? `1:1 문의 · ${q.kind}` : `판매자 문의 · ${q.kind}`}</p>
           <p className="muted truncate text-[12px]">{q.question}</p>
+          <p className="text-[12px] text-[#949494]">{q.sellerId === 'stockdrop' ? 'StockDrop 운영팀' : q.productName}</p>
         </Link>
       ))}
       {!filtered.length && <Empty title="문의 내역이 없어요" message="문의 내역은 최근 1년까지 보관돼요."/>}
+      {filtered.length > 0 && <p className="pb-4 text-center text-[11px] text-[#949494]">문의 내역은 최근 1년까지 보관돼요</p>}
     </div>
   );
 }
@@ -389,26 +391,32 @@ export function InquiryDetailPage() {
   return (
     <div className="space-y-5">
       <Header title="문의 상세" back={true}/>
-      <div className="space-y-1">
-        <p className="text-[12px] font-bold">{q.productName}</p>
-        {q.orderId && <p className="muted text-[11px]">주문번호 {q.orderId}</p>}
+      {/* 상품 정보 — Figma: 브랜드 · 상품명 · 수량, 주문번호 */}
+      <div className="space-y-0.5">
+        <p className="text-[15px] font-bold">{q.productName}</p>
+        {q.orderId && <p className="muted text-[12px]">주문번호 {q.orderId}</p>}
       </div>
-      <div className="flex items-center justify-between">
-        <span className={`rounded px-2 py-0.5 text-[10px] font-semibold ${q.answer ? 'bg-[var(--green)] text-white' : 'bg-[var(--blue-soft)] text-[var(--muted)]'}`}>{q.answer ? '답변 완료' : '답변 대기'}</span>
-        <span className="muted text-[10px]">{q.kind} · {new Date(q.createdAt).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' })}</span>
+      <div className="flex items-center justify-between gap-2">
+        <span className={`rounded px-2 py-0.5 text-[10px] font-semibold ${q.answer ? 'bg-[#EEF8F3] text-[#3FB181]' : 'bg-[var(--soft)] text-[var(--muted)]'}`}>{q.answer ? '답변 완료' : '답변 대기'}</span>
+        <span className="muted text-[10px]">{q.kind} · {new Date(q.createdAt).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' }).replace('. ', '.').replace('.', '.')}{' '}{new Date(q.createdAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
       </div>
-      <div className="rounded-[6px] bg-[var(--blue-soft)] p-4 space-y-2">
-        <p className="text-[11px] font-semibold text-[var(--muted)]">문의 내용</p>
+      <div className="rounded-[6px] bg-[var(--soft)] p-4 space-y-2">
         <p className="text-[13px] leading-[1.8] whitespace-pre-line">{q.question}</p>
       </div>
       {q.answer ? (
-        <div className="space-y-2">
-          <p className="text-[12px] font-bold">판매자 답변</p>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[13px] font-bold">{q.productName.split(' · ')[0] ?? '판매자'} 답변</p>
+            <span className="muted text-[10px]">{new Date(q.createdAt + 86400000).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' }).replace('. ', '.').replace('.', '.')}</span>
+          </div>
           <div className="rounded-[6px] border border-[var(--line)] p-4 space-y-2">
             <p className="text-[13px] leading-[1.8] whitespace-pre-line">{q.answer}</p>
             {['반품', '하자', '오배송'].includes(q.kind) && <p className="muted text-[10px]">하자 확인 · 반품 배송비 판매자 부담</p>}
           </div>
-          <Note>답변으로 해결되지 않았나요? <Link to="/inquiries/compose" className="underline">StockDrop 운영팀에 1:1 문의하기</Link></Note>
+          <div className="rounded-[6px] bg-[var(--soft)] p-4 space-y-1">
+            <p className="text-[13px] font-semibold">답변으로 해결되지 않았나요?</p>
+            <p className="muted text-[12px]">StockDrop 운영팀에 도움을 요청할 수 있어요</p>
+          </div>
         </div>
       ) : (
         <Note title="답변 대기 중">판매자가 답변을 등록하면 알림으로 안내해 드릴게요.</Note>
@@ -435,7 +443,7 @@ export function OpsInquiryComposePage() {
     <section className="space-y-3"><p className="label">문의 유형 <span className="muted text-[10px]">· 필수</span></p><div className="flex flex-wrap gap-2">{kinds.map(k => <Chip key={k} selected={kind === k} onClick={() => setKind(k)}>{k}</Chip>)}</div></section>
     <Field label="제목" required><input aria-label="제목" className="field" value={title} onChange={e => setTitle(e.target.value)} placeholder="제목을 입력해 주세요" required/></Field>
     <Field label="문의 내용" required><textarea aria-label="문의 내용" className="field field-box" value={content} onChange={e => setContent(e.target.value.slice(0, 1000))} placeholder="문의 내용을 자세히 적어주세요." rows={5} required/><p className="muted mt-1 text-right text-[10px]">{content.length} / 1000</p></Field>
-    {userOrders.length > 0 && <Field label="관련 주문 · 선택"><select aria-label="관련 주문" className="field" value={orderId} onChange={e => setOrderId(e.target.value)}><option value="">선택하지 않음</option>{userOrders.map(o => <option key={o.id} value={o.id}>{o.id} · {o.product.name}</option>)}</select></Field>}
+    <Field label="관련 주문"><p className="muted mb-1 text-[10px]">· 선택</p><select aria-label="관련 주문" className="field" value={orderId} onChange={e => setOrderId(e.target.value)}><option value="">주문을 선택해 주세요</option>{userOrders.map(o => <option key={o.id} value={o.id}>{o.id} · {o.product.name}</option>)}</select></Field>
     <Note>취소·반품·하자·오배송은 해당 주문의 판매자에게 문의해 주세요. 1:1 문의 운영시간 평일 10:00–18:00 · 주말·공휴일 휴무</Note>
     <ErrorBox message={error}/>
     <Button type="submit" className="w-full" disabled={busy || !title.trim() || !content.trim()}>{busy ? '접수 중…' : '문의 보내기'}</Button>

@@ -101,8 +101,8 @@ export function ConfirmLeave({ onLeave, onStay }: { onLeave: () => void; onStay:
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{ background: 'var(--overlay)' }}>
       <div className="w-[318px] rounded-[8px] bg-[var(--surface)] p-6 space-y-4">
-        <h2 className="text-[16px] font-bold">작성 중인 내용이 있어요</h2>
-        <p className="muted text-[13px] leading-relaxed">나가면 작성한 내용이 사라져요. 계속 작성하시겠어요?</p>
+        <h2 className="text-[16px] font-bold">작성을 그만할까요?</h2>
+        <p className="muted text-[13px] leading-relaxed">지금 나가면 입력한 내용이 저장되지 않아요.</p>
         <div className="flex gap-2">
           <Button outline className="flex-1" onClick={onLeave}>나가기</Button>
           <Button className="flex-1" onClick={onStay}>계속 작성</Button>
@@ -112,15 +112,17 @@ export function ConfirmLeave({ onLeave, onStay }: { onLeave: () => void; onStay:
   );
 }
 
-/** 처리 실패와 재시도 — 입력 내용 유지 */
+/** 처리 실패와 재시도 — 입력 내용 유지 (Figma: 가운데 대화상자, 뒤 화면 어둡게) */
 export function RetryError({ message, onRetry, onBack }: { message: string; onRetry: () => void; onBack?: () => void }) {
   return (
-    <div className="rounded-[4px] border border-[var(--border)] p-4 space-y-3">
-      <p className="text-[13px] font-bold text-[var(--red)]">처리에 실패했어요</p>
-      <p className="muted text-[12px] leading-relaxed">{message}</p>
-      <div className="flex gap-2">
-        {onBack && <Button outline className="flex-1" onClick={onBack}>이전으로</Button>}
-        <Button className="flex-1" onClick={onRetry}>다시 시도</Button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{ background: 'var(--overlay)' }}>
+      <div className="w-[318px] rounded-[8px] bg-[var(--surface)] p-6 space-y-4">
+        <h2 className="text-[16px] font-bold">요청을 처리하지 못했어요</h2>
+        <p className="muted text-[13px] leading-relaxed">{message || '일시적인 오류로 문의가 접수되지 않았어요. 입력한 내용은 그대로 남아 있어요.'}</p>
+        <div className="flex gap-2">
+          {onBack && <Button outline className="flex-1" onClick={onBack}>이전으로</Button>}
+          <Button className="flex-1" onClick={onRetry}>다시 시도</Button>
+        </div>
       </div>
     </div>
   );
