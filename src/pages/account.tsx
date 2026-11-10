@@ -313,7 +313,7 @@ export function AdminDetailPage() {
           <div className="w-[150px] rounded-[2px] bg-white p-3 shadow-sm space-y-1.5">
             <p className="text-center text-[10px] font-bold">사업자등록증</p>
             <p className="text-center text-[6px] text-[#949494]">( 일반과세자 )</p>
-            {([['등록번호', app.business?.registrationNumber], ['상호', app.business?.name], ['대표자', app.business?.representative], ['업태 · 종목', app.business?.businessType]] as [string, string | undefined][]).filter(([, v]) => v).map(([k,v]) => (
+            {([['등록번호', app.business?.registrationNumber], ['상호', app.business?.name], ['대표자', app.business?.representative], ['개업연월일', app.business?.openedAt], ['소재지', app.business?.address], ['업태 · 종목', app.business?.businessType]] as [string, string | undefined][]).filter(([, v]) => v).map(([k,v]) => (
               <div key={k} className="flex gap-2">
                 <span className="w-[52px] shrink-0 text-[6px] text-[#949494]">{k}</span>
                 <span className="text-[6px]">{v}</span>
