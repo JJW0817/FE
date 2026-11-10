@@ -26,6 +26,8 @@
   --positive: #3FB181;
   --positive-soft: #EEF8F3;
   --action: #EF6253;
+  --soft: #F5F5F5;
+  --soft-btn: #EEEEEE;
 }
 @layer base {
   html, body, #root { min-height: 100%; }
@@ -47,6 +49,7 @@
   .divider { @apply border-b; border-color: var(--line); }
   .muted { color: var(--muted); }
   .note { @apply rounded-[4px] p-3.5 text-[11px] leading-[1.7]; background: var(--blue-soft); }
+  .field-line { @apply h-12 w-full min-w-0 border-b bg-transparent text-[16px] outline-none placeholder:text-[var(--placeholder)]; border-color: var(--line); }
   .label { @apply mb-2 block text-[12px] font-medium; }
 }
 

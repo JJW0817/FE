@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { MapPin, Search } from 'lucide-react';
+import { Search } from 'lucide-react';
 import { Building2, Store, UserRound, CheckCircle2, FileText } from 'lucide-react';
 import { activeUser, approveApplication, money, nowOf, saleState, uid } from '../domain';
 import type { Address, Application, DocumentFile } from '../domain';
@@ -8,7 +8,8 @@ import { atomic, mutate, useStore } from '../store';
 import { dateTime } from '../hooks';
 import { Badge, Button, Chip, ConfirmLeave, Empty, ErrorBox, Field, Header, InfoRow, MenuRow, Modal, Note, ProductImage, Unavailable, useToast } from '../components/ui';
 import { PdfField } from '../components/PdfField';
-import { AddressModal } from './buyer';
+import { deleteAddress, listAddresses, setDefaultAddress, toAddress } from './address';
+import type { SavedAddress as ApiAddr } from './address';
 import { LogoutButton } from './auth';
 import { changePassword, restoreSession, validPassword } from '../auth';
 import { apiGet, apiPost, apiPut, apiPatch, apiDelete, apiPostForm } from '../api';
@@ -36,7 +37,7 @@ export function MyPage() {
     ? `${(app.rejectionItems?.length ?? 0)}개 항목 보완 필요 · ${shortDt(deadlineDate)}까지 제출해 주세요`
     : '';
   const appStepLabel = app?.status === 'pending' ? '심사 중' : app?.status === 'approved' ? '승인 완료' : app?.status === 'rejected' ? '거절' : '';
-  return <div className="space-y-5"><Header title="구매자 마이페이지" subtitle="내 주문과 계정 정보를 관리하세요." back={false}/><button className="divider w-full flex items-center gap-3 pb-5 text-left" onClick={() => setProfileEdit(true)}><div className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-[4px] bg-[var(--blue-soft)] text-[18px] font-bold">{user.name[0]}</div><div className="min-w-0 flex-1"><h2 className="break-words text-[17px] font-bold">{user.name}</h2><p className="muted mt-1 break-all text-[12px]">{user.email}</p></div><span className="muted text-[11px] shrink-0">수정 ›</span></button><MenuRow to="/orders" label="주문 · 배송 조회"/><section className="note space-y-3"><p className="muted text-[10px]">회원 권한</p><h2 className="text-[22px] font-bold">구매자{user.seller ? ' + 판매자' : ''}</h2><p className="muted text-[12px]">{user.seller ? '개인·사업자 모두 구매할 수 있어요.' : '개인·사업자 모두 구매할 수 있어요.'}</p><p className="muted text-[12px]">판매는 입점 심사 승인 후 시작할 수 있어요.</p>{app && <div className="rounded-[4px] bg-[var(--canvas,#F7F7F7)] p-3 space-y-1"><div className="flex items-center justify-between"><p className="text-[11px] font-bold">판매자 입점 신청</p><span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${app.status === 'approved' ? 'bg-[var(--green-soft)] text-[var(--green)]' : app.status === 'rejected' ? 'bg-[var(--red-soft,#FEF2F2)] text-[var(--red)]' : 'bg-[var(--blue-soft)]'}`}>{appStepLabel}</span></div><p className="muted text-[11px] leading-relaxed">{appStatusDesc}</p></div>}<Button className="w-full" onClick={() => { if (user.seller) { mutate(state => { state.mode = 'seller'; }); navigate('/seller'); } else if (app) navigate('/apply'); else navigate('/seller/terms'); }}>{roleLabel}</Button></section><div><button onClick={() => navigate('/addresses')} className="divider flex h-[52px] w-full items-center justify-between"><span>배송지 관리</span><span className="muted">›</span></button><button onClick={() => navigate('/notifications/settings')} className="divider flex h-[52px] w-full items-center justify-between"><span>알림 설정</span><span className="muted">›</span></button><button onClick={() => setPwChange(true)} className="divider flex h-[52px] w-full items-center justify-between"><span>비밀번호 변경</span><span className="muted">›</span></button><Link className="divider flex h-[52px] items-center justify-between" to="/support">고객 지원 <span className="muted">›</span></Link></div>{user.admin && <MenuRow to="/admin" label="운영자 · 판매자 신청 검토"/>}<LogoutButton/>{address && <AddressModal initial={s.addresses[user.id] ?? { name: user.name, phone: user.phone, address: '', detail: '', request: '' }} onClose={() => setAddress(false)} onSave={value => { mutate(state => { state.addresses[user.id] = value; }); setAddress(false); toast('배송지를 저장했습니다.'); }}/ >}{profileEdit && <ProfileEditModal userId={user.id} name={user.name} phone={user.phone} onClose={() => setProfileEdit(false)}/>}{pwChange && <PasswordChangeModal onClose={() => setPwChange(false)}/>}</div>;
+  return <div className="space-y-5"><Header title="구매자 마이페이지" subtitle="내 주문과 계정 정보를 관리하세요." back={false}/><button className="divider w-full flex items-center gap-3 pb-5 text-left" onClick={() => setProfileEdit(true)}><div className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-[4px] bg-[var(--blue-soft)] text-[18px] font-bold">{user.name[0]}</div><div className="min-w-0 flex-1"><h2 className="break-words text-[17px] font-bold">{user.name}</h2><p className="muted mt-1 break-all text-[12px]">{user.email}</p></div><span className="muted text-[11px] shrink-0">수정 ›</span></button><MenuRow to="/orders" label="주문 · 배송 조회"/><section className="note space-y-3"><p className="muted text-[10px]">회원 권한</p><h2 className="text-[22px] font-bold">구매자{user.seller ? ' + 판매자' : ''}</h2><p className="muted text-[12px]">{user.seller ? '개인·사업자 모두 구매할 수 있어요.' : '개인·사업자 모두 구매할 수 있어요.'}</p><p className="muted text-[12px]">판매는 입점 심사 승인 후 시작할 수 있어요.</p>{app && <div className="rounded-[4px] bg-[var(--canvas,#F7F7F7)] p-3 space-y-1"><div className="flex items-center justify-between"><p className="text-[11px] font-bold">판매자 입점 신청</p><span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${app.status === 'approved' ? 'bg-[var(--green-soft)] text-[var(--green)]' : app.status === 'rejected' ? 'bg-[var(--red-soft,#FEF2F2)] text-[var(--red)]' : 'bg-[var(--blue-soft)]'}`}>{appStepLabel}</span></div><p className="muted text-[11px] leading-relaxed">{appStatusDesc}</p></div>}<Button className="w-full" onClick={() => { if (user.seller) { mutate(state => { state.mode = 'seller'; }); navigate('/seller'); } else if (app) navigate('/apply'); else navigate('/seller/terms'); }}>{roleLabel}</Button></section><div><button onClick={() => navigate('/addresses')} className="divider flex h-[52px] w-full items-center justify-between"><span>배송지 관리</span><span className="muted">›</span></button><button onClick={() => navigate('/notifications/settings')} className="divider flex h-[52px] w-full items-center justify-between"><span>알림 설정</span><span className="muted">›</span></button><button onClick={() => setPwChange(true)} className="divider flex h-[52px] w-full items-center justify-between"><span>비밀번호 변경</span><span className="muted">›</span></button><Link className="divider flex h-[52px] items-center justify-between" to="/support">고객 지원 <span className="muted">›</span></Link></div>{user.admin && <MenuRow to="/admin" label="운영자 · 판매자 신청 검토"/>}<LogoutButton/>{profileEdit && <ProfileEditModal userId={user.id} name={user.name} phone={user.phone} onClose={() => setProfileEdit(false)}/>}{pwChange && <PasswordChangeModal onClose={() => setPwChange(false)}/>}</div>;
 }
 
 interface ApplicationForm { displayName: string; name: string; email: string; phone: string; bank: string; account: string; shippingPostal: string; shippingAddress: string; returnPostal: string; returnAddress: string }
@@ -697,40 +698,26 @@ export function SupportPage() {
   );
 }
 
-type ApiAddr = { addressId: string; label: string; recipientName: string; recipientPhone: string; postalCode: string; roadAddress: string; detailAddress: string; deliveryMemo: string; defaultAddress: boolean };
-const toModal = (a: ApiAddr) => ({ name: a.recipientName, phone: a.recipientPhone, address: a.roadAddress, detail: a.detailAddress, request: a.deliveryMemo, postalCode: a.postalCode, label: a.label } as any);
-const toApiBody = (v: Address & { label?: string }) => ({ label: (v as any).label || '배송지', recipientName: v.name, recipientPhone: v.phone, postalCode: v.postalCode || '', roadAddress: v.address, detailAddress: v.detail || '', deliveryMemo: v.request || '' });
-const toStoreAddr = (a: ApiAddr): Address => ({ name: a.recipientName, phone: a.recipientPhone, address: a.roadAddress, detail: a.detailAddress, request: a.deliveryMemo, postalCode: a.postalCode } as any);
-
 export function AddressManagePage() {
-  const s = useStore(); const user = activeUser(s); const toast = useToast();
+  const s = useStore(); const user = activeUser(s); const toast = useToast(); const navigate = useNavigate();
   const [addrs, setAddrs] = useState<ApiAddr[]>([]);
-  const [editing, setEditing] = useState<ApiAddr | 'new' | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<ApiAddr | null>(null);
 
   const reload = async () => {
-    const data = await apiGet('/accounts/me/addresses').catch(() => null) as ApiAddr[] | null;
-    if (data) { setAddrs(data); const def = data.find(a => a.defaultAddress); if (def) mutate(state => { state.addresses[user.id] = toStoreAddr(def); }); }
+    const data = await listAddresses();
+    setAddrs(data); const def = data.find(a => a.defaultAddress); if (def) mutate(state => { state.addresses[user.id] = toAddress(def); });
   };
   useEffect(() => { reload(); }, []);
 
-  const handleSave = async (value: Address) => {
-    const postal = (value.postalCode ?? '').trim();
-    if (postal && !/^\d{5}$/.test(postal)) throw new Error('우편번호는 5자리 숫자로 입력해 주세요.');
-    if (editing === 'new') { await apiPost('/accounts/me/addresses', toApiBody(value)); }
-    else if (editing) { await apiPut(`/accounts/me/addresses/${editing.addressId}`, toApiBody(value)); }
-    await reload(); setEditing(null); toast('배송지를 저장했습니다.');
-  };
-
   const handleSetDefault = async (addr: ApiAddr) => {
-    await apiPatch(`/accounts/me/addresses/${addr.addressId}/default`, {}).catch(() => {});
+    await setDefaultAddress(addr.addressId);
     setAddrs(addrs.map(a => ({ ...a, defaultAddress: a.addressId === addr.addressId })));
-    mutate(state => { state.addresses[user.id] = toStoreAddr(addr); });
+    mutate(state => { state.addresses[user.id] = toAddress(addr); });
     toast('기본 배송지로 설정했습니다.');
   };
 
   const handleDelete = async (addr: ApiAddr) => {
-    await apiDelete(`/accounts/me/addresses/${addr.addressId}`).catch(() => {});
+    await deleteAddress(addr.addressId);
     setAddrs(addrs.filter(a => a.addressId !== addr.addressId));
     if (addr.defaultAddress) mutate(state => { delete (state.addresses as any)[user.id]; });
     setConfirmDelete(null); toast('배송지를 삭제했습니다.');
@@ -753,7 +740,7 @@ export function AddressManagePage() {
           <div className="flex items-center gap-2 text-[12px]">
             {!isDefault && <button onClick={() => handleSetDefault(addr)} className="font-bold text-[var(--ink)]">기본 설정</button>}
             {!isDefault && <div className="h-[10px] w-px bg-[#DEDEDE]"/>}
-            <button onClick={() => setEditing(addr)} className="text-[#7B7B7B]">수정</button>
+            <button onClick={() => navigate(`/addresses/${addr.addressId}/edit`)} className="text-[#7B7B7B]">수정</button>
             <div className="h-[10px] w-px bg-[#DEDEDE]"/>
             <button onClick={() => setConfirmDelete(addr)} className="text-[#7B7B7B]">삭제</button>
           </div>
@@ -801,18 +788,10 @@ export function AddressManagePage() {
       )}
       {/* CTA Bar — Figma: fixed bottom black button */}
       <div className="fixed bottom-0 left-1/2 w-full max-w-[390px] -translate-x-1/2 border-t border-[var(--line)] bg-[var(--surface)] px-4 py-3">
-        <button onClick={() => setEditing('new')} className="flex w-full items-center justify-center gap-2 rounded-[6px] bg-[var(--ink)] py-3 text-[15px] font-bold text-[var(--surface)]">
+        <button onClick={() => navigate('/addresses/new')} className="flex w-full items-center justify-center gap-2 rounded-[6px] bg-[var(--ink)] py-3 text-[15px] font-bold text-[var(--surface)]">
           + 새 배송지 추가
         </button>
       </div>
-      {editing !== null && (
-        <AddressModal
-          title={editing === 'new' ? '새 배송지 추가' : '배송지 수정'}
-          initial={editing === 'new' ? { name: '', phone: '', address: '', detail: '', request: '' } : toModal(editing as ApiAddr)}
-          onClose={() => setEditing(null)}
-          onSave={handleSave}
-        />
-      )}
       {confirmDelete && (
         <Modal title="배송지를 삭제할까요?" onClose={() => setConfirmDelete(null)}>
           <div className="space-y-4">
@@ -981,107 +960,4 @@ export function OpsInquiryComposePage() {
     <Button type="submit" className="w-full" disabled={busy || !title.trim() || !content.trim()}>{busy ? '접수 중…' : '문의 보내기'}</Button>
     {leaving && <ConfirmLeave onLeave={() => navigate(-1)} onStay={() => setLeaving(false)}/>}
   </form>;
-}
-
-/** 주소 검색 전체 화면 — Figma "주소 검색" (12C · Address Search) */
-export function AddressSearchPage() {
-  const navigate = useNavigate();
-  const [params] = useSearchParams();
-  const [query, setQuery] = useState('');
-  const [searched, setSearched] = useState('');
-  const [results, setResults] = useState<{ address: string; detail: string; postalCode: string }[]>([]);
-  const returnTo = params.get('returnTo') ?? '/addresses';
-
-  function search(q: string) {
-    setSearched(q);
-    if (!q.trim()) { setResults([]); return; }
-    // shortcut: Daum Postcode API not wired here — shows empty state; wire via /v1/address API when available
-    setResults([]);
-  }
-
-  const hasResults = results.length > 0;
-  const showEmpty = !!searched && !hasResults;
-
-  const SearchTips = () => (
-    <div className="space-y-5">
-      {/* 도로명 + 건물번호 */}
-      <div className="space-y-2">
-        <p className="text-[14px] font-bold">도로명 + 건물번호</p>
-        <div className="flex items-center gap-2">
-          <span className="text-[12px] text-[#949494]">예)</span>
-          <span className="rounded-[4px] bg-[var(--soft)] px-3 py-1 text-[12px] text-[#7B7B7B]">와우산로 94</span>
-          <span className="rounded-[4px] bg-[var(--soft)] px-3 py-1 text-[12px] text-[#7B7B7B]">테헤란로 152</span>
-        </div>
-        <div className="h-px bg-[#F2F2F2]"/>
-      </div>
-      {/* 동·읍·면 + 지번 */}
-      <div className="space-y-2">
-        <p className="text-[14px] font-bold">동·읍·면 + 지번</p>
-        <div className="flex items-center gap-2">
-          <span className="text-[12px] text-[#949494]">예)</span>
-          <span className="rounded-[4px] bg-[var(--soft)] px-3 py-1 text-[12px] text-[#7B7B7B]">서교동 338-1</span>
-          <span className="rounded-[4px] bg-[var(--soft)] px-3 py-1 text-[12px] text-[#7B7B7B]">역삼동 737</span>
-        </div>
-        <div className="h-px bg-[#F2F2F2]"/>
-      </div>
-      {/* 건물명·아파트명 */}
-      <div className="space-y-2">
-        <p className="text-[14px] font-bold">건물명·아파트명</p>
-        <div className="flex items-center gap-2">
-          <span className="text-[12px] text-[#949494]">예)</span>
-          <span className="rounded-[4px] bg-[var(--soft)] px-3 py-1 text-[12px] text-[#7B7B7B]">강남파이낸스센터</span>
-          <span className="rounded-[4px] bg-[var(--soft)] px-3 py-1 text-[12px] text-[#7B7B7B]">판교 푸르지오</span>
-        </div>
-      </div>
-    </div>
-  );
-
-  return (
-    <div className="space-y-4">
-      <Header title="주소 검색" back={true}/>
-      {/* 검색창 — Figma: 검은 테두리 1.5px, 커서, 15px placeholder */}
-      <label className="flex h-12 items-center gap-2.5 rounded-[4px] border-[1.5px] border-[var(--ink)] px-3.5">
-        <Search size={18} className="shrink-0"/>
-        <input
-          aria-label="주소 검색"
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && search(query)}
-          placeholder="도로명, 건물명 또는 지번으로 검색"
-          className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-[#A0A0A0]"
-          autoFocus
-        />
-      </label>
-      {/* 현재 위치로 주소 찾기 버튼 — Figma: 테두리 #DEDEDE, 14px Bold */}
-      <button className="flex w-full items-center justify-center gap-2 rounded-[6px] border border-[#DEDEDE] py-3 text-[14px] font-bold">
-        <MapPin size={16}/>
-        현재 위치로 주소 찾기
-      </button>
-      {/* 구분선 */}
-      <div className="-mx-4 h-2 bg-[#F2F2F2]"/>
-      {/* 검색 결과 목록 */}
-      {hasResults && results.map((r, i) => (
-        <button key={i} onClick={() => navigate(`${returnTo}?address=${encodeURIComponent(r.address)}&postal=${encodeURIComponent(r.postalCode)}`)} className="divider w-full py-4 text-left">
-          <p className="text-[13px] font-semibold">{r.address}</p>
-          <p className="muted text-[12px]">{r.detail}</p>
-        </button>
-      ))}
-      {/* 검색 결과 없음 */}
-      {showEmpty && (
-        <div className="space-y-5">
-          <p className="text-[15px] font-bold">'{searched}' 검색 결과가 없어요</p>
-          <p className="text-[13px] leading-relaxed text-[#7B7B7B]">결과가 없으면 띄어쓰기를 바꾸거나 건물번호를 빼고 검색해 보세요.</p>
-        </div>
-      )}
-      {/* 이렇게 검색해 보세요 — 항상 표시 (Figma 기본 상태) */}
-      {!hasResults && (
-        <div className="space-y-4">
-          <p className="text-[15px] font-bold">이렇게 검색해 보세요</p>
-          <SearchTips/>
-          {/* Note at bottom */}
-          <p className="text-[12px] text-[#949494]">결과가 없으면 띄어쓰기를 바꾸거나 건물번호를 빼고 검색해 보세요.</p>
-        </div>
-      )}
-    </div>
-  );
 }

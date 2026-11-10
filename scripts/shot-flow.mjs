@@ -96,6 +96,14 @@ const FLOWS = {
       url: '/#/reset-password/new?email=buyer%40example.com',
       state: withChallenge(loggedOutState(), 'buyer@example.com', 'reset', true) },
   ],
+  '04': (now) => [
+    { name: '01-address-manage',     url: '/#/addresses',                       state: loggedInState(now) },
+    { name: '02-address-edit',       url: '/#/addresses/addr-home/edit',        state: loggedInState(now) },
+    { name: '03-address-new',        url: '/#/addresses/new',                   state: loggedInState(now) },
+    { name: '04-address-search',     url: '/#/address-search',                  state: loggedInState(now) },
+    { name: '05-address-search-empty', url: '/#/address-search',                state: loggedInState(now),
+      setup: async (page) => { await page.getByLabel('주소 검색').first().fill('와우산로 9999'); await page.keyboard.press('Enter'); await page.waitForTimeout(3000); } },
+  ],
 };
 
 const screens = FLOWS[flowNum]?.(Date.now());

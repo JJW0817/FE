@@ -16,9 +16,9 @@ export function Field({ label, hint, required, children }: { label: string; hint
 export function Note({ title, children, green = false }: { title?: string; children: ReactNode; green?: boolean }) { return <div className={`note ${green ? 'bg-[var(--green-soft)]!' : ''}`}>{title && <h3 className="mb-1 font-bold">{title}</h3>}<div className="muted">{children}</div></div>; }
 export function ErrorBox({ message }: { message: string }) { return message ? <div role="alert" className="rounded-[4px] bg-[var(--red-soft)] p-3 text-[12px] leading-relaxed text-[var(--red)]">{message}</div> : null; }
 export function Empty({ title, message, children }: { title: string; message?: string; children?: ReactNode }) { return <div className="flex min-h-[260px] flex-col items-center justify-center gap-4 py-12 text-center"><Package size={32} className="muted" strokeWidth={1}/><h2 className="text-[16px] font-bold">{title}</h2>{message && <p className="muted max-w-[280px] text-[12px] leading-relaxed">{message}</p>}{children}</div>; }
-export function Header({ title, subtitle, back = true, action }: { title: string; subtitle?: string; back?: boolean; action?: ReactNode }) {
+export function Header({ title, subtitle, back = true, action, bare = false }: { title: string; subtitle?: string; back?: boolean; action?: ReactNode; bare?: boolean }) {
   const navigate = useNavigate();
-  return <header className="divider mb-5 pb-3"><div className="flex min-h-[38px] items-center gap-3">{back && <button aria-label="이전 화면" onClick={() => window.history.state?.idx > 0 ? navigate(-1) : navigate('/')} className="-ml-1 grid h-9 w-9 shrink-0 place-items-center"><ArrowLeft size={20}/></button>}<h1 className="min-w-0 flex-1 text-[18px] font-bold tracking-[-.5px]">{title}</h1>{action}</div>{subtitle && <p className="muted mt-1 text-[11px] leading-relaxed">{subtitle}</p>}</header>;
+  return <header className={bare ? 'mb-5 pb-3' : 'divider mb-5 pb-3'}><div className="flex min-h-[38px] items-center gap-3">{back && <button aria-label="이전 화면" onClick={() => window.history.state?.idx > 0 ? navigate(-1) : navigate('/')} className="-ml-1 grid h-9 w-9 shrink-0 place-items-center"><ArrowLeft size={20}/></button>}<h1 className="min-w-0 flex-1 text-[18px] font-bold tracking-[-.5px]">{title}</h1>{action}</div>{subtitle && <p className="muted mt-1 text-[11px] leading-relaxed">{subtitle}</p>}</header>;
 }
 export function Badge({ children, live = false, red = false }: { children: ReactNode; live?: boolean; red?: boolean }) { return <span className={`inline-flex w-fit items-center rounded-[3px] px-2 py-1 text-[10px] font-semibold ${live ? 'bg-[var(--green-soft)] text-[var(--green)]' : red ? 'bg-[var(--red-soft)] text-[var(--red)]' : 'bg-[var(--blue-soft)] text-[var(--ink)]'}`}>{children}</span>; }
 export function InfoRow({ label, value, strong = false }: { label: string; value: ReactNode; strong?: boolean }) { return <div className="flex items-start justify-between gap-4 py-1"><span className="muted shrink-0 text-[12px]">{label}</span><span className={`min-w-0 text-right text-[12px] leading-relaxed ${strong ? 'font-bold' : ''}`}>{value}</span></div>; }
@@ -143,4 +143,9 @@ export function LoginRequired({ returnTo, onClose }: { returnTo: string; onClose
       </div>
     </div>
   );
+}
+
+/** 토글 스위치 — 48×28, 켜짐 #222222 */
+export function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
+  return <button type="button" role="switch" aria-label={label} aria-checked={checked} onClick={() => onChange(!checked)} className={`relative h-[28px] w-[48px] shrink-0 rounded-full transition-colors ${checked ? 'bg-[var(--ink)]' : 'bg-[var(--border)]'}`}><span className={`absolute top-[3px] h-[22px] w-[22px] rounded-full bg-white shadow-sm transition-all ${checked ? 'left-[23px]' : 'left-[3px]'}`}/></button>;
 }
