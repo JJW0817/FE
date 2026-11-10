@@ -65,9 +65,4 @@ test('공통 7단계 등록·AI 추천 변경 무효화·기본 옵션·게시�
   const p = (await state(page)).products.find((p: any) => p.name === 'A5 공책 새 구성'); expect(p.category).toBe('문구 / 노트'); expect(p.options[0].name).toBe('기본'); await page.goto(`/#/product/${p.id}`); await expect(page.getByRole('button', { name: '판매 시작 전 · 구매할 수 없어요' })).toBeDisabled();
   await tool(page, '미리보기 사용자'); await page.getByRole('button', { name: '+3시간 진행' }).filter({ visible: true }).click(); await closeTools(page); await expect(page.getByRole('button', { name: /남은 10개/ })).toBeEnabled();
 });
-
-test('상품 문의 전달·판매자 공개 답변이 FAQ와 구매자 화면에 반영', async ({ page }) => {
-  await page.goto('/#/qa/ecobag'); await page.getByLabel('상품 질문').fill('손잡이가 두 개인가요?'); await page.getByRole('button', { name: '보내기', exact: true }).click(); await page.getByRole('button', { name: '판매자에게 전달', exact: true }).click(); const q = (await state(page)).inquiries.find((q: any) => q.question === '손잡이가 두 개인가요?');
-  await actor(page, 'seller'); await page.goto('/#/seller/inquiries'); const form = page.locator('form').filter({ hasText: '손잡이가 두 개인가요?' }); await form.getByRole('textbox').fill('네, 손잡이는 두 개입니다.'); await form.getByRole('checkbox').check(); await form.getByRole('button', { name: '답변 저장' }).click(); expect((await state(page)).products.find((p: any) => p.id === 'ecobag').faqs.some((f: any) => f.question === q.question && f.confirmed)).toBe(true);
-  await actor(page, 'buyer'); await page.goto('/#/qa/ecobag'); await expect(page.getByText('네, 손잡이는 두 개입니다.', { exact: true })).toBeVisible();
-});
+

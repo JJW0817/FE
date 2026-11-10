@@ -66,10 +66,6 @@
       "component": "OrderDetailPage"
     },
     {
-      "path": "/qa/:id",
-      "component": "QaPage"
-    },
-    {
       "path": "/schedule/calendar",
       "component": "CalendarPage"
     },
