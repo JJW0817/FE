@@ -67,7 +67,7 @@ export interface ReferenceListing { platform: string; title: string; price: numb
 export interface AiAnalysis { category: string; path: string; confidence: number; photos: number; found: [string, string][]; alternatives: [string, number][] }
 /** 사업자 정보 — 사업자등록증 기준. 값이 없으면 화면에서 해당 행을 숨긴다 */
 export interface BusinessInfo { name?: string; representative?: string; registrationNumber?: string; businessType?: string; openedAt?: string; address?: string }
-export interface SellerSettings { business?: BusinessInfo; displayName: string; bank: string; account: string; holder: string; shippingAddress: string; returnAddress: string; shippingPostal?: string; returnPostal?: string; notifications: Record<string, boolean> }
+export interface SellerSettings { business?: BusinessInfo; displayName: string; bank: string; account: string; holder: string; shippingAddress: string; returnAddress: string; shippingPostal?: string; returnPostal?: string; shippingDetail?: string; returnDetail?: string; notifications: Record<string, boolean> }
 export interface State {
   version: 1; auth?: AuthData; activeUserId: string; mode: 'buyer' | 'seller' | 'admin'; users: User[]; products: Product[];
   applications: Application[]; holds: Hold[]; orders: Order[]; inquiries: Inquiry[]; drafts: Record<string, Draft>;

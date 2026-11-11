@@ -9,7 +9,7 @@ import { endSession } from '../auth';
 import { dateTime, useClock } from '../hooks';
 import { Badge, Button, CopyButton, copyText, Toggle, Empty, ErrorBox, Field, Header, InfoRow, LiveStatus, MenuRow, Modal, Note, ORDER_LABELS, ProductImage, ProductSummary, Unavailable, useToast } from '../components/ui';
 import { PdfField } from '../components/PdfField';
-import { apiGet, apiPut, errorMessage, fetchWithdrawalEligibility, useApi, withdrawAccount } from '../api';
+import { deleteSellerLogo, errorMessage, fetchSellerLogo, fetchSellerMe, fetchSellerStore, fetchWithdrawalEligibility, updateSellerAddresses, updateSellerBank, updateSellerContact, updateSellerStore, uploadSellerLogo, useApi, withdrawAccount } from '../api';
 import { api } from '../api';
 import { USE_MOCK } from '../config';
 const hm = (t: number) => new Date(t).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -425,14 +425,25 @@ export function SellerSettingsPage() {
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [sameAsShip, setSameAsShip] = useState(false), [defaultReturn, setDefaultReturn] = useState(false);
 
+  // 실제 모드: 서버의 판매자 정보를 폼에 채운다(mock은 store 값 그대로)
+  const me = useApi(async signal => (USE_MOCK ? null : fetchSellerMe(original, signal)), []);
+  useEffect(() => { if (me.data) { setForm(me.data.settings); setPhone(me.data.contactPhone); setEmail(me.data.contactEmail); } }, [me.data]);
+  useEffect(() => { if (me.error) setError(me.error); }, [me.error]);
+  // 스토어 소개·로고(계정 설정 화면)
+  const store = useApi(async signal => (USE_MOCK || section !== 'account' ? null : fetchSellerStore(signal)), [section]);
+  const [intro, setIntro] = useState(''), [logoUrl, setLogoUrl] = useState(''), [logoTick, setLogoTick] = useState(0);
+  useEffect(() => { if (store.data) setIntro(store.data.introduction); }, [store.data]);
   useEffect(() => {
-    apiGet('/sellers/me').then((me: any) => {
-      if (!me) return;
-      setForm(f => ({ ...f, displayName: me.sellerDisplayName ?? f.displayName, bank: me.bankAccount?.bankName ?? f.bank, account: me.bankAccount?.maskedBankAccount ?? f.account, holder: me.bankAccount?.accountHolderName ?? f.holder, shippingAddress: me.dispatchAddress?.roadAddress ?? f.shippingAddress, shippingPostal: me.dispatchAddress?.postalCode ?? f.shippingPostal, returnAddress: me.returnAddress?.roadAddress ?? f.returnAddress, returnPostal: me.returnAddress?.postalCode ?? f.returnPostal }));
-      if (me.contactPhone) setPhone(me.contactPhone);
-      if (me.contactEmail) setEmail(me.contactEmail);
-    }).catch(() => {});
-  }, []);
+    if (!store.data?.hasLogo) { setLogoUrl(''); return; }
+    let url = '', alive = true;
+    fetchSellerLogo().then(b => { if (alive) { url = URL.createObjectURL(b); setLogoUrl(url); } }, () => {});
+    return () => { alive = false; if (url) URL.revokeObjectURL(url); };
+  }, [store.data?.hasLogo, logoTick]);
+  async function changeLogo(file?: File) {
+    if (!file) return; setError('');
+    try { await uploadSellerLogo(file); store.reload(); setLogoTick(n => n + 1); toast('로고를 변경했습니다.'); } catch (e) { setError(errorMessage(e)); }
+  }
+  async function removeLogo() { setError(''); try { await deleteSellerLogo(); store.reload(); toast('로고를 삭제했습니다.'); } catch (e) { setError(errorMessage(e)); } }
 
   if (!user.seller) return <Unavailable/>;
 
@@ -447,10 +458,13 @@ export function SellerSettingsPage() {
       if (section === 'addresses' && (!form.shippingAddress.trim() || !form.returnAddress.trim())) throw new Error('출고지와 반품지 주소를 입력해 주세요.');
       if (section === 'returns' && !form.returnAddress.trim()) throw new Error('반품지 주소를 입력해 주세요.');
       if (section === 'account' || section === 'business') { if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('올바른 이메일을 입력해 주세요.'); }
-      if (section === 'business') { await apiPut('/sellers/me/contact', { sellerDisplayName: form.displayName, contactName: user.name, contactEmail: email, contactPhone: phone }); }
-      else if (section === 'bank') { await apiPut('/sellers/me/bank-account', { bankName: form.bank, bankAccount: form.account, accountHolderName: form.holder }); }
-      else if (section === 'addresses' || section === 'returns') { await apiPut('/sellers/me/addresses', { dispatchAddress: { postalCode: form.shippingPostal || '', roadAddress: form.shippingAddress, detailAddress: '' }, returnAddress: { postalCode: form.returnPostal || '', roadAddress: form.returnAddress, detailAddress: '' } }); }
-      else if (section === 'account') { await apiPut('/sellers/me/contact', { contactName: user.name, contactEmail: email, contactPhone: phone }); }
+      if (section === 'bank' && !USE_MOCK && !/^\d{6,30}$/.test(form.account.replace(/-/g, ''))) throw new Error('계좌번호는 숫자만 6~30자리로 입력해 주세요.');
+      if (!USE_MOCK) {
+        if (section === 'business') await updateSellerContact({ sellerDisplayName: form.displayName, contactName: user.name, contactEmail: email, contactPhone: phone });
+        else if (section === 'bank') await updateSellerBank(form);
+        else if (section === 'addresses' || section === 'returns') await updateSellerAddresses(form);
+        else if (section === 'account') { await updateSellerContact({ sellerDisplayName: form.displayName, contactName: user.name, contactEmail: email, contactPhone: phone }); if (store.data) await updateSellerStore(intro); }
+      }
       mutate(state => { state.sellerSettings[user.id] = form; const member = state.users.find(u => u.id === user.id)!; member.phone = phone; member.email = email; });
       toast('변경 내용을 저장했습니다.');
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
@@ -470,6 +484,7 @@ export function SellerSettingsPage() {
           </div>
           <button type="button" className="h-8 shrink-0 rounded-[4px] border border-[var(--line)] px-2.5 text-[12px] font-bold">보기</button>
         </div>
+        {/* TODO(api-gap): 상호·대표자·등록번호·업태는 서버 응답에 없어 mock 표시 유지 */}
         {form.business && <div className="space-y-1.5 px-2 text-[12px]">
           {form.business.name && <InfoRow label="상호" value={form.business.name}/>}
           {form.business.registrationNumber && <InfoRow label="사업자등록번호" value={form.business.registrationNumber}/>}
@@ -700,14 +715,16 @@ export function SellerSettingsPage() {
       <Header title="계정 설정"/>
       <div className="flex items-start gap-4">
         <div className="relative shrink-0">
-          <div className="grid h-[64px] w-[64px] place-items-center rounded-[8px] bg-[var(--ink)] text-[24px] font-bold text-white">L</div>
-          <button type="button" aria-label="로고 변경" className="absolute -bottom-1 -right-1 grid h-[26px] w-[26px] place-items-center rounded-full border border-[var(--line)] bg-[var(--surface)]">
+          {logoUrl ? <img src={logoUrl} alt="스토어 로고" className="h-[64px] w-[64px] rounded-[8px] object-cover"/> : <div className="grid h-[64px] w-[64px] place-items-center rounded-[8px] bg-[var(--ink)] text-[24px] font-bold text-white">L</div>}
+          {!USE_MOCK && <input id="seller-logo-file" type="file" accept="image/png,image/jpeg" hidden onChange={e => { changeLogo(e.target.files?.[0]); e.target.value = ''; }}/>}
+          <button type="button" aria-label="로고 변경" onClick={() => document.getElementById('seller-logo-file')?.click()} className="absolute -bottom-1 -right-1 grid h-[26px] w-[26px] place-items-center rounded-full border border-[var(--line)] bg-[var(--surface)]">
             <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><rect x="1" y="2.5" width="11" height="8.5" rx="1.5" stroke="#7B7B7B" strokeWidth="1.2"/><path d="M4.5 2.5V2a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v.5" stroke="#7B7B7B" strokeWidth="1.2"/><circle cx="6.5" cy="6.75" r="1.75" stroke="#7B7B7B" strokeWidth="1.2"/></svg>
           </button>
         </div>
         <div className="space-y-1">
           <p className="text-[14px] font-bold">스토어 로고</p>
           <p className="muted text-[12px]">사업자 프로필을 등록할 수 있습니다.</p>
+          {logoUrl && <button type="button" className="text-[12px] font-bold underline" onClick={removeLogo}>로고 삭제</button>}
         </div>
       </div>
       <Field label="스토어 이름" required>
@@ -719,10 +736,11 @@ export function SellerSettingsPage() {
       </Field>
       <Field label="스토어 한 줄 소개">
         <div className="relative">
-          <input aria-label="스토어 한 줄 소개" className="field-line pr-14" placeholder="오래 입는 기본 니트를 만듭니다" maxLength={40}/>
-          <span className="muted absolute right-3 top-1/2 -translate-y-1/2 text-[12px]">0/40</span>
+          <input aria-label="스토어 한 줄 소개" className="field-line pr-14" placeholder="오래 입는 기본 니트를 만듭니다" maxLength={40} value={intro} onChange={e => setIntro(e.target.value)}/>
+          <span className="muted absolute right-3 top-1/2 -translate-y-1/2 text-[12px]">{intro.length}/40</span>
         </div>
       </Field>
+      <ErrorBox message={error}/>
       <Button type="submit" className="w-full" disabled={busy}>{busy ? '저장 중…' : '저장하기'}</Button>
       <div className="h-px bg-[var(--line)]"/>
       <h2 className="text-[13px] font-bold text-[var(--muted)]">로그인 정보</h2>

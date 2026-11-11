@@ -1,5 +1,6 @@
 import type { DocumentFile } from './domain';
 import { uid } from './domain';
+import { SERVER_DOC, fetchApplicationCertificate } from './api/seller';
 let dbPromise: Promise<IDBDatabase> | undefined;
 function db() { return dbPromise ??= new Promise<IDBDatabase>((resolve, reject) => { const request = indexedDB.open('stockdrop-files', 1); request.onupgradeneeded = () => { request.result.createObjectStore('documents'); }; request.onsuccess = () => resolve(request.result); request.onerror = () => reject(new Error('파일 저장 공간을 열 수 없습니다.')); }); }
 export async function savePdf(file: File): Promise<DocumentFile> {
@@ -20,6 +21,7 @@ export function samplePdf(): Blob {
 }
 export async function getPdf(id: string): Promise<Blob> {
   if (id === 'sample') return samplePdf();
+  if (id.startsWith(SERVER_DOC)) return fetchApplicationCertificate(id.slice(SERVER_DOC.length)); // 서버에 제출된 사업자등록증
   const database = await db();
   return new Promise((resolve, reject) => { const request = database.transaction('documents').objectStore('documents').get(id); request.onsuccess = () => request.result instanceof Blob ? resolve(request.result) : reject(new Error('첨부 파일을 찾을 수 없습니다. 다시 첨부해 주세요.')); request.onerror = () => reject(new Error('파일을 열지 못했습니다.')); });
 }

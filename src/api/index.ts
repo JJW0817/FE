@@ -9,6 +9,7 @@ export * from './addresses';
 export * from './inquiries';
 export * from './account';
 export * from './notifications';
+export * from './seller';
 export { useLive } from './live';
 export type { LiveState } from './live';
 export { SERVICE_BASE } from './services';
