@@ -8,7 +8,7 @@ import { initialAuth } from '../domain';
 import { errorMessage, fetchMySettings, saveInterests, saveMarketingConsent, saveNotificationSettings } from '../api';
 import { homePath, login, logout, normalizeEmail, resetPassword, safeNext, sendCode, signedIn, signup, validEmail, validPassword, verifyCode, demoLogin } from '../auth';
 import { DEMO_ACCOUNTS, DEMO_LOGIN, USE_MOCK } from '../config';
-import { requestPushPermission } from '../firebase';
+import { enablePush } from '../push';
 const inputClass = 'w-full min-w-0 border-0 border-b border-[var(--line)] bg-transparent py-3 text-[14px] outline-none placeholder:text-[var(--muted)] focus:border-[var(--ink)] disabled:opacity-50';
 function useAuthNow() { const [now, setNow] = useState(Date.now()); useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []); return now; }
 const DEMO_NEXT_KEY = 'stockdrop:demo-next';
@@ -16,7 +16,7 @@ function useNext() { const [params] = useSearchParams(); return safeNext(params.
 function markOnboarded() { mutate(s => { (s.auth ??= initialAuth()).onboarded = true; }); if (!location.hash.startsWith('#/onboarding')) sessionStorage.setItem('stockdrop:guest-session', '1'); }
 function Wordmark() { return <div className="py-8 text-center"><p className="text-[38px] font-black italic tracking-[-2px]">STOCKDROP</p><p className="muted mt-1 text-[11px] tracking-[2px]">NEW FINDS. LIMITED TIME.</p></div>; }
 function AuthShell({ title, children, onBack }: { title: string; children: ReactNode; onBack?: () => void }) { return <div className="min-h-[calc(100dvh-60px)] pb-8">{onBack ? <header className="divider mb-5 flex min-h-[50px] items-center gap-3 pb-3"><button aria-label="이전 화면" onClick={onBack} className="-ml-1 grid h-9 w-9 place-items-center"><ArrowLeft size={20}/></button><h1 className="text-[18px] font-bold tracking-[-.5px]">{title}</h1></header> : <Header title={title}/>}<Wordmark/>{children}</div>; }
-function PasswordField({ label = '비밀번호', value, onChange, autoComplete = 'new-password', placeholder = '영문·숫자·특수문자 8~32자' }: { label?: string; value: string; onChange: (v: string) => void; autoComplete?: string; placeholder?: string }) { const [visible, setVisible] = useState(false); return <Field label={label} required><div className="relative"><input aria-label={label} type={visible ? 'text' : 'password'} value={value} onChange={e => onChange(e.target.value)} autoComplete={autoComplete} maxLength={32} placeholder={placeholder} className={`${inputClass} pr-10`}/><button type="button" aria-label={`${label} ${visible ? '숨기기' : '보기'}`} onClick={() => setVisible(!visible)} className="absolute right-0 top-1 grid h-10 w-10 place-items-center text-[var(--muted)]">{visible ? <EyeOff size={18}/> : <Eye size={18}/>}</button></div></Field>; }
+function PasswordField({ label = '비밀번호', value, onChange, autoComplete = 'new-password', placeholder = '영문·숫자·특수문자 8~64자' }: { label?: string; value: string; onChange: (v: string) => void; autoComplete?: string; placeholder?: string }) { const [visible, setVisible] = useState(false); return <Field label={label} required><div className="relative"><input aria-label={label} type={visible ? 'text' : 'password'} value={value} onChange={e => onChange(e.target.value)} autoComplete={autoComplete} maxLength={32} placeholder={placeholder} className={`${inputClass} pr-10`}/><button type="button" aria-label={`${label} ${visible ? '숨기기' : '보기'}`} onClick={() => setVisible(!visible)} className="absolute right-0 top-1 grid h-10 w-10 place-items-center text-[var(--muted)]">{visible ? <EyeOff size={18}/> : <Eye size={18}/>}</button></div></Field>; }
 export function OnboardingPage() {
   const [step, setStep] = useState(0), navigate = useNavigate(), next = useNext();
   const slides = [ { tag: 'NEW FINDS', title: <>남은 새 상품,<br/>새로운 발견.</>, text: '쇼핑몰에서 팔리지 않은 새 상품을\n3시간 동안만 특별한 가격에 만나 보세요.', image: './images/onboarding-hero.jpg' }, { tag: 'JUST 3 HOURS', title: <>기회는 짧게,<br/>선택은 확실하게.</>, text: '판매는 시작부터 단 3시간.\n구매하기로 재고를 확보한 뒤 5분 안에 결제해요.', image: './images/generated-5.png' }, { tag: 'ONE ACCOUNT', title: <>사고, 팔고.\n하나의 계정으로.</>, text: '누구나 구매자로 시작해요. 판매를 원한다면\n사업자등록증 PDF 제출 후 승인을 받아 주세요.', image: './images/generated-4.png' } ];
@@ -219,7 +219,7 @@ export function ResetPasswordNewPage() {
           <p className="text-[13px] text-[var(--muted)]">변경이 끝나면 로그인 화면으로 이동해요.</p>
           <PasswordField label="새 비밀번호" value={password} onChange={setPassword}/>
           {password && <div className="flex gap-4 text-[12px] font-bold">
-            <span className={password.length >= 8 && password.length <= 32 ? 'text-[var(--green)]' : 'text-[var(--muted)]'} style={{display:'flex',alignItems:'center',gap:4}}><Check size={13} strokeWidth={2}/>8~32자</span>
+            <span className={password.length >= 8 && password.length <= 64 ? 'text-[var(--green)]' : 'text-[var(--muted)]'} style={{display:'flex',alignItems:'center',gap:4}}><Check size={13} strokeWidth={2}/>8~64자</span>
             <span className={/[a-zA-Z]/.test(password) && /\d/.test(password) && /[^a-zA-Z0-9]/.test(password) ? 'text-[var(--green)]' : 'text-[var(--muted)]'} style={{display:'flex',alignItems:'center',gap:4}}><Check size={13} strokeWidth={2}/>영문·숫자·특수문자</span>
           </div>}
           <PasswordField label="새 비밀번호 확인" value={confirmation} onChange={setConfirmation}/>
@@ -262,24 +262,22 @@ export function NotificationSettingsPage() {
   const NOTIFS = [{ id: 'sale_start', title: '판매 시작 알림', desc: '관심 상품 판매 시작 즉시 알려드려요' }, { id: 'price_change', title: '관심 상품 가격 변동', desc: '찜한 상품 가격 변동 시 알려드려요' }, { id: 'low_stock', title: '한정 수량 임박 알림', desc: '재고가 5개 이하 남으면 알려드려요' }, { id: 'recommendation', title: '개인 맞춤 상품 추천', desc: '취향에 맞는 새 상품 등록 시 알려드려요' }];
   const [enabled, setEnabled] = useState<Record<string, boolean>>(() => { try { return JSON.parse(localStorage.getItem('stockdrop:notifications') || '{}'); } catch { return {}; } });
   const [marketing, setMarketing] = useState(false); const toast = useToast(); const s = useStore();
-  const [pushState, setPushState] = useState<'default' | 'granted' | 'denied' | 'busy'>(() => (Notification.permission as any));
-  const [pushToken, setPushToken] = useState<string | null>(null);
   const toggle = (id: string) => setEnabled(e => ({ ...e, [id]: !e[id] }));
-  const allowPush = async () => { setPushState('busy'); const token = await requestPushPermission(); if (token) { setPushState('granted'); setPushToken(token); } else { setPushState(Notification.permission as any); } };
-  useEffect(() => { if (Notification.permission === 'granted') allowPush(); }, []);
   // 알림 설정 조회 전용 API가 없어 GET /accounts/me로 읽는다. price_change·low_stock은 API가 없어 이 기기에만 저장 (TODO(api-gap))
   const logged = !USE_MOCK && signedIn(s);
   useEffect(() => { if (logged) fetchMySettings().then(m => { setEnabled(e => ({ ...e, sale_start: m.saleStart, recommendation: m.personalizedRecommendation })); setMarketing(m.marketing); }).catch(() => {}); }, [logged]);
-  const proceed = async () => {
+  const proceed = async (push = false) => {
     try { localStorage.setItem('stockdrop:notifications', JSON.stringify({ ...enabled, marketing })); } catch {}
     if (logged) { try { await Promise.all([saveNotificationSettings(!!enabled['sale_start'], !!enabled['recommendation']), saveMarketingConsent(marketing)]); } catch (e) { toast(errorMessage(e)); return; } }
+    // 서버 Web Push 구독은 '알림 받기 시작'(사용자 동작)에서만. 실패해도 설정 저장은 끝났으니 다음 화면으로 간다
+    if (push && logged) { try { const r = await enablePush(); if (r === 'denied') toast('브라우저 알림이 차단되어 있어요. 설정에서 허용해 주세요.'); else if (r === 'unsupported') toast('이 브라우저는 푸시 알림을 지원하지 않아요. iPhone은 홈 화면에 추가한 뒤 이용해 주세요.'); } catch (e) { toast(errorMessage(e)); } }
     navigate(next, { replace: true });
   };
   return <div className="flex min-h-[calc(100dvh-60px)] flex-col">
     <header className="flex items-center justify-between py-3">
       <button className="muted" aria-label="이전 화면" onClick={() => navigate(-1)}><ArrowLeft size={18}/></button>
       <span className="text-[17px] font-bold">알림 설정</span>
-      <button className="muted py-2 text-[13px]" onClick={proceed}>건너뛰기</button>
+      <button className="muted py-2 text-[13px]" onClick={() => proceed()}>건너뛰기</button>
     </header>
     <div className="mb-1 h-[3px] w-full bg-[var(--line)]"><div className="h-[3px] w-full rounded-r-full bg-[var(--ink)]"/></div>
     <div className="flex justify-end py-2 text-[11px] text-[var(--muted)]"><span className="font-bold text-[var(--ink)]">2</span><span> / 2</span></div>
@@ -299,9 +297,8 @@ export function NotificationSettingsPage() {
         <input type="checkbox" checked={marketing} onChange={e => setMarketing(e.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 rounded-[4px]"/>
         <div><p>광고성 정보 수신 동의 (선택)</p><p className="muted mt-1 text-[11px] font-normal leading-relaxed">개인 맞춤 알림 서비스를 위해 마케팅 정보 수신에 동의합니다.</p></div>
       </label>
-      {pushToken && <p className="break-all rounded bg-[var(--blue-soft)] p-2 text-[9px] select-all">{pushToken}</p>}
     </div>
-    <div className="pb-6 pt-4"><Button className="w-full" onClick={proceed}>알림 받기 시작</Button></div>
+    <div className="pb-6 pt-4"><Button className="w-full" onClick={() => proceed(true)}>알림 받기 시작</Button></div>
   </div>;
 }
 export function LogoutButton() { const [open, setOpen] = useState(false), [busy, setBusy] = useState(false), navigate = useNavigate(), toast = useToast(); return <><button className="muted py-4 text-[12px] underline underline-offset-4" onClick={() => setOpen(true)}>로그아웃</button>{open && <Modal title="로그아웃할까요?" onClose={() => setOpen(false)}><Note>주문과 신청 내역은 유지됩니다. 진행 중인 재고 확보 시간은 로그아웃해도 멈추거나 연장되지 않습니다.</Note><div className="mt-6 flex gap-3"><Button outline className="flex-1" onClick={() => setOpen(false)}>취소</Button><Button className="flex-1" disabled={busy} onClick={async () => { setBusy(true); await logout(); navigate('/', { replace: true }); toast('로그아웃했습니다.'); }}>로그아웃하기</Button></div></Modal>}</>; }

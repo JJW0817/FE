@@ -1,6 +1,6 @@
 import { Component, useEffect } from 'react';
 import type { ErrorInfo, ReactNode } from 'react';
-import { Link, Navigate, Route, Routes, useLocation, useParams, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { BottomNav, Button, Note, ProductImage, ToastProvider } from './components/ui';
 import { mutate, sweep, useStore } from './store';
 import { HomePage, SchedulePage, ProductPage, CheckoutPage, OrdersPage, OrderDetailPage, CalendarPage, NotificationsPage, OrderInquiryPage } from './pages/buyer';
@@ -10,12 +10,21 @@ import { SellerProductsPage, SellerProductPage, SellerInquiriesPage, SellerInqui
 import { WizardPage, AiAnalysisPage, AiAnalyzingPage, AiFailedPage } from './pages/wizard';
 import { LoginPage, OnboardingPage, WelcomePage, SignupPage, SignupVerifyPage, SignupInfoPage, SignupDonePage, ResetPasswordPage, ResetPasswordNewPage, LegalPage, CategorySelectionPage, NotificationSettingsPage } from './pages/auth';
 import { loginHref, restoreSession, signedIn } from './auth';
-import { getAccessToken } from './api';
+import { getAccessToken, getNotification, markNotificationRead, notificationPath } from './api';
+import { USE_MOCK } from './config';
 const PreviewTools = () => null;
 function ExternalProductPage() { const { id } = useParams(); const [params] = useSearchParams(); const s = useStore(); const p = s.products.find(p => p.id === id) ?? (id === 'draft' && s.drafts[s.activeUserId] ? { ...s.drafts[s.activeUserId], id: 'draft' } : undefined); return <div className="mx-auto min-h-screen max-w-[640px] bg-[var(--surface)] p-6"><p className="muted mb-8 border-b border-[var(--line)] pb-4 text-[11px]">외부 판매처 열기 동작을 위한 로컬 목업 페이지 · 실제 판매처와 연결되지 않습니다.</p>{p ? <div className="space-y-5"><h1 className="text-[22px] font-bold">{p.brand}</h1><ProductImage src={p.images[0]} alt={p.name} className="mx-auto aspect-square w-full max-w-[390px]"/><h2 className="text-[24px]">{p.name}</h2><p className="text-[13px] leading-relaxed">{p.description}</p>{p.extras.map(e => <p key={e.key} className="muted text-[12px]">{e.key} · {e.value}</p>)}<Note title="기존 판매 상품 URL"><p className="break-all">{params.get('url') || p.originalUrl}</p>외부 판매처의 가격과 판매조건은 직접 확인해 주세요.</Note><Link className="btn w-full" to={p.id === 'draft' ? '/seller/new' : `/product/${p.id}`}>STOCKDROP 상품으로 돌아가기</Link></div> : <><p>상품 주소를 확인해 주세요.</p><Link to="/" className="btn mt-6">STOCKDROP으로</Link></>}</div>; }
 function AppContent() {
-  const location = useLocation(); const s = useStore(); const external = location.pathname.startsWith('/external/'); const admin = location.pathname.startsWith('/admin'); const seller = location.pathname.startsWith('/seller'); const authRoute = /^\/(onboarding|welcome|login|signup|reset-password|legal|categories|notifications\/settings)(\/|$)/.test(location.pathname); const protectedRoute = /^\/(orders|my|apply|checkout|seller|admin|notifications|addresses|inquiries|faq)(\/|$)/.test(location.pathname); const hideNav = authRoute || admin || location.pathname.startsWith('/apply') || location.pathname.startsWith('/checkout') || (location.pathname.startsWith('/seller/') && location.pathname !== '/seller/my') || location.pathname === '/inquiries/compose' || location.pathname.startsWith('/addresses') || location.pathname === '/address-search' || location.pathname.endsWith('/inquiry');
+  const location = useLocation(); const navigate = useNavigate(); const s = useStore(); const external = location.pathname.startsWith('/external/'); const admin = location.pathname.startsWith('/admin'); const seller = location.pathname.startsWith('/seller'); const authRoute = /^\/(onboarding|welcome|login|signup|reset-password|legal|categories|notifications\/settings)(\/|$)/.test(location.pathname); const protectedRoute = /^\/(orders|my|apply|checkout|seller|admin|notifications|addresses|inquiries|faq)(\/|$)/.test(location.pathname); const hideNav = authRoute || admin || location.pathname.startsWith('/apply') || location.pathname.startsWith('/checkout') || (location.pathname.startsWith('/seller/') && location.pathname !== '/seller/my') || location.pathname === '/inquiries/compose' || location.pathname.startsWith('/addresses') || location.pathname === '/address-search' || location.pathname.endsWith('/inquiry');
   useEffect(() => { if (signedIn(s) && !s.auth?.demo && !getAccessToken()) restoreSession(); }, []);
+  // 푸시 클릭은 /?notificationId=UUID로 들어온다(명세) → 로그인 확인 → 알림 상세로 이동 대상을 찾는다. 토큰이 없으면 client가 401 뒤 재발급한다
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('notificationId');
+    if (!id || USE_MOCK) return;
+    history.replaceState(null, '', window.location.pathname + window.location.hash);
+    if (!signedIn(s)) { navigate(loginHref('/notifications'), { replace: true }); return; } // shortcut: 로그인 후엔 알림함으로만 간다, 해당 알림으로 바로 가야 하면 id를 next에 실어 보낸다
+    getNotification(id).then(n => { markNotificationRead(id).catch(() => {}); navigate(notificationPath(n)); }).catch(() => navigate('/notifications'));
+  }, []);
   useEffect(() => { const timer = setInterval(() => { try { sweep(); } catch { /* Storage errors are reported by user operations. */ } }, 1000); return () => clearInterval(timer); }, []);
   useEffect(() => { window.scrollTo(0, 0); }, [location.pathname]);
   // 판매자 화면에 들어오면 판매자 모드로 — 판매 일정·주문 탭으로 이동해도 판매자 하단 메뉴를 유지한다

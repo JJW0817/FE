@@ -36,7 +36,7 @@
 | 입점 신청의 **타 플랫폼 판매 URL** (`Application.salesUrl`) | 신청 요청 필드에 없음 |
 | 회원가입 **전화번호** (`signup({phone})`) | 가입 API에 없음. 배송지·판매자 담당자 연락처에만 전화번호가 있다 |
 | 계정 **알림 설정 조회** (`GET /accounts/me/notification-settings`, 앱이 호출 중) | 이 GET은 없다. 변경은 `PUT`만 있고 조회는 `GET /accounts/me`의 `notificationSettings`·`marketingConsent`에 들어 있다 |
-| **FCM 푸시 토큰 등록** (`/accounts/me/device-tokens`, `firebase.ts`) | 없음. 서버는 **Web Push(VAPID)** 만 지원하고, iPhone 홈 화면 PWA(`web.push.apple.com`) 전용이다. Firebase 경로와 호환되지 않는다 |
+| **FCM 푸시 토큰 등록** (`/accounts/me/device-tokens`, `firebase.ts`) | 없음. 서버는 **Web Push(VAPID)** 만 지원하고, iPhone 홈 화면 PWA(`web.push.apple.com`) 전용이다. Firebase 경로와 호환되지 않는다. → **해결**: Firebase를 지우고 `src/push.ts`·`public/sw.js`로 서버 Web Push 구독(push-configuration → 권한 → subscribe → POST, 로그아웃 전 DELETE)으로 교체 |
 | 상품 **이미지 data URL 저장** (`imageData`, base64) | 서버는 base64를 받지 않는다. 업로드 권한 → S3 PUT → 완료 확인 순서만 허용 |
 | 결제 **성공·실패·대기 시뮬레이션** (`paymentOutcome`) | 서버는 토스 결제창 SDK가 준 `paymentKey`로만 결제를 진행한다. 클라이언트 키는 `GET /payments/client-configuration` |
 
@@ -80,4 +80,4 @@
 | `pages/account.tsx` | `POST /seller-applications`(FormData) | 파트 이름은 `application`(JSON)과 `certificate`(PDF)여야 한다. 개별 필드를 FormData에 넣으면 안 된다 |
 | `auth.ts` 회원가입 | 비밀번호 8~32자 | 서버 8~64자. 영문·숫자·특수문자 포함은 동일 |
 | `auth.ts` 로그인 | CSRF → 로그인 | 일치. 응답 `roles`는 대문자 문자열 배열 |
-| `firebase.ts` | `POST /accounts/me/device-tokens` | 없음 (2절) |
+| ~~`firebase.ts`~~ | `POST /accounts/me/device-tokens` | 없음 (2절) → Web Push로 교체, 파일 삭제 |

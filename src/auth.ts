@@ -4,10 +4,11 @@ import { atomic, getState, mutate } from './store';
 import { api, ApiError, errorMessage, homePathFor, rolesToFlags } from './api';
 import type { AccountDto, AuthTokens, ChallengeDto, LoginDto, ResetTokenDto, VerificationTokenDto } from './api';
 import { DEMO_ACCOUNT_IDS, DEMO_LOGIN, USE_MOCK } from './config';
+import { disablePush } from './push';
 export const DEMO_PASSWORD = 'Stockdrop123!';
 export const normalizeEmail = (value: string) => value.trim().toLowerCase();
 export const validEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizeEmail(value));
-export const validPassword = (value: string) => value.length >= 8 && value.length <= 32 && /[a-zA-Z]/.test(value) && /\d/.test(value) && /[^a-zA-Z0-9\s]/.test(value) && !/\s/.test(value);
+export const validPassword = (value: string) => value.length >= 8 && value.length <= 64 && /[a-zA-Z]/.test(value) && /\d/.test(value) && /[^a-zA-Z0-9\s]/.test(value) && !/\s/.test(value);
 export function signedIn(s: State) { return !!s.auth?.userId && s.auth.userId === s.activeUserId && s.users.some(u => u.id === s.auth!.userId); }
 export function safeNext(value: string | null | undefined) { return value && /^\/(?!\/)/.test(value) && !/[\\\r\n]/.test(value) && !/^\/(login|signup|welcome|onboarding|reset-password)(\/|\?|$)/.test(value) ? value : '/'; }
 export const loginHref = (next: string) => `/login?next=${encodeURIComponent(safeNext(next))}`;
@@ -32,6 +33,7 @@ function syncRoles(tokens: Pick<AuthTokens, 'accountId' | 'roles'>) {
 export function homePath(s: State = getState()) { const u = s.users.find(u => u.id === s.activeUserId); return u ? homePathFor({ seller: u.seller, admin: u.admin }) : '/'; }
 
 export async function logout() {
+  if (!USE_MOCK) await disablePush(); // 명세: 로그아웃 전에 푸시 구독 해제(JWT 필요) 후 브라우저 unsubscribe
   try { await api.post('/v1/auth/logout', undefined, { csrf: true, auth: false }); } catch { /* 서버에 닿지 않아도 이 기기의 세션은 끝낸다 */ }
   api.setAccessToken(null);
   mutate(endSession);
@@ -83,7 +85,7 @@ export async function login(emailValue: string, password: string): Promise<strin
   return homePath();
 }
 export async function signup(input: { email: string; password: string; name: string; phone: string; age: boolean; terms: boolean; privacy: boolean; marketing: boolean }) {
-  if (!validPassword(input.password)) throw new Error('비밀번호는 영문·숫자·특수문자를 포함한 8~32자로 입력해 주세요.');
+  if (!validPassword(input.password)) throw new Error('비밀번호는 영문·숫자·특수문자를 포함한 8~64자로 입력해 주세요.');
   if (!input.name.trim() || input.name.trim().length > 30) throw new Error('이름을 입력해 주세요.');
   if (!input.age || !input.terms || !input.privacy) throw new Error('필수 약관에 동의해 주세요.');
   const email = normalizeEmail(input.email), key = `signup:${email}`;
@@ -108,11 +110,11 @@ export async function restoreSession(): Promise<boolean> {
   }
 }
 export async function changePassword(currentPassword: string, newPassword: string) {
-  if (!validPassword(newPassword)) throw new Error('비밀번호는 영문·숫자·특수문자를 포함한 8~32자로 입력해 주세요.');
+  if (!validPassword(newPassword)) throw new Error('비밀번호는 영문·숫자·특수문자를 포함한 8~64자로 입력해 주세요.');
   try { await api.put('/v1/accounts/me/password', { currentPassword, newPassword }); } catch (e) { throw new Error(errorMessage(e)); }
 }
 export async function resetPassword(emailValue: string, password: string) {
-  if (!validPassword(password)) throw new Error('영문·숫자·특수문자를 포함한 8~32자로 입력해 주세요.');
+  if (!validPassword(password)) throw new Error('영문·숫자·특수문자를 포함한 8~64자로 입력해 주세요.');
   const email = normalizeEmail(emailValue), key = `reset:${email}`;
   const c = getState().auth?.challenges[key];
   if (!c?.verified || !c.token) throw new Error('이메일 인증을 다시 진행해 주세요.');
