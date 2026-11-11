@@ -6,13 +6,13 @@ import { activeUser, approveApplication, money, nowOf, saleState, uid } from '..
 import type { Address, Application, DocumentFile } from '../domain';
 import { atomic, mutate, useStore } from '../store';
 import { dateTime } from '../hooks';
-import { Badge, Button, Chip, ConfirmLeave, Empty, ErrorBox, Field, Header, InfoRow, MenuRow, Modal, Note, ProductImage, Unavailable, useToast } from '../components/ui';
+import { Badge, Button, Chip, ConfirmLeave, Empty, ErrorBox, Field, Header, InfoRow, LiveStatus, MenuRow, Modal, Note, ProductImage, Unavailable, useToast } from '../components/ui';
 import { PdfField } from '../components/PdfField';
 import { deleteAddress, listAddresses, setDefaultAddress, takeAddressPick, toAddress } from './address';
 import type { SavedAddress as ApiAddr } from './address';
 import { LogoutButton } from './auth';
 import { changePassword, restoreSession, validPassword } from '../auth';
-import { apiGet, apiPost, apiPut, apiPatch, apiDelete, apiPostForm } from '../api';
+import { apiGet, apiPost, apiPut, apiPatch, apiDelete, apiPostForm, errorMessage } from '../api';
 import { getPdf } from '../files';
 function ProfileEditModal({ userId, name: initialName, phone: initialPhone, onClose }: { userId: string; name: string; phone: string; onClose: () => void }) {
   const [name, setName] = useState(initialName), [phone, setPhone] = useState(initialPhone), [error, setError] = useState(''), [busy, setBusy] = useState(false); const toast = useToast();
@@ -724,21 +724,26 @@ export function AddressManagePage() {
   const [addrs, setAddrs] = useState<ApiAddr[]>([]);
   const [confirmDelete, setConfirmDelete] = useState<ApiAddr | null>(null);
 
+  const [loading, setLoading] = useState(true); const [error, setError] = useState('');
   const reload = async () => {
-    const data = await listAddresses();
-    setAddrs(data); const def = data.find(a => a.defaultAddress); if (def) mutate(state => { state.addresses[user.id] = toAddress(def); });
+    setLoading(true); setError('');
+    try {
+      const data = await listAddresses();
+      setAddrs(data); const def = data.find(a => a.defaultAddress); if (def) mutate(state => { state.addresses[user.id] = toAddress(def); });
+    } catch (e) { setError(errorMessage(e)); } finally { setLoading(false); }
   };
   useEffect(() => { reload(); }, []);
 
   const handleSetDefault = async (addr: ApiAddr) => {
-    await setDefaultAddress(addr.addressId);
+    try { await setDefaultAddress(addr.addressId); } catch (e) { toast(errorMessage(e)); return; }
     setAddrs(addrs.map(a => ({ ...a, defaultAddress: a.addressId === addr.addressId })));
     mutate(state => { state.addresses[user.id] = toAddress(addr); });
     toast('기본 배송지로 설정했습니다.');
   };
 
   const handleDelete = async (addr: ApiAddr) => {
-    await deleteAddress(addr.addressId);
+    // 기본 배송지는 다른 배송지가 남아 있으면 서버가 409(ADDRESS_DEFAULT_CHANGE_REQUIRED)로 거절 → 안내 후 닫기
+    try { await deleteAddress(addr.addressId); } catch (e) { setConfirmDelete(null); toast(errorMessage(e)); return; }
     setAddrs(addrs.filter(a => a.addressId !== addr.addressId));
     if (addr.defaultAddress) mutate(state => { delete (state.addresses as any)[user.id]; });
     setConfirmDelete(null); toast('배송지를 삭제했습니다.');
@@ -787,7 +792,8 @@ export function AddressManagePage() {
         <span className="text-[11px] text-[#949494]">ℹ</span>
         <p className="text-[12px] text-[#7B7B7B]">주문 시 기본 배송지가 자동으로 선택돼요</p>
       </div>
-      {addrs.length === 0 && <Empty title="등록된 배송지가 없어요" message="새 배송지를 추가해 주세요."/>}
+      <LiveStatus state={{ loading, error, reload }}/>
+      {!loading && !error && addrs.length === 0 && <Empty title="등록된 배송지가 없어요" message="새 배송지를 추가해 주세요."/>}
       {defaultAddr && (
         <section className="mb-4 space-y-2">
           <p className="text-[12px] font-bold text-[#949494]">기본 배송지</p>

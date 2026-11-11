@@ -5,6 +5,7 @@ export { useApi, useAction } from './hooks';
 export * from './mappers';
 export * from './products';
 export * from './orders';
+export * from './addresses';
 export { useLive } from './live';
 export type { LiveState } from './live';
 export { SERVICE_BASE } from './services';

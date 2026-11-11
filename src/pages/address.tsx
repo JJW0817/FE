@@ -5,51 +5,15 @@ import { ErrorBox, Header, Toggle, useToast } from '../components/ui';
 import { activeUser } from '../domain';
 import type { Address } from '../domain';
 import { mutate, useStore } from '../store';
-import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from '../api';
+import { errorMessage, listAddresses, saveAddress } from '../api';
+import type { AddressBody, SavedAddress } from '../api';
 
-/* ── 배송지 데이터: API 우선, 백엔드가 없으면 로컬 목업(Figma 예시 값) ───────────────── */
-export type SavedAddress = { addressId: string; label: string; recipientName: string; recipientPhone: string; postalCode: string; roadAddress: string; detailAddress: string; deliveryMemo: string; defaultAddress: boolean };
-const LOCAL_KEY = 'stockdrop:addresses-mock';
-const MOCK_ADDRESSES: SavedAddress[] = [
-  { addressId: 'addr-home', label: '집', recipientName: '김서윤', recipientPhone: '010-1234-5678', postalCode: '04066', roadAddress: '서울특별시 마포구 와우산로 94', detailAddress: '3층 302호', deliveryMemo: '문 앞에 놓아주세요', defaultAddress: true },
-  { addressId: 'addr-office', label: '회사', recipientName: '김지우', recipientPhone: '010-1234-5678', postalCode: '06236', roadAddress: '서울특별시 강남구 테헤란로 152', detailAddress: '강남파이낸스센터 12층', deliveryMemo: '경비실에 맡겨주세요', defaultAddress: false },
-  { addressId: 'addr-parents', label: '부모님 댁', recipientName: '김영숙', recipientPhone: '010-9876-5432', postalCode: '13494', roadAddress: '경기도 성남시 분당구 판교역로 235', detailAddress: '101동 1203호', deliveryMemo: '배송 전 연락 부탁드려요', defaultAddress: false },
-];
+/* ── 배송지 데이터: 실제 모드는 API, mock 모드는 localStorage 목업 (src/api/addresses.ts) ── */
+export type { SavedAddress } from '../api/addresses';
+export { listAddresses, saveAddress, setDefaultAddress, deleteAddress } from '../api/addresses';
 export const DELIVERY_MEMOS = ['문 앞에 놓아주세요', '경비실에 맡겨주세요', '배송 전 연락 부탁드려요'];
-let offline = false;
-function readLocal(): SavedAddress[] { try { const v = JSON.parse(localStorage.getItem(LOCAL_KEY) || 'null'); if (Array.isArray(v)) return v; } catch { /* 목업으로 복구 */ } return structuredClone(MOCK_ADDRESSES); }
-function writeLocal(list: SavedAddress[]) { try { localStorage.setItem(LOCAL_KEY, JSON.stringify(list)); } catch { /* 저장 차단 시 메모리 값만 사용 */ } }
 export const toAddress = (a: SavedAddress): Address => ({ name: a.recipientName, phone: a.recipientPhone, address: a.roadAddress, detail: a.detailAddress, request: a.deliveryMemo, postalCode: a.postalCode });
 export const addressLine = (a: SavedAddress) => `${a.postalCode ? `[${a.postalCode}] ` : ''}${a.roadAddress}${a.detailAddress ? `, ${a.detailAddress}` : ''}`;
-
-export async function listAddresses(): Promise<SavedAddress[]> {
-  try { const data = await apiGet('/accounts/me/addresses'); if (Array.isArray(data)) { offline = false; return data as SavedAddress[]; } } catch { /* 백엔드 없음 */ }
-  offline = true; return readLocal();
-}
-type AddressBody = Omit<SavedAddress, 'addressId' | 'defaultAddress'>;
-export async function saveAddress(id: string | null, body: AddressBody, makeDefault: boolean): Promise<SavedAddress> {
-  if (!offline) {
-    try {
-      const saved = (id ? await apiPut(`/accounts/me/addresses/${id}`, body) : await apiPost('/accounts/me/addresses', body)) as SavedAddress | null;
-      const addressId = saved?.addressId ?? id ?? '';
-      if (makeDefault && addressId) await apiPatch(`/accounts/me/addresses/${addressId}/default`, {});
-      return { ...body, addressId, defaultAddress: makeDefault };
-    } catch (e) { if ((e as { status?: number }).status) throw e; offline = true; }
-  }
-  const list = readLocal(); const addressId = id ?? `addr-${Date.now()}`;
-  const next: SavedAddress = { ...body, addressId, defaultAddress: makeDefault || !list.length };
-  const merged = id ? list.map(a => a.addressId === id ? { ...next, defaultAddress: makeDefault || a.defaultAddress } : a) : [...list, next];
-  writeLocal(next.defaultAddress ? merged.map(a => ({ ...a, defaultAddress: a.addressId === addressId })) : merged);
-  return next;
-}
-export async function setDefaultAddress(id: string) {
-  if (!offline) { try { await apiPatch(`/accounts/me/addresses/${id}/default`, {}); return; } catch { offline = true; } }
-  writeLocal(readLocal().map(a => ({ ...a, defaultAddress: a.addressId === id })));
-}
-export async function deleteAddress(id: string) {
-  if (!offline) { try { await apiDelete(`/accounts/me/addresses/${id}`); return; } catch { offline = true; } }
-  writeLocal(readLocal().filter(a => a.addressId !== id));
-}
 
 /* ── 주소 검색 → 폼 복귀 시 선택 값 전달 ───────────────────────────────────────────── */
 const DRAFT_KEY = 'stockdrop:address-form';
@@ -65,7 +29,7 @@ export function AddressFormPage() {
   const navigate = useNavigate(); const location = useLocation(); const [params] = useSearchParams(); const toast = useToast();
   const returnTo = params.get('returnTo') || '/addresses';
   const [value, setValue] = useState<FormValue>(emptyForm); const [ready, setReady] = useState(false);
-  const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(''); const [loadError, setLoadError] = useState(''); const [busy, setBusy] = useState(false);
   const draftKey = `${DRAFT_KEY}:${location.pathname}`;
 
   useEffect(() => {
@@ -73,7 +37,10 @@ export function AddressFormPage() {
     (async () => {
       let base: FormValue = emptyForm;
       try { const draft = JSON.parse(sessionStorage.getItem(draftKey) || 'null'); if (draft) base = draft; } catch { /* 새로 시작 */ }
-      if (base === emptyForm && id) { const found = (await listAddresses()).find(a => a.addressId === id); if (found) { const { addressId: _i, defaultAddress, ...rest } = found; base = { ...rest, makeDefault: defaultAddress }; } }
+      if (base === emptyForm && id) {
+        try { const found = (await listAddresses()).find(a => a.addressId === id); if (found) { const { addressId: _i, defaultAddress, ...rest } = found; base = { ...rest, makeDefault: defaultAddress }; } }
+        catch (e) { if (alive) { setLoadError(errorMessage(e)); setReady(true); } return; }
+      }
       try { const pick = JSON.parse(sessionStorage.getItem(PICK_KEY) || 'null'); if (pick) { base = { ...base, postalCode: pick.postalCode, roadAddress: pick.roadAddress }; sessionStorage.removeItem(PICK_KEY); } } catch { /* 선택 값 없음 */ }
       sessionStorage.removeItem(draftKey);
       if (alive) { setValue(base); setReady(true); }
@@ -93,14 +60,16 @@ export function AddressFormPage() {
       const saved = await saveAddress(id ?? null, { ...body, label: body.label.trim() || '배송지' }, makeDefault);
       if (saved.defaultAddress || returnTo.startsWith('/checkout')) mutate(state => { state.addresses[user.id] = toAddress(saved); });
       toast('배송지를 저장했습니다.'); navigate(returnTo, { replace: true });
-    } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+    } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); }
   }
   const input = (key: keyof AddressBody, label: string, placeholder: string, extra: Record<string, unknown> = {}) => <input aria-label={label} className="field-line" value={value[key]} placeholder={placeholder} onChange={e => set({ [key]: e.target.value } as Partial<FormValue>)} {...extra}/>;
   const labelRow = (text: string, required = false) => <p className="mb-1 text-[13px] font-bold">{text}{required && <span className="ml-1.5 text-[11px] font-normal text-[var(--meta)]">· 필수</span>}</p>;
 
   return <div className="flex min-h-[calc(100dvh-44px)] flex-col">
     <Header title={isNew ? '새 배송지 추가' : '배송지 수정'} bare/>
-    {ready && <form className="flex flex-1 flex-col" onSubmit={e => { e.preventDefault(); void submit(); }}>
+    {ready && loadError && <div className="space-y-2 py-4"><ErrorBox message={loadError}/><button type="button" onClick={() => navigate(0)} className="h-11 w-full rounded-[6px] border border-[var(--border)] text-[14px] font-bold">다시 시도</button></div>}
+    {!ready && <p role="status" className="muted py-8 text-center text-[12px]">불러오는 중이에요…</p>}
+    {ready && !loadError && <form className="flex flex-1 flex-col" onSubmit={e => { e.preventDefault(); void submit(); }}>
       <div className="space-y-[26px]">
         <div>{labelRow('배송지명')}{input('label', '배송지명', '예: 집, 회사')}</div>
         <div>{labelRow('받는 분', true)}{input('recipientName', '받는 분', '이름을 입력해 주세요')}</div>
