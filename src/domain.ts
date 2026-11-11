@@ -37,6 +37,7 @@ export interface Application {
   rejectedAt?: number; reviewedAt?: number; deadlineAt?: number;
   /** 사업자 정보(상호·대표자·등록번호·업태) — 백엔드 요청 필드 (docs/backend-api-requests.md) */ business?: BusinessInfo;
   rejectionItems?: { field: string; reason: string; fixed?: boolean }[];
+  /** 타 플랫폼 판매 URL — 신청 API 필드 확인 필요 (docs/backend-api-requests.md) */ salesUrl?: string;
 }
 export interface Line { optionId: string; name: string; quantity: number }
 export interface Hold { id: string; userId: string; productId: string; lines: Line[]; createdAt: number; expiresAt: number; status: 'reserved' | 'pending' | 'consumed' | 'released'; orderId?: string }

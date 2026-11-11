@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Search } from 'lucide-react';
-import { Building2, Store, UserRound, CheckCircle2, FileText } from 'lucide-react';
+import { ArrowLeft, Building2, CalendarCheck, Check, Store, UserRound, CheckCircle2, FileText } from 'lucide-react';
 import { activeUser, approveApplication, money, nowOf, saleState, uid } from '../domain';
 import type { Address, Application, DocumentFile } from '../domain';
 import { atomic, mutate, useStore } from '../store';
@@ -222,7 +222,7 @@ export function AdminListPage() {
     if (!user.admin) return;
     apiGet('/admin/seller-applications').then((data: any) => {
       if (!Array.isArray(data)) return;
-      setExtra(data.filter((a: any) => !s.applications.find(x => x.id === (a.applicationId ?? a.id))).map((a: any) => ({ id: a.applicationId ?? a.id, userId: a.accountId ?? '', displayName: a.sellerDisplayName ?? '', name: a.contactName ?? '', email: a.contactEmail ?? '', phone: a.contactPhone ?? '', document: { id: a.applicationId ?? a.id, name: '사업자등록증', size: 0, uploadedAt: 0 }, bank: a.bankName ?? '', account: a.bankAccountNumber ?? a.bankAccount ?? '', shippingAddress: a.dispatchAddress?.roadAddress ?? '', returnAddress: a.returnAddress?.roadAddress ?? '', status: (a.status ?? 'pending').toLowerCase() as 'pending' | 'approved', submittedAt: a.submittedAt ? new Date(a.submittedAt).getTime() : Date.now() })));
+      setExtra(data.filter((a: any) => !s.applications.find(x => x.id === (a.applicationId ?? a.id))).map((a: any) => ({ id: a.applicationId ?? a.id, userId: a.accountId ?? '', displayName: a.sellerDisplayName ?? '', name: a.contactName ?? '', email: a.contactEmail ?? '', phone: a.contactPhone ?? '', document: { id: a.applicationId ?? a.id, name: '사업자등록증', size: 0, uploadedAt: 0 }, bank: a.bankName ?? '', account: a.bankAccountNumber ?? a.bankAccount ?? '', shippingAddress: a.dispatchAddress?.roadAddress ?? '', returnAddress: a.returnAddress?.roadAddress ?? '', salesUrl: a.salesUrl ?? undefined, status: (a.status ?? 'pending').toLowerCase() as 'pending' | 'approved', submittedAt: a.submittedAt ? new Date(a.submittedAt).getTime() : Date.now() })));
     }).catch(() => {});
   }, [user.admin]);
   if (!user.admin) return <Unavailable message="운영자만 사용할 수 있습니다."/>;
@@ -231,7 +231,7 @@ export function AdminListPage() {
   const reviewDeadline = (sub: number) => sub + 2 * 86_400_000;
   return (
     <>
-      <Header title="판매자 신청 목록" subtitle="운영자 전용 · 사업자등록증과 판매 URL을 확인하고 승인해 주세요." back={false}/>
+      <Header title="판매자 신청 검토" subtitle="운영자 전용 · 사업자등록증과 판매 URL을 확인하고 승인해 주세요." back={false}/>
       <Link className="btn btn-outline w-full mb-4" to="/admin/products">상품 심사 목록 →</Link>
       <div className="mb-3 flex gap-5 border-b border-[var(--line)]">
         {(['pending', 'approved'] as const).map(t => (
@@ -277,12 +277,12 @@ export function AdminListPage() {
   );
 }
 export function AdminDetailPage() {
-  const { id } = useParams(); const s = useStore(), user = activeUser(s); const [extra, setExtra] = useState<typeof s.applications[0] | null>(null); const app = s.applications.find(a => a.id === id) ?? extra; const [pdfViewed, setPdfViewed] = useState(false), [urlViewed, setUrlViewed] = useState(false), [confirm, setConfirm] = useState(false), [error, setError] = useState(''), [busy, setBusy] = useState(false); const toast = useToast();
+  const { id } = useParams(); const s = useStore(), user = activeUser(s); const [extra, setExtra] = useState<typeof s.applications[0] | null>(null); const app = s.applications.find(a => a.id === id) ?? extra; const [pdfViewed, setPdfViewed] = useState(false), [urlViewed, setUrlViewed] = useState(false), [confirm, setConfirm] = useState(false), [rejecting, setRejecting] = useState(false), [rejectReason, setRejectReason] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false); const toast = useToast(), navigate = useNavigate();
   useEffect(() => {
     if (!user.admin || !id) return;
     apiGet(`/admin/seller-applications/${id}`).then((a: any) => {
       if (!a) return;
-      setExtra({ id: a.applicationId ?? a.id ?? id, userId: a.accountId ?? '', displayName: a.sellerDisplayName ?? '', name: a.contactName ?? '', email: a.contactEmail ?? '', phone: a.contactPhone ?? '', document: { id: a.applicationId ?? id, name: '사업자등록증', size: 0, uploadedAt: 0 }, bank: a.bankName ?? '', account: a.bankAccountNumber ?? a.bankAccount ?? '', shippingAddress: a.dispatchAddress?.roadAddress ?? '', returnAddress: a.returnAddress?.roadAddress ?? '', status: (a.status ?? 'pending').toLowerCase() as 'pending' | 'approved', submittedAt: a.submittedAt ? new Date(a.submittedAt).getTime() : Date.now(), approvedAt: a.approvedAt ? new Date(a.approvedAt).getTime() : undefined });
+      setExtra({ id: a.applicationId ?? a.id ?? id, userId: a.accountId ?? '', displayName: a.sellerDisplayName ?? '', name: a.contactName ?? '', email: a.contactEmail ?? '', phone: a.contactPhone ?? '', document: { id: a.applicationId ?? id, name: '사업자등록증', size: 0, uploadedAt: 0 }, bank: a.bankName ?? '', account: a.bankAccountNumber ?? a.bankAccount ?? '', shippingAddress: a.dispatchAddress?.roadAddress ?? '', returnAddress: a.returnAddress?.roadAddress ?? '', salesUrl: a.salesUrl ?? undefined, status: (a.status ?? 'pending').toLowerCase() as 'pending' | 'approved', submittedAt: a.submittedAt ? new Date(a.submittedAt).getTime() : Date.now(), approvedAt: a.approvedAt ? new Date(a.approvedAt).getTime() : undefined });
       // No PDF available from API — allow approval without PDF viewing
       if (!s.applications.find(x => x.id === id)) { setPdfViewed(true); setUrlViewed(true); }
     }).catch(() => {});
@@ -294,11 +294,10 @@ export function AdminDetailPage() {
   const dl = new Date(reviewDeadline);
   const dlLabel = `${dl.getMonth()+1}.${dl.getDate()} (${days[dl.getDay()]})`;
   const dDay = Math.ceil((reviewDeadline - Date.now()) / 86_400_000);
-  const bothViewed = pdfViewed && urlViewed;
+  const bothViewed = pdfViewed && (urlViewed || !app.salesUrl);
   return (
     <div className="pb-32">
-      <Header title="입점 심사" back={true}/>
-      <p className="mb-3 text-right text-[11px] font-bold text-[#949494]">{app.id}</p>
+      <Header title="입점 심사" back={true} action={<span className="text-[11px] font-bold text-[#949494]">{app.id}</span>}/>
       {/* Meta */}
       <div className="mb-4 flex items-center gap-2">
         <span className="inline-flex h-[18px] items-center rounded-[4px] bg-[var(--soft)] px-2 text-[11px] font-bold text-[#7B7B7B]">심사 대기</span>
@@ -339,7 +338,7 @@ export function AdminDetailPage() {
           <h2 className="text-[15px] font-bold">타 플랫폼 판매 URL</h2>
           {urlViewed && <span className="inline-flex h-[18px] items-center rounded-[4px] bg-[#EEF8F3] px-2 text-[11px] font-bold text-[#3FB181]">열람 완료</span>}
         </div>
-        <UrlCard url={app.shippingAddress || 'https://coupang.com/vp/products/example'} viewed={urlViewed} onView={() => setUrlViewed(true)}/>
+        {app.salesUrl ? <UrlCard url={app.salesUrl} viewed={urlViewed} onView={() => setUrlViewed(true)}/> : <p className="rounded-[6px] bg-[var(--soft)] px-4 py-3 text-[12px] text-[#7B7B7B]">신청서에 제출된 판매 URL이 없어요.</p>}
       </div>
       {/* 신청 정보 */}
       <h2 className="mb-3 text-[15px] font-bold">신청 정보</h2>
@@ -367,14 +366,34 @@ export function AdminDetailPage() {
       <ErrorBox message={error}/>
       {app.status === 'approved'
         ? <><div className="rounded-[4px] bg-[#EEF8F3] p-4"><p className="text-[13px] font-bold text-[#3FB181]">판매자 권한 추가 완료</p><p className="mt-1 text-[12px] text-[#7B7B7B]">승인 일시 {dateTime(app.approvedAt!)} · 처리자 운영자</p></div><Link className="btn w-full mt-4" to="/admin">신청 목록으로</Link></>
-        : <div className="fixed bottom-0 left-1/2 w-full max-w-[390px] -translate-x-1/2 border-t border-[var(--line)] bg-white px-4 pb-8 pt-4">
-            {!bothViewed && <p className="mb-2 text-center text-[12px] text-[#949494]">사업자등록증 PDF와 판매 URL을 먼저 열람해 주세요.</p>}
-            <Button className="w-full" disabled={!bothViewed} onClick={() => setConfirm(true)}>판매자 승인</Button>
+        : app.status === 'rejected'
+        ? <><Note title="반려 처리됨">{app.rejectionItems?.map(i => i.reason).join(' ') || '반려 사유가 판매자에게 전달됐어요.'}</Note><Link className="btn btn-outline mt-4 w-full" to="/admin">신청 목록으로</Link></>
+        : <div className="fixed bottom-0 left-1/2 w-full max-w-[390px] -translate-x-1/2 bg-white px-4 pb-8 pt-3">
+            <p className="mb-2 text-center text-[12px] text-[#949494]">{bothViewed ? '사업자등록증과 판매 URL을 모두 열람했어요' : '사업자등록증 PDF와 판매 URL을 먼저 열람해 주세요.'}</p>
+            <div className="flex gap-2">
+              <Button outline className="w-[96px]" disabled={!bothViewed} onClick={() => setRejecting(true)}>반려</Button>
+              <Button className="flex-1" disabled={!bothViewed} onClick={() => setConfirm(true)}>승인하기</Button>
+            </div>
           </div>
       }
+      {rejecting && (
+        <div className="fixed inset-0 z-50 flex items-end bg-black/60">
+          <div className="mx-auto w-full max-w-[390px] rounded-t-[16px] bg-white px-4 pb-8 pt-2">
+            <div className="mx-auto mb-4 h-1 w-8 rounded-full bg-[#DEDEDE]"/>
+            <h2 className="mb-1 text-[18px] font-bold">입점 신청을 반려할까요?</h2>
+            <p className="mb-4 text-[13px] text-[#7B7B7B]">반려 사유가 신청자에게 그대로 전달돼요.<br/>신청자는 내용을 보완해 다시 요청할 수 있어요.</p>
+            <textarea aria-label="입점 반려 사유" className="field field-box mb-4 w-full" maxLength={200} value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="반려 사유를 입력해 주세요."/>
+            <ErrorBox message={error}/>
+            <div className="flex gap-2">
+              <Button outline className="w-[86px]" onClick={() => setRejecting(false)} disabled={busy}>취소</Button>
+              <Button className="flex-1" disabled={busy || !rejectReason.trim()} onClick={async () => { setBusy(true); setError(''); try { try { await apiPost(`/admin/seller-applications/${app.id}/reject`, { reason: rejectReason.trim() }); } catch {} await atomic(state => { if (!activeUser(state).admin) throw new Error('운영자만 반려할 수 있습니다.'); const item = state.applications.find(a => a.id === app.id); if (!item || item.status !== 'pending') throw new Error('이미 처리된 신청입니다.'); item.status = 'rejected'; item.rejectedAt = nowOf(state); item.reviewedAt = nowOf(state); item.rejectionItems = [{ field: '입점 심사', reason: rejectReason.trim() }]; }); toast('입점 신청을 반려했습니다.'); navigate('/admin'); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }}>{busy ? '처리 중…' : '반려하기'}</Button>
+            </div>
+          </div>
+        </div>
+      )}
       {confirm && (
         <div className="fixed inset-0 z-50 flex items-end bg-black/60">
-          <div className="w-full rounded-t-[16px] bg-white px-4 pb-8 pt-2">
+          <div className="mx-auto w-full max-w-[390px] rounded-t-[16px] bg-white px-4 pb-8 pt-2">
             <div className="mx-auto mb-4 h-1 w-8 rounded-full bg-[#DEDEDE]"/>
             <h2 className="mb-1 text-[18px] font-bold">판매자로 승인할까요?</h2>
             <p className="mb-5 text-[13px] text-[#7B7B7B]">승인하면 판매자 권한이 추가되고<br/>판매자에게 승인 알림이 가요.</p>
@@ -386,7 +405,7 @@ export function AdminDetailPage() {
             <ErrorBox message={error}/>
             <div className="flex gap-2">
               <Button outline className="w-[86px]" onClick={() => setConfirm(false)} disabled={busy}>취소</Button>
-              <Button className="flex-1" disabled={busy} onClick={async () => { setBusy(true); try { try { await apiPost(`/admin/seller-applications/${app.id}/approve`, {}); } catch {} await atomic(state => approveApplication(state, state.activeUserId, app.id, nowOf(state))); setConfirm(false); toast('판매자로 승인했습니다.'); } catch (e) { setError((e as Error).message); setConfirm(false); } finally { setBusy(false); } }}>{busy ? '승인 중…' : '승인하기'}</Button>
+              <Button className="flex-1" disabled={busy} onClick={async () => { setBusy(true); try { try { await apiPost(`/admin/seller-applications/${app.id}/approve`, {}); } catch {} await atomic(state => approveApplication(state, state.activeUserId, app.id, nowOf(state))); setConfirm(false); toast('판매자로 승인했습니다.'); navigate('/admin'); } catch (e) { setError((e as Error).message); setConfirm(false); } finally { setBusy(false); } }}>{busy ? '승인 중…' : '승인하기'}</Button>
             </div>
           </div>
         </div>
@@ -443,7 +462,7 @@ export function AdminProductListPage() {
 // Rejection reasons matching Figma "상품 반려" screen
 const REJECT_REASONS = ['한정 판매가', '판매 일정', '타 플랫폼 상품과 다름', '상품 사진 · 정보', '기타'] as const;
 export function AdminProductDetailPage() {
-  const { id } = useParams(); const s = useStore(), user = activeUser(s), toast = useToast();
+  const { id } = useParams(); const s = useStore(), user = activeUser(s), toast = useToast(), navigate = useNavigate();
   const p = s.products.find(p => p.id === id);
   const [reject, setReject] = useState(false);
   const [checkedReasons, setCheckedReasons] = useState<Record<string, boolean>>({});
@@ -469,15 +488,13 @@ export function AdminProductDetailPage() {
       try {
         try { await apiPost(`/admin/products/${p.id}/reject`, { reason: reasons }); } catch {}
         mutate(state => { const item = state.products.find(x => x.id === p.id); if (item) item.rejectionReason = reasons; });
-        setReject(false); toast('반려 처리했습니다.');
+        setReject(false); toast('반려 처리했습니다.'); navigate('/admin/products');
       } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
     };
     return (
-      <div className="pb-32">
+      <div className="pb-8">
         <div className="mb-4 flex items-center gap-3">
-          <button onClick={() => setReject(false)} className="flex h-8 w-8 items-center justify-center">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M9 12L4 7L9 2" stroke="#222222" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
-          </button>
+          <button aria-label="이전 화면" onClick={() => setReject(false)} className="-ml-1 flex h-8 w-8 items-center justify-center"><ArrowLeft size={22}/></button>
           <h1 className="text-[18px] font-bold">판매 반려</h1>
         </div>
         {/* Product card */}
@@ -496,16 +513,12 @@ export function AdminProductDetailPage() {
         <p className="mb-4 text-[12px] text-[#7B7B7B]">선택한 항목과 사유가 판매자에게 그대로 전달돼요.</p>
         {REJECT_REASONS.map(reason => (
           <div key={reason} className="border-b border-[#F2F2F2] pb-4 mb-0">
-            <div className="flex items-center gap-3 py-3">
-              <button
-                type="button"
-                onClick={() => setCheckedReasons(r => ({ ...r, [reason]: !r[reason] }))}
-                className={`flex h-[14px] w-[14px] shrink-0 items-center justify-center rounded-[2px] border ${checkedReasons[reason] ? 'border-[var(--ink)] bg-[var(--ink)]' : 'border-[#DEDEDE]'}`}
-              >
-                {checkedReasons[reason] && <svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M9 1L3.5 7L1 4.5" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-              </button>
+            <button type="button" role="checkbox" aria-checked={!!checkedReasons[reason]} onClick={() => setCheckedReasons(r => ({ ...r, [reason]: !r[reason] }))} className="flex w-full items-center gap-3 py-3 text-left">
+              <span className={`flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded-[4px] border ${checkedReasons[reason] ? 'border-[var(--ink)] bg-[var(--ink)]' : 'border-[#DEDEDE]'}`}>
+                {checkedReasons[reason] && <svg width="12" height="10" viewBox="0 0 10 8" fill="none"><path d="M9 1L3.5 7L1 4.5" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+              </span>
               <span className={`text-[14px] ${checkedReasons[reason] ? 'font-bold text-[var(--ink)]' : 'text-[#7B7B7B]'}`}>{reason}</span>
-            </div>
+            </button>
             {checkedReasons[reason] && (
               <div className="relative rounded-[6px] border border-[#DEDEDE] p-3">
                 <textarea
@@ -528,19 +541,16 @@ export function AdminProductDetailPage() {
           <span>판매자가 입력한 내용은 그대로 저장돼요.<br/>선택한 항목만 고치면 바로 다시 요청할 수 있어요.</span>
         </div>
         <ErrorBox message={error}/>
-        <div className="fixed bottom-0 left-1/2 w-full max-w-[390px] -translate-x-1/2 border-t border-[var(--line)] bg-white px-4 pb-8 pt-4">
-          <Button className="w-full" disabled={busy || !canSubmitReject} onClick={handleReject}>
-            {busy ? '처리 중…' : `${selectedCount}개 항목으로 제출하기`}
-          </Button>
-        </div>
+        <Button className="mt-6 w-full" disabled={busy || !canSubmitReject} onClick={handleReject}>
+          {busy ? '처리 중…' : `${selectedCount}개 항목으로 제출하기`}
+        </Button>
       </div>
     );
   }
   // 상품 승인 화면
   return (
     <div className="pb-32">
-      <Header title="판매 심사" back={true}/>
-      <p className="mb-3 text-right text-[11px] font-bold text-[#949494]">{p.id}</p>
+      <Header title="판매 심사" back={true} action={<span className="text-[11px] font-bold text-[#949494]">{p.id}</span>}/>
       {/* Meta */}
       {p.published
         ? <div className="mb-4 inline-flex h-[18px] items-center rounded-[4px] bg-[#EEF8F3] px-2 text-[11px] font-bold text-[#3FB181]">승인 완료</div>
@@ -603,13 +613,13 @@ export function AdminProductDetailPage() {
       {/* Approve bottom sheet */}
       {approveConfirm && (
         <div className="fixed inset-0 z-50 flex items-end bg-black/60">
-          <div className="w-full rounded-t-[16px] bg-white px-4 pb-8 pt-2">
+          <div className="mx-auto w-full max-w-[390px] rounded-t-[16px] bg-white px-4 pb-8 pt-2">
             <div className="mx-auto mb-4 h-1 w-8 rounded-full bg-[#DEDEDE]"/>
             <h2 className="mb-1 text-[18px] font-bold">판매를 승인할까요?</h2>
             <p className="mb-5 text-[13px] text-[#7B7B7B]">승인하면 판매 일정에 맞춰 자동으로 오픈되고<br/>판매자에게 승인 알림이 가요.</p>
             <div className="mb-4 flex items-center gap-3 rounded-[6px] bg-[var(--soft)] px-4 py-3">
               <div className="flex items-center justify-center rounded-[4px] bg-white p-1.5">
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect width="14" height="14" rx="2" fill="white"/><path d="M2 6h10M6 2v10" stroke="#7B7B7B" strokeWidth="1.3"/></svg>
+                <CalendarCheck size={16} className="text-[#7B7B7B]"/>
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-[13px] font-bold">{p.name}</p>
@@ -622,8 +632,8 @@ export function AdminProductDetailPage() {
             </div>
             <ErrorBox message={error}/>
             <div className="flex gap-2">
-              <Button outline className="w-[86px]" onClick={() => setApproveConfirm(false)} disabled={busy}>취소</Button>
-              <Button className="flex-1" disabled={busy} onClick={async () => { setBusy(true); setError(''); try { try { await apiPost(`/admin/products/${p.id}/approve`, {}); } catch {} mutate(state => { const item = state.products.find(x => x.id === p.id); if (item) { item.published = true; delete item.rejectionReason; } }); setApproveConfirm(false); toast('상품을 승인했습니다.'); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }}>{busy ? '처리 중…' : '승인하기'}</Button>
+              <Button outline className="flex-1" onClick={() => setApproveConfirm(false)} disabled={busy}>취소</Button>
+              <Button className="flex-1" disabled={busy} onClick={async () => { setBusy(true); setError(''); try { try { await apiPost(`/admin/products/${p.id}/approve`, {}); } catch {} mutate(state => { const item = state.products.find(x => x.id === p.id); if (item) { item.published = true; delete item.rejectionReason; } }); setApproveConfirm(false); toast('상품을 승인했습니다.'); navigate('/admin/products'); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }}>{busy ? '처리 중…' : <>승인하기 <Check size={16}/></>}</Button>
             </div>
           </div>
         </div>
