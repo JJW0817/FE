@@ -1,7 +1,7 @@
 import { initialAuth } from './domain';
 import type { State } from './domain';
 import { atomic, getState, mutate } from './store';
-import { apiPost, apiGet, fetchCSRF, setAccessToken, ApiError } from './api';
+import { api, apiPost, apiGet, setAccessToken, ApiError } from './api';
 import { DEMO_ACCOUNT_IDS, DEMO_LOGIN } from './config';
 export const DEMO_PASSWORD = 'Stockdrop123!';
 export const normalizeEmail = (value: string) => value.trim().toLowerCase();
@@ -16,7 +16,7 @@ export function selectProfile(s: State, id: string) { const user = s.users.find(
 export function demoLogin(id: string) { if (!DEMO_LOGIN) throw new Error('데모 로그인을 사용할 수 없습니다.'); mutate(s => { selectProfile(s, id); ensure(s).demo = true; }); }
 export function endSession(s: State) { ensure(s).demo = false; ensure(s).userId = null; s.activeUserId = ''; s.mode = 'buyer'; }
 export async function logout() {
-  try { const { token, headerName } = await fetchCSRF(); await apiPost('/auth/logout', {}, { [headerName]: token }); } catch {}
+  try { await api.post('/v1/auth/logout', undefined, { csrf: true, auth: false }); } catch {}
   setAccessToken(null);
   mutate(endSession);
 }
@@ -46,8 +46,7 @@ export async function verifyCode(email: string, purpose: 'signup' | 'reset', cod
 export async function login(emailValue: string, password: string) {
   const email = normalizeEmail(emailValue);
   if (DEMO_LOGIN) { const demo = getState().users.find(u => DEMO_ACCOUNT_IDS.includes(u.id) && normalizeEmail(u.email) === email); if (demo) { if (password !== DEMO_PASSWORD) throw new Error('이메일 또는 비밀번호를 확인해 주세요.'); demoLogin(demo.id); return; } }
-  const { token, headerName } = await fetchCSRF();
-  const data = await apiPost('/auth/login', { email, password }, { [headerName]: token }) as { accessToken: string; accountId: string; roles: string[] };
+  const data = await api.post<{ accessToken: string; accountId: string; roles: string[] }>('/v1/auth/login', { email, password }, { csrf: true, auth: false });
   setAccessToken(data.accessToken);
   await atomic(s => {
     let user = s.users.find(u => normalizeEmail(u.email) === email);
@@ -78,9 +77,7 @@ export async function signup(input: { email: string; password: string; name: str
 }
 export async function restoreSession(): Promise<boolean> {
   try {
-    const { token, headerName } = await fetchCSRF();
-    const data = await apiPost('/auth/refresh', {}, { [headerName]: token }) as { accessToken: string; accountId: string; roles: string[] };
-    setAccessToken(data.accessToken);
+    const data = await api.refresh();
     if (data.accountId && Array.isArray(data.roles)) {
       const seller = data.roles.some(r => r.toUpperCase() === 'SELLER');
       const admin = data.roles.some(r => r.toUpperCase() === 'ADMIN');
@@ -96,8 +93,7 @@ export async function restoreSession(): Promise<boolean> {
 }
 export async function changePassword(currentPassword: string, newPassword: string) {
   if (!validPassword(newPassword)) throw new Error('비밀번호는 영문·숫자·특수문자를 포함한 8~32자로 입력해 주세요.');
-  const { token, headerName } = await fetchCSRF();
-  await apiPost('/accounts/me/password', { currentPassword, newPassword }, { [headerName]: token });
+  await api.put('/v1/accounts/me/password', { currentPassword, newPassword });
 }
 export async function resetPassword(emailValue: string, password: string) {
   if (!validPassword(password)) throw new Error('영문·숫자·특수문자를 포함한 8~32자로 입력해 주세요.');

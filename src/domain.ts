@@ -181,6 +181,10 @@ export function publishDraft(s: State, userId: string, d: Draft, now: number): P
   if (existing) s.products[s.products.indexOf(existing)] = p; else s.products.unshift(p);
   delete s.drafts[userId]; return p;
 }
+/** 실제 API 모드(mock 꺼짐)의 첫 상태 — 목업 계정·상품·주문 없이 시작한다. 데이터는 서버에서 받아 채운다 */
+export function emptyState(): State {
+  return { version: 1, auth: initialAuth(), activeUserId: '', mode: 'buyer', users: [], products: [], applications: [], holds: [], orders: [], inquiries: [], drafts: {}, addresses: {}, sellerSettings: {}, bookmarks: [], clockOffset: 0, paymentOutcome: 'success', aiOutcome: 'auto' };
+}
 /** demoSales: 화면 목업용 판매 이력(다른 구매자 주문)을 넣는다. 단위 테스트는 기본값(false)으로 빈 이력에서 시작 */
 export function seedState(now = Date.now(), demoSales = false, mockSignedIn = true): State {
   const nextNine = (() => { const t = new Date(now); t.setHours(21, 0, 0, 0); if (t.getTime() <= now) t.setDate(t.getDate() + 1); return t.getTime(); })();

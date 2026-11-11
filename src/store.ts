@@ -1,10 +1,11 @@
 import { useSyncExternalStore } from 'react';
-import { expireHolds, initialAuth, nowOf, seedState } from './domain';
+import { emptyState, expireHolds, initialAuth, nowOf, seedState } from './domain';
 import type { State } from './domain';
-import { DEMO_ACCOUNT_IDS, DEMO_LOGIN, MOCK_AUTH } from './config';
+import { DEMO_ACCOUNT_IDS, DEMO_LOGIN, MOCK_AUTH, USE_MOCK } from './config';
 /** 첫 방문 상태. 자동 로그인(VITE_MOCK_AUTH)이 꺼져 있으면 로그아웃·온보딩 전 상태로 시작한다 */
-const seed = () => seedState(Date.now(), true, MOCK_AUTH);
-const KEY = 'stockdrop:v1';
+const seed = () => USE_MOCK ? seedState(Date.now(), true, MOCK_AUTH) : emptyState();
+/** mock 모드와 실제 API 모드는 저장소를 나눠, 목업 데이터가 실제 계정 화면에 섞이지 않게 한다 */
+const KEY = USE_MOCK ? 'stockdrop:v1' : 'stockdrop:v1:live';
 const listeners = new Set<() => void>();
 function read(): State | undefined { try { const value = JSON.parse(localStorage.getItem(KEY) || 'null'); if (value?.version === 1 && Array.isArray(value.users) && Array.isArray(value.products) && Array.isArray(value.orders) && value.addresses && value.drafts) { if (!value.auth) { value.auth = initialAuth(); value.activeUserId = ''; value.mode = 'buyer'; }
     // 자동 로그인이 꺼져 있으면, 예전 목업 자동 로그인으로 저장된 세션(목업 계정 ID)은 처음 방문 상태로 되돌린다
