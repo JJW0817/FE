@@ -9,17 +9,23 @@ import { endSession } from '../auth';
 import { dateTime, useClock } from '../hooks';
 import { Badge, Button, CopyButton, copyText, Toggle, Empty, ErrorBox, Field, Header, InfoRow, LiveStatus, MenuRow, Modal, Note, ORDER_LABELS, ProductImage, ProductSummary, Unavailable, useToast } from '../components/ui';
 import { PdfField } from '../components/PdfField';
-import { deleteSellerLogo, errorMessage, fetchSellerLogo, fetchSellerMe, fetchSellerStore, fetchWithdrawalEligibility, updateSellerAddresses, updateSellerBank, updateSellerContact, updateSellerStore, uploadSellerLogo, useApi, withdrawAccount } from '../api';
+import { answerOrderInquiry, listSellerOrderInquiries, answerProductInquiry, deleteSellerLogo, deliverOrder, errorMessage, getSalesSummary, getSellerOrder, getSellerOrderInquiry, getSellerOrderSummary, getSellerProductWithImages, listRevisions, listSellerOrderInquiryInbox, listSellerOrders, listSellerProductInquiries, listSellerProducts, mergeInquiries, mergeOrders, mergeProducts, shipOrder, useLive, fetchSellerLogo, fetchSellerMe, fetchSellerStore, fetchWithdrawalEligibility, updateSellerAddresses, updateSellerBank, updateSellerContact, updateSellerStore, uploadSellerLogo, useApi, withdrawAccount } from '../api';
 import { api } from '../api';
 import { USE_MOCK } from '../config';
 const hm = (t: number) => new Date(t).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
 const md = (t: number) => { const d = new Date(t); return `${d.getMonth() + 1}.${d.getDate()} (${'일월화수목금토'[d.getDay()]})`; };
 export function SellerProductsPage() {
-  const s = useStore(), user = activeUser(s), now = useClock(); const [params, setParams] = useSearchParams(); const tab = params.get('state') ?? '전체'; if (!user.seller) return <Unavailable/>; const settings = s.sellerSettings[user.id]; const allProducts = s.products.filter(p => p.sellerId === user.id); const products = allProducts.filter(p => tab === '전체' || saleState(p, now) === tab); const thisMonth = s.orders.filter(o => o.sellerId === user.id && !['cancelled','refunded'].includes(o.status)).reduce((n, o) => n + o.lines.reduce((a, l) => a + l.quantity, 0), 0); const alarmCount = 226; const soldOutCount = allProducts.filter(p => saleState(p, now) === '판매 종료').length;
-  const chips: [string, number][] = [['전체', allProducts.length], ['판매 중', allProducts.filter(p => saleState(p, now) === '판매 중').length], ['판매 예정', allProducts.filter(p => saleState(p, now) === '판매 예정').length], ['심사 중', 0], ['판매 종료', soldOutCount]];
+  const s = useStore(), user = activeUser(s), now = useClock(); const [params, setParams] = useSearchParams(); const tab = params.get('state') ?? '전체';
+  // 실제 모드: 본인 상품 목록과 이번 달 판매 집계를 서버에서 받는다(mock은 store 목업 그대로)
+  const live = useLive(async signal => listSellerProducts(user.id, {}, signal), (st, items) => mergeProducts(st, items), [user.id]);
+  const month = `${new Date(now).getFullYear()}-${String(new Date(now).getMonth() + 1).padStart(2, '0')}`;
+  const summary = useApi(async signal => (USE_MOCK ? null : getSalesSummary(month, signal)), [month]);
+  if (!user.seller) return <Unavailable/>; const settings = s.sellerSettings[user.id]; const allProducts = s.products.filter(p => p.sellerId === user.id); const products = allProducts.filter(p => tab === '전체' || (tab === '심사 중' ? p.reviewStatus === 'IN_REVIEW' : saleState(p, now) === tab)); const thisMonth = summary.data?.confirmedQuantity ?? s.orders.filter(o => o.sellerId === user.id && !['cancelled','refunded'].includes(o.status)).reduce((n, o) => n + o.lines.reduce((a, l) => a + l.quantity, 0), 0); const alarmCount = 226; /* TODO(api-gap): 알림 신청 인원 API 없음(목업) */ const soldOutCount = allProducts.filter(p => saleState(p, now) === '판매 종료').length;
+  const chips: [string, number][] = [['전체', allProducts.length], ['판매 중', allProducts.filter(p => saleState(p, now) === '판매 중').length], ['판매 예정', allProducts.filter(p => saleState(p, now) === '판매 예정').length], ['심사 중', allProducts.filter(p => p.reviewStatus === 'IN_REVIEW').length], ['판매 종료', soldOutCount]];
   return <div className="space-y-0">
     <Header title="판매 상품 관리" action={<Link to="/seller/new" aria-label="상품 등록"><Plus size={22}/></Link>}/>
     <div className="flex items-center justify-between py-3"><span className="text-[13px] font-bold">{settings?.displayName ?? user.name}</span><span className="muted text-[12px]">{new Date(now).getMonth()+1}월 기준</span></div>
+    <LiveStatus state={live}/>
     <div className="mb-4 flex justify-around rounded-[4px] bg-[var(--canvas)] py-4">{([['이번 달 판매', `${thisMonth}개`], ['알림 신청', `${alarmCount}명`], ['완판', `${soldOutCount}건`]] as [string,string][]).map(([label, value]) => <div key={label} className="text-center"><p className="font-number text-[16px] font-bold">{value}</p><p className="muted mt-1 text-[11px]">{label}</p></div>)}</div>
     <div className="-mx-4 mb-2 flex gap-1.5 overflow-x-auto px-4">{chips.map(([label, count]) => <button key={label} onClick={() => setParams(label === '전체' ? {} : { state: label })} className={`h-[30px] shrink-0 rounded-[4px] px-2.5 text-[12px] ${tab === label ? 'bg-[var(--ink)] font-bold text-[var(--surface)]' : 'muted bg-[var(--soft)]'}`}>{label} {count}</button>)}</div>
     {products.map(p => {
@@ -37,17 +43,25 @@ export function SellerProductsPage() {
         {ended && <><div className="flex items-center justify-between text-[12px]"><span className="font-bold">{sold} / {total}개 판매</span><span className="muted">{sold >= total ? '완판' : '판매 종료'}</span></div><div className="h-1 w-full rounded-full bg-[var(--line)]"><div className="h-1 rounded-full bg-[var(--muted)]" style={{width: total > 0 ? `${Math.min(100, sold/total*100)}%` : '0%'}}/></div></>}
         {status === '판매 예정' && <p className="muted text-[12px]">D-{Math.max(0, Math.ceil((p.startsAt - now)/86400000))} · 알림 신청 {alarmCount}명</p>}
         {isLive || ended ? <Link to={`/seller/product/${p.id}`} className="btn btn-outline w-full text-[13px]!">{isLive ? '판매 현황' : '판매 결과'}</Link> : status === '판매 예정' && <Link to={`/seller/new?edit=${p.id}`} className="btn btn-outline w-full text-[13px]!">판매 정보 수정</Link>}
+        {status === '게시 전' && (p.reviewStatus === 'IN_REVIEW' ? <Link to={`/seller/published/${p.id}`} className="btn btn-outline w-full text-[13px]!">심사 상태 보기</Link> : <Link to={`/seller/new?edit=${p.id}`} className="btn btn-outline w-full text-[13px]!">{p.reviewStatus === 'REJECTED' ? '수정하고 다시 요청' : '이어서 등록'}</Link>)}
       </div>;
     })}
-    {!products.length && <Empty title="등록한 상품이 없어요"/>}
+    {!products.length && !live.loading && <Empty title="등록한 상품이 없어요"/>}
     <Link className="btn mt-6 w-full" to="/seller/new"><Plus size={17}/>새 한정 판매 등록</Link>
   </div>;
 }
 export function SellerProductPage() {
-  const { id } = useParams(); const s = useStore(), user = activeUser(s), now = useClock(), location = useLocation(), navigate = useNavigate(), toast = useToast(); const p = s.products.find(p => p.id === id && p.sellerId === user.id); if (!user.seller || !p) return <Unavailable/>;
-  const status = saleState(p, now), fee = feeFor(s, p), published = location.pathname.includes('/published/');
+  const { id } = useParams(); const s = useStore(), user = activeUser(s), now = useClock(), location = useLocation(), navigate = useNavigate(), toast = useToast(); const p = s.products.find(p => p.id === id && p.sellerId === user.id);
+  // 실제 모드: 편집 원본·이미지, 이 상품의 주문, 주문 집계, 수정 심사 이력을 서버에서 받는다(mock은 store 목업 그대로)
+  const live = useLive(async signal => (id && user.seller ? { prod: await getSellerProductWithImages(id, signal), orders: await listSellerOrders(user.id, { productId: id }, signal) } : null), (st, r) => { if (!r) return; mergeProducts(st, [r.prod]); mergeOrders(st, r.orders); }, [id]);
+  const sum = useApi(async signal => (USE_MOCK || !id || !user.seller ? null : getSellerOrderSummary({ productId: id }, signal)), [id]);
+  const revs = useApi(async signal => (USE_MOCK || !id || !user.seller ? null : listRevisions(id, signal)), [id]);
+  if (!user.seller) return <Unavailable/>;
+  if (!p) return live.loading || live.error ? <LiveStatus state={live}/> : <Unavailable/>;
+  const rev = [...(revs.data ?? [])].sort((a, b) => Date.parse(b.submittedAt) - Date.parse(a.submittedAt))[0];
+  const status = saleState(p, now), fee = feeFor(s, p) /* TODO(api-gap): 정산·수수료 API 없음(목업 계산) */, published = location.pathname.includes('/published/');
   const productOrders = s.orders.filter(o => o.productId === p.id && !['cancelled','refunded'].includes(o.status));
-  const totalSold = fee.sold;
+  const totalSold = sum.data?.confirmedQuantity ?? fee.sold;
   const totalStock = p.options.reduce((n, o) => n + o.stock, 0);
 
   // 심사 대기 / 심사 승인 / 심사 반려
@@ -60,10 +74,11 @@ export function SellerProductPage() {
 
     // 심사 반려
     if (rejected) {
-      const rejectionReasons: Array<{no: string; field: string; reason: string}> = [
+      const mockReasons: Array<{no: string; field: string; reason: string}> = [
         { no: '01', field: '한정 판매가', reason: '쿠팡 판매가가 45,900원으로 내려갔어요. 한정 판매가는 URL 판매가보다 낮아야 해요.' },
         { no: '02', field: '판매 일정', reason: '11월 3일 (화) 21:00 판매 슬롯이 모두 찼어요. 다른 날짜나 시간을 골라 주세요.' },
       ];
+      const rejectionReasons = !USE_MOCK && p.rejectionReason ? [{ no: '01', field: '심사 의견', reason: p.rejectionReason }] : mockReasons;
       return <div className="space-y-5">
         <div className="flex items-center justify-between pt-1">
           <h1 className="text-[18px] font-bold">심사 요청 결과</h1>
@@ -78,7 +93,7 @@ export function SellerProductPage() {
           </div>
         </div>
         <div className="space-y-1">
-          <h2 className="text-[22px] font-bold">2개 항목을</h2>
+          <h2 className="text-[22px] font-bold">{rejectionReasons.length}개 항목을</h2>
           <h2 className="text-[22px] font-bold">확인해 주세요</h2>
           <p className="mt-2 text-[13px] text-[#7B7B7B]">입력한 내용은 그대로 저장돼 있어요.</p>
           <p className="text-[13px] text-[#7B7B7B]">아래 항목만 고치면 바로 다시 요청할 수 있어요.</p>
@@ -252,27 +267,52 @@ export function SellerProductPage() {
     <ProductSummary product={{ ...p, image: p.images[0] }} amount={p.price}/>
     <div className="rounded-[4px] bg-[var(--canvas)] p-5"><p className="text-[11px] opacity-70">판매 시작까지</p><p className="font-number my-2 text-[32px] font-bold">{hh2}:{mm2}:{ss2}</p><p className="text-[10px] opacity-70">{dateTime(p.startsAt)} · 자동 시작</p></div>
     <div className="space-y-2"><InfoRow label="판매 시작" value={dateTime(p.startsAt)}/><InfoRow label="판매 종료" value={dateTime(p.endsAt)}/><InfoRow label="최초 판매 수량" value={`${fee.initial}개`}/><InfoRow label="판매가격" value={money(p.price)}/></div>
+    {rev && rev.status !== 'APPROVED' && <Note title={rev.status === 'IN_REVIEW' ? '수정 내용 심사 중' : '수정 심사 반려'}>{rev.status === 'IN_REVIEW' ? '승인되면 구매자 화면에 반영돼요.' : rev.reason ?? ''}</Note>}
     {now < p.startsAt ? <Link className="btn btn-outline w-full" to={`/seller/new?edit=${p.id}`}>상품 정보 수정</Link> : <Note title="핵심 정보는 변경할 수 없어요">판매 시작 후 가격·옵션·최초 수량·종료 시각은 변경할 수 없습니다.</Note>}
     <Link className="btn w-full" to={`/seller/orders?product=${p.id}`}>주문 관리</Link>
   </div>;
 }
 
 export function SellerInquiriesPage() {
-  const s = useStore(), user = activeUser(s); const [tab, setTab] = useState<'order' | 'product'>('order'); const [onlyUnanswered, setOnlyUnanswered] = useState(false); if (!user.seller) return <Unavailable/>; const all = s.inquiries.filter(q => q.sellerId === user.id); const byTab = all.filter(q => tab === 'order' ? !!q.orderId : !q.orderId); const items = onlyUnanswered ? byTab.filter(q => !q.answer) : byTab;
-  return <div className="space-y-0"><Header title="문의함" subtitle="고객의 상품·주문 문의에 답변해 주세요."/><div className="divider flex gap-5">{([['order', `주문 문의 ${all.filter(q => !!q.orderId).length}`], ['product', `상품 문의 ${all.filter(q => !q.orderId).length}`]] as [string, string][]).map(([t, label]) => <button key={t} onClick={() => setTab(t as 'order' | 'product')} className={`border-b-2 py-3 text-[11px] ${tab === t ? 'border-[var(--ink)] font-bold' : 'muted border-transparent'}`}>{label}</button>)}</div><div className="flex items-center gap-3 py-3 text-[11px]"><label className="flex items-center gap-2"><input type="checkbox" checked={onlyUnanswered} onChange={e => setOnlyUnanswered(e.target.checked)}/>미답변만 보기</label>{onlyUnanswered && <span className="ml-auto font-bold text-[var(--red)]">미답변 {byTab.filter(q => !q.answer).length}건</span>}</div>{items.map(q => <Link key={q.id} to={`/seller/inquiries/${q.id}`} className="divider block space-y-2 py-4"><div className="flex items-center justify-between"><Badge live={!q.answer}>{q.answer ? '답변 완료' : '답변 대기'}</Badge><span className="muted text-[10px]">{dateTime(q.createdAt)}</span></div><p className="text-[13px] font-bold">{q.productName}</p><p className="muted text-[10px]">{q.kind}{q.orderId ? ` · ${q.orderId}` : ''}</p><p className="line-clamp-2 text-[12px] leading-relaxed">{q.question}</p></Link>)}{!items.length && <Empty title="해당 조건의 문의가 없어요"/>}</div>;
+  const s = useStore(), user = activeUser(s); const [tab, setTab] = useState<'order' | 'product'>('order'); const [onlyUnanswered, setOnlyUnanswered] = useState(false);
+  // 실제 모드: 주문 문의함·상품 문의함(+상품명 채우기용 상품 목록)을 서버에서 받는다
+  const live = useLive(async signal => (user.seller ? await Promise.all([listSellerProducts(user.id, {}, signal), listSellerOrderInquiryInbox(user.id, {}, signal), listSellerProductInquiries(user.id, {}, signal)]) : null), (st, r) => { if (!r) return; mergeProducts(st, r[0]); mergeInquiries(st, [...r[1], ...r[2]]); }, [user.id]);
+  if (!user.seller) return <Unavailable/>; const all = s.inquiries.filter(q => q.sellerId === user.id); const byTab = all.filter(q => tab === 'order' ? !!q.orderId : !q.orderId); const items = onlyUnanswered ? byTab.filter(q => !q.answer) : byTab;
+  return <div className="space-y-0"><Header title="문의함" subtitle="고객의 상품·주문 문의에 답변해 주세요."/><LiveStatus state={live}/><div className="divider flex gap-5">{([['order', `주문 문의 ${all.filter(q => !!q.orderId).length}`], ['product', `상품 문의 ${all.filter(q => !q.orderId).length}`]] as [string, string][]).map(([t, label]) => <button key={t} onClick={() => setTab(t as 'order' | 'product')} className={`border-b-2 py-3 text-[11px] ${tab === t ? 'border-[var(--ink)] font-bold' : 'muted border-transparent'}`}>{label}</button>)}</div><div className="flex items-center gap-3 py-3 text-[11px]"><label className="flex items-center gap-2"><input type="checkbox" checked={onlyUnanswered} onChange={e => setOnlyUnanswered(e.target.checked)}/>미답변만 보기</label>{onlyUnanswered && <span className="ml-auto font-bold text-[var(--red)]">미답변 {byTab.filter(q => !q.answer).length}건</span>}</div>{items.map(q => <Link key={q.id} to={`/seller/inquiries/${q.id}`} className="divider block space-y-2 py-4"><div className="flex items-center justify-between"><Badge live={!q.answer}>{q.answer ? '답변 완료' : '답변 대기'}</Badge><span className="muted text-[10px]">{dateTime(q.createdAt)}</span></div><p className="text-[13px] font-bold">{q.productName}</p><p className="muted text-[10px]">{q.kind}{q.orderId ? ` · ${q.orderId}` : ''}</p><p className="line-clamp-2 text-[12px] leading-relaxed">{q.question}</p></Link>)}{!items.length && !live.loading && <Empty title="해당 조건의 문의가 없어요"/>}</div>;
 }
 export function SellerInquiryDetailPage() {
   const { id } = useParams(); const s = useStore(), user = activeUser(s), toast = useToast(); const q = s.inquiries.find(i => i.id === id && i.sellerId === user.id); const [answer, setAnswer] = useState(q?.answer ?? ''), [publicAnswer, setPublic] = useState(q?.public ?? false), [error, setError] = useState('');
-  if (!user.seller || !q) return <Unavailable message="문의를 찾을 수 없습니다."/>;
+  // 실제 모드: 주문 문의는 메시지 전체를 상세에서, 스토어에 없으면 문의함을 받아 찾는다
+  const live = useLive(async signal => {
+    if (!user.seller || !id) return null;
+    if (q?.orderId) return [await getSellerOrderInquiry(q.orderId, id, user.id, signal)];
+    if (q) return null;
+    return [...await listSellerOrderInquiryInbox(user.id, {}, signal), ...await listSellerProductInquiries(user.id, {}, signal)];
+  }, (st, list) => { if (list) mergeInquiries(st, list); }, [id]);
+  useEffect(() => { if (q && !q.orderId) { setAnswer(q.answer ?? ''); setPublic(q.public); } }, [q?.id]);
+  if (!user.seller) return <Unavailable message="문의를 찾을 수 없습니다."/>;
+  if (!q) return live.loading || live.error ? <LiveStatus state={live}/> : <Unavailable message="문의를 찾을 수 없습니다."/>;
   const buyer = s.users.find(u => u.id === q.userId); const buyerMasked = buyer?.name.replace(/^(.)(.)(.)$/, '$1*$3') ?? buyer?.name.replace(/^(.).+(.)$/, (_, a, z) => `${a}*${z}`) ?? '구매자';
-  return <div className="space-y-4"><Header title="문의 상세"/>{q.orderId && <div className="rounded-[4px] bg-[var(--blue-soft)] p-3.5 space-y-1"><p className="text-[13px] font-bold">{q.productName}</p><p className="muted text-[11px]">주문번호 {q.orderId} · 구매자 {buyerMasked}</p></div>}<div className="divider space-y-3 pb-5"><div className="flex items-center justify-between"><Badge live={!q.answer}>{q.answer ? '답변 완료' : '답변 대기'}</Badge><span className="muted text-[10px]">{dateTime(q.createdAt)}</span></div><p className="text-[12px] font-bold">{q.kind}</p><p className="whitespace-pre-line text-[13px] leading-relaxed">{q.question}</p></div><Note>영업일 기준 1일 안에 답변해 주세요. 2영업일 안에 답변이 없으면 StockDrop이 직접 확인하고 구매자에게 연락해요.</Note><form className="space-y-3" onSubmit={e => { e.preventDefault(); setError(''); try { if (!answer.trim()) throw new Error('답변을 입력해 주세요.'); mutate(state => { const item = state.inquiries.find(i => i.id === id && i.sellerId === user.id); if (!item || !activeUser(state).seller) throw new Error('이 문의에 답변할 권한이 없습니다.'); item.answer = answer.trim(); item.public = !item.orderId && publicAnswer; if (item.public) { const p = state.products.find(p => p.id === item.productId); if (p) { const old = p.faqs.find(f => f.question === item.question); if (old) { old.answer = item.answer; old.confirmed = true; } else p.faqs.push({ id: uid('faq-'), question: item.question, answer: item.answer, confirmed: true }); } } }); toast('답변을 저장했습니다.'); } catch (e) { setError((e as Error).message); } }}><textarea aria-label="답변 입력" value={answer} onChange={e => setAnswer(e.target.value)} className="field field-box" placeholder="답변을 작성해 주세요." maxLength={1500}/>{!q.orderId && <label className="flex items-center gap-2 text-[11px]"><input type="checkbox" checked={publicAnswer} onChange={e => setPublic(e.target.checked)}/>공개 가능한 답변을 상품 FAQ에 반영</label>}<ErrorBox message={error}/><Button type="submit" className="w-full">답변 등록</Button></form><Link className="btn btn-outline w-full" to="/seller/inquiries">문의 목록으로</Link></div>;
+  return <div className="space-y-4"><Header title="문의 상세"/>{q.orderId && <div className="rounded-[4px] bg-[var(--blue-soft)] p-3.5 space-y-1"><p className="text-[13px] font-bold">{q.productName}</p><p className="muted text-[11px]">주문번호 {q.orderId} · 구매자 {buyerMasked}</p></div>}<div className="divider space-y-3 pb-5"><div className="flex items-center justify-between"><Badge live={!q.answer}>{q.answer ? '답변 완료' : '답변 대기'}</Badge><span className="muted text-[10px]">{dateTime(q.createdAt)}</span></div><p className="text-[12px] font-bold">{q.kind}</p>{q.messages?.length ? q.messages.map((m, i) => <p key={i} className={`whitespace-pre-line text-[13px] leading-relaxed ${m.seller ? 'rounded-[4px] bg-[var(--canvas)] p-3' : ''}`}>{m.seller ? '[판매자] ' : ''}{m.body}</p>) : <p className="whitespace-pre-line text-[13px] leading-relaxed">{q.question}</p>}</div><Note>영업일 기준 1일 안에 답변해 주세요. 2영업일 안에 답변이 없으면 StockDrop이 직접 확인하고 구매자에게 연락해요.</Note><form className="space-y-3" onSubmit={async e => { e.preventDefault(); setError(''); try { if (!answer.trim()) throw new Error('답변을 입력해 주세요.');
+    if (!USE_MOCK) { // 주문 문의=답변 메시지 추가, 상품 문의=답변 작성·수정(문의 version, FAQ 반영 선택)
+      const upd = q.orderId ? await answerOrderInquiry(q.orderId, q.id, answer.trim(), user.id) : await answerProductInquiry(user.id, q.productId, q.id, { expectedVersion: q.version ?? 0, answer: answer.trim(), publishToFaq: publicAnswer });
+      mutate(st => mergeInquiries(st, [upd])); if (q.orderId) setAnswer(''); toast('답변을 저장했습니다.'); return;
+    }
+    mutate(state => { const item = state.inquiries.find(i => i.id === id && i.sellerId === user.id); if (!item || !activeUser(state).seller) throw new Error('이 문의에 답변할 권한이 없습니다.'); item.answer = answer.trim(); item.public = !item.orderId && publicAnswer; if (item.public) { const p = state.products.find(p => p.id === item.productId); if (p) { const old = p.faqs.find(f => f.question === item.question); if (old) { old.answer = item.answer; old.confirmed = true; } else p.faqs.push({ id: uid('faq-'), question: item.question, answer: item.answer, confirmed: true }); } } }); toast('답변을 저장했습니다.'); } catch (e) { setError(errorMessage(e)); } }}><textarea aria-label="답변 입력" value={answer} onChange={e => setAnswer(e.target.value)} className="field field-box" placeholder="답변을 작성해 주세요." maxLength={1500}/>{!q.orderId && <label className="flex items-center gap-2 text-[11px]"><input type="checkbox" checked={publicAnswer} onChange={e => setPublic(e.target.checked)}/>공개 가능한 답변을 상품 FAQ에 반영</label>}<ErrorBox message={error}/><Button type="submit" className="w-full">답변 등록</Button></form><Link className="btn btn-outline w-full" to="/seller/inquiries">문의 목록으로</Link></div>;
 }
 
 export function SellerOrdersPage() {
-  const s = useStore(), user = activeUser(s); const [params] = useSearchParams(); const [tab, setTab] = useState('전체'); if (!user.seller) return <Unavailable/>; const allOrders = s.orders.filter(o => o.sellerId === user.id && (!params.get('product') || params.get('product') === o.productId)); const orders = allOrders.filter(o => tab === '전체' || (tab === '결제 완료' && o.status === 'paid') || (tab === '배송 준비' && o.status === 'preparing') || (tab === '배송 중' && o.status === 'shipping') || (tab === '배송 완료' && o.status === 'delivered'));
-  const counts: Record<string, number> = { '전체': allOrders.length, '결제 완료': allOrders.filter(o => o.status === 'paid').length, '배송 준비': allOrders.filter(o => o.status === 'preparing').length, '배송 중': allOrders.filter(o => o.status === 'shipping').length, '배송 완료': allOrders.filter(o => o.status === 'delivered').length };
+  const s = useStore(), user = activeUser(s); const [params] = useSearchParams(); const [tab, setTab] = useState('전체');
+  // 실제 모드: 본인 주문 목록과 상태별 집계를 서버에서 받는다(mock은 store 목업 그대로)
+  const productId = params.get('product') ?? undefined;
+  const live = useLive(async signal => (user.seller ? listSellerOrders(user.id, { productId }, signal) : null), (st, list) => { if (list) mergeOrders(st, list); }, [user.id, productId]);
+  const sum = useApi(async signal => (USE_MOCK || !user.seller ? null : getSellerOrderSummary({ productId }, signal)), [productId]);
+  if (!user.seller) return <Unavailable/>; const allOrders = s.orders.filter(o => o.sellerId === user.id && (!params.get('product') || params.get('product') === o.productId)); const orders = allOrders.filter(o => tab === '전체' || (tab === '결제 완료' && o.status === 'paid') || (tab === '배송 준비' && o.status === 'preparing') || (tab === '배송 중' && o.status === 'shipping') || (tab === '배송 완료' && o.status === 'delivered'));
+  const sd = sum.data; // 추측(명세 없음): 결제 완료 = 확정 주문 − (배송 준비+배송 중+배송 완료)
+  const counts: Record<string, number> = sd ? { '전체': sd.confirmedOrders, '결제 완료': Math.max(0, sd.confirmedOrders - sd.preparingOrders - sd.shippingOrders - sd.deliveredOrders), '배송 준비': sd.preparingOrders, '배송 중': sd.shippingOrders, '배송 완료': sd.deliveredOrders } : { '전체': allOrders.length, '결제 완료': allOrders.filter(o => o.status === 'paid').length, '배송 준비': allOrders.filter(o => o.status === 'preparing').length, '배송 중': allOrders.filter(o => o.status === 'shipping').length, '배송 완료': allOrders.filter(o => o.status === 'delivered').length };
   return <div className="space-y-0">
     <Header title="주문 관리"/>
+    <LiveStatus state={live}/>
     <div className="mb-2 flex flex-wrap gap-2 py-2">{Object.entries(counts).map(([label, count]) => <button key={label} onClick={() => setTab(label)} className={`rounded-full px-3 py-1 text-[13px] font-bold ${tab === label ? 'bg-[var(--ink)] text-[var(--surface)]' : 'muted border border-[var(--line)] bg-[var(--surface)]'}`}>{label} {count}</button>)}</div>
     {orders.map(o => {
       const statusLabel = ORDER_LABELS[o.status]; const needsAction = o.status === 'paid'; const time = dateTime(o.createdAt);
@@ -293,12 +333,15 @@ export function SellerOrdersPage() {
         </div>
       </Link>;
     })}
-    {!orders.length && <Empty title="해당 상태의 주문이 없어요"/>}
+    {!orders.length && !live.loading && <Empty title="해당 상태의 주문이 없어요"/>}
   </div>;
 }
 export function SellerOrderPage() {
   const { id } = useParams(); const s = useStore(), user = activeUser(s), toast = useToast(), now = useClock(); const order = s.orders.find(o => o.id === id && o.sellerId === user.id); const [showTracking, setShowTracking] = useState(false), [confirm, setConfirm] = useState(false), [error, setError] = useState(''), [busy, setBusy] = useState(false);
-  if (!user.seller || !order) return <Unavailable message="판매자 주문을 찾을 수 없습니다."/>;
+  // 실제 모드: 주문 상세(배송지·송장)와 이 주문의 문의를 서버에서 받는다
+  const live = useLive(async signal => (id && user.seller ? { o: await getSellerOrder(id, user.id, signal), qs: await listSellerOrderInquiries(id, user.id, signal) } : null), (st, r) => { if (r) { mergeOrders(st, [r.o]); mergeInquiries(st, r.qs); } }, [id]);
+  if (!user.seller) return <Unavailable message="판매자 주문을 찾을 수 없습니다."/>;
+  if (!order) return live.loading || live.error ? <LiveStatus state={live}/> : <Unavailable message="판매자 주문을 찾을 수 없습니다."/>;
   const o = order; const paidAt = new Date(o.createdAt); const dueDate = new Date(paidAt); dueDate.setDate(dueDate.getDate() + 2); const dueDateStr = `${dueDate.getMonth()+1}.${String(dueDate.getDate()).padStart(2,'0')} (${['일','월','화','수','목','금','토'][dueDate.getDay()]})`;
   const needsTracking = ['paid', 'preparing'].includes(o.status); const orderInquiries = s.inquiries.filter(q => q.orderId === o.id && q.sellerId === user.id);
   return <div className="space-y-5">
@@ -335,7 +378,12 @@ function TrackingModal({ order, onClose, onSaved }: { order: Order; onClose: () 
     {error && <p className="text-[12px] text-[#EF6253]">{error} 입력한 내용은 그대로 유지돼요.</p>}
     <Note>'-' 없이 숫자만 입력해 주세요. 등록하면 구매자에게 배송 시작 알림이 발송돼요.</Note>
     <ErrorBox message=""/>
-    <div className="flex gap-2"><Button outline className="flex-1" disabled={busy} onClick={onClose}>취소</Button><Button className="flex-1" disabled={busy || !tracking.trim()} onClick={async () => { setError(''); setBusy(true); try { if (!/^\d[\d-]{7,}$/.test(tracking.trim())) throw new Error('운송장 번호를 확인해 주세요.'); await atomic(state => { const item = state.orders.find(item => item.id === order.id && item.sellerId === state.activeUserId); if (!item || !['paid','preparing'].includes(item.status)) throw new Error('출고 가능한 주문이 아닙니다.'); item.carrier = carrier; item.tracking = tracking.trim(); item.shippedAt = nowOf(state); item.status = 'shipping'; }); onSaved(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }}>등록하기</Button></div>
+    <div className="flex gap-2"><Button outline className="flex-1" disabled={busy} onClick={onClose}>취소</Button><Button className="flex-1" disabled={busy || !tracking.trim()} onClick={async () => { setError(''); setBusy(true); try {
+    if (!USE_MOCK) { // 출고용 원본(fulfillment) version으로 송장 등록. 송장은 영문·숫자·하이픈 1~100자
+      if (!/^[A-Za-z0-9-]{1,100}$/.test(tracking.trim())) throw new Error('운송장 번호를 확인해 주세요.');
+      const updated = await shipOrder(order.id, order.sellerId, carrier, tracking.trim()); mutate(st => mergeOrders(st, [updated])); onSaved(); return;
+    }
+    if (!/^\d[\d-]{7,}$/.test(tracking.trim())) throw new Error('운송장 번호를 확인해 주세요.'); await atomic(state => { const item = state.orders.find(item => item.id === order.id && item.sellerId === state.activeUserId); if (!item || !['paid','preparing'].includes(item.status)) throw new Error('출고 가능한 주문이 아닙니다.'); item.carrier = carrier; item.tracking = tracking.trim(); item.shippedAt = nowOf(state); item.status = 'shipping'; }); onSaved(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }}>등록하기</Button></div>
   </div></Modal>;
 }
 function DeliveredModal({ order, now, onClose }: { order: Order; now: number; onClose: () => void }) {
@@ -350,7 +398,10 @@ function DeliveredModal({ order, now, onClose }: { order: Order; now: number; on
     </div>
     <p className="text-[11px] text-[#949494] leading-relaxed">판매자의 수동 배송완료 처리는 구매확정이나 정산 송금을 의미하지 않습니다.</p>
     <ErrorBox message={error}/>
-    <div className="flex gap-2"><Button outline className="flex-1" disabled={busy} onClick={onClose}>취소</Button><Button className="flex-1" disabled={busy} onClick={async () => { setBusy(true); setError(''); try { await atomic(s => markDelivered(s, s.activeUserId, order.id, nowOf(s), '문 앞', '', true, nowOf(s))); toast('배송완료로 처리했습니다.'); onClose(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }}>배송완료 처리</Button></div>
+    <div className="flex gap-2"><Button outline className="flex-1" disabled={busy} onClick={onClose}>취소</Button><Button className="flex-1" disabled={busy} onClick={async () => { setBusy(true); setError(''); try {
+    // TODO(api-gap): 배송완료 일시·수령 장소·메모는 API에 보낼 곳이 없다(delivery-completion은 expectedVersion만). 실제 모드는 처리 사실만 보낸다
+    if (!USE_MOCK) { const updated = await deliverOrder(order.id, order.sellerId); mutate(st => mergeOrders(st, [updated])); toast('배송완료로 처리했습니다.'); onClose(); return; }
+    await atomic(s => markDelivered(s, s.activeUserId, order.id, nowOf(s), '문 앞', '', true, nowOf(s))); toast('배송완료로 처리했습니다.'); onClose(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }}>배송완료 처리</Button></div>
   </div></div>;
 }
 

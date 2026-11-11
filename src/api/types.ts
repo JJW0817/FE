@@ -91,6 +91,11 @@ export interface SellerProductDto {
 }
 export interface ProductReviewListItemDto { id: string; name: string; status: ProductStatus; version: number; startsAt: Iso | null; endsAt: Iso | null; createdAt: Iso; updatedAt: Iso; submittedAt: Iso | null }
 export interface ProductRevisionDto { id: string; productId: string; version: number; status: 'IN_REVIEW' | 'APPROVED' | 'REJECTED'; changes: Record<string, unknown>; shipping: { accountId: string; dispatchAddress: SellerAddressDto; returnAddress: SellerAddressDto }; submittedAt: Iso; reviewedAt: Iso | null; reason: string | null }
+export interface ProductImageUploadDto { imageId: string; uploadUrl: string; contentType: string; sizeBytes: number; expiresAt: Iso }
+export interface SellerProductInquiryDto { id: string; productId: string; buyerId: string; version: number; question: string; answer: string | null; createdAt: Iso; answeredAt: Iso | null }
+export interface RegistrationMetadataDto { categories: string[]; categoryCriteria: { code: string; name: string; checks: { code: string; question: string }[] }[] }
+export interface ProductSalesSummaryDto { productCount: number; scheduledCount: number; onSaleCount: number; endedCount: number; initialQuantity: number; reservedQuantity: number; confirmedQuantity: number; availableQuantity: number }
+export interface SellerOrderSummaryDto { totalOrders: number; confirmedOrders: number; preparingOrders: number; shippingOrders: number; deliveredOrders: number; confirmedQuantity: number; approximate: boolean }
 export interface ProductImageMetaDto { id: string; objectKey: string; contentType: string; sizeBytes: number; position: number; representative: boolean }
 
 /* ── AI ── */

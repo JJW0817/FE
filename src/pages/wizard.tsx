@@ -6,8 +6,10 @@ import { activeUser, blankDraft, CATEGORY_PATHS, listingDimensions, listingOptio
 import type { Draft, Product } from '../domain';
 import { atomic, getState, mutate, useStore } from '../store';
 import { imageData } from '../files';
-import { Button, Empty, ErrorBox, Header, Modal, Note, ProductImage, Unavailable } from '../components/ui';
+import { Button, Empty, ErrorBox, Header, LiveStatus, Modal, Note, ProductImage, Unavailable, useToast } from '../components/ui';
 import { useClock } from '../hooks';
+import { USE_MOCK } from '../config';
+import { analyzeDraft, createProductDraft, deleteProductImage, errorMessage, getRegistrationMetadata, getSellerProductWithImages, mergeProducts, reorderProductImages, submitListing, submitRevisionFromDraft, uploadProductImage, useApi, useLive } from '../api';
 
 /* ── 초안 ─────────────────────────────────────────────────────────────────────── */
 const SWATCH: Record<string, string> = { 차콜: '#3F3F3F', 오트밀: '#E6DCC6', 크림: '#F3EBDC', 네이비: '#2B3A55', 블랙: '#222222', 화이트: '#FFFFFF', 내추럴: '#E8DCC8', 그레이: '#9A9A9A', 베이지: '#E3D3B8' };
@@ -20,7 +22,7 @@ function fromProduct(p: Product): Draft {
   const colors = split(color?.values), sizes = size ? split(size.values) : !color && !basic ? p.options.map(o => o.name) : [];
   const stock: Record<string, number> = {};
   for (const o of p.options) { const parts = o.name.split(' / '); const c = axes.color ? parts[0] : '', s = axes.color && axes.size ? parts[1] : axes.size ? o.name : ''; stock[optionKey(basic ? '' : c, basic ? '' : s)] = o.stock; }
-  return { ...blankDraft(), editingId: p.id, name: p.name, brand: p.brand, description: p.description, images: [...p.images], category: p.category, originalUrl: p.originalUrl, extras: structuredClone(p.extras), reason: p.reason, dimensions: structuredClone(p.dimensions), noOptions: basic, options: structuredClone(p.options), price: p.price, shipping: p.shipping, dispatchDays: p.dispatchDays, maxPerAccount: p.maxPerAccount, startsAt: localDateTime(p.startsAt), faqs: structuredClone(p.faqs), axes, colors, sizes, stock, reference: p.reference ?? lookupReference(p.originalUrl) };
+  return { ...blankDraft(), editingId: p.id, name: p.name, brand: p.brand, description: p.description, images: [...p.images], imageIds: p.imageIds && [...p.imageIds], category: p.category, originalUrl: p.originalUrl, extras: structuredClone(p.extras), reason: p.reason, dimensions: structuredClone(p.dimensions), noOptions: basic, options: structuredClone(p.options), price: p.price, shipping: p.shipping, dispatchDays: p.dispatchDays, maxPerAccount: p.maxPerAccount, startsAt: p.startsAt ? localDateTime(p.startsAt) : blankDraft().startsAt, faqs: structuredClone(p.faqs), axes, colors, sizes, stock, reference: p.reference ?? lookupReference(p.originalUrl) };
 }
 function freshDraft(now: number): Draft { const start = new Date(now + 3_600_000); start.setMinutes(0, 0, 0); return { ...blankDraft(now), startsAt: localDateTime(start.getTime()), axes: { size: true, color: true }, colors: [], sizes: [], stock: {} }; }
 /** 초안 변경 — options·dimensions를 항상 축·수량에서 다시 계산 */
@@ -32,11 +34,32 @@ function patchDraft(userId: string, value: Partial<Draft>) {
     state.drafts[userId] = d;
   });
 }
-/** 화면을 떠나도 계속되는 AI 분석(목업) */
+/** 수정 가능한 상품: 실제 API는 초안·반려는 항상, 승인 상품은 판매 시작 전(수정 심사). 심사 중은 불가. mock은 판매 시작 전 */
+const canEdit = (p: Product, now: number) => (p.reviewStatus ? p.reviewStatus === 'DRAFT' || p.reviewStatus === 'REJECTED' || (p.reviewStatus === 'APPROVED' && now < p.startsAt) : now < p.startsAt);
+/** 실제 모드: 서버 초안 상품이 없으면 만든다(사진 업로드·AI 분석 전에 상품 id가 필요) */
+async function ensureServerDraft(userId: string): Promise<string> {
+  const d = getState().drafts[userId], id = d?.editingId ?? d?.serverId;
+  if (id) return id;
+  const p = await createProductDraft(); patchDraft(userId, { serverId: p.id }); return p.id;
+}
+/** 실제 모드 AI 분석: 서버에 기본 정보 저장 → 분석 요청 → 폴링. 결과가 오면(화면을 떠났어도) 초안에 반영 */
+async function analyzeReal(userId: string, token: string) {
+  const done = (ai: Draft['ai']) => { const d = getState().drafts[userId]; if (d && d.ai.status === 'analyzing' && d.ai.signature === token) patchDraft(userId, { ai }); };
+  const failed: Draft['ai'] = { status: 'failed', signature: token, category: '', reason: '' };
+  try {
+    const id = await ensureServerDraft(userId), d = getState().drafts[userId];
+    if (!d.images.length) return done(failed);
+    const r = await analyzeDraft(d, id);
+    // TODO(api-gap): 일치도(confidence)·사진에서 찾은 정보(found)·대안 카테고리(alternatives)는 API에 없어 목업 표시 유지. AI 점검 질문(questions)→FAQ(suggestionId) 흐름은 FAQ 입력 화면이 없어 보류
+    done(r.outcome === 'RECOMMENDED' && r.category ? { status: 'recommended', signature: token, category: '', reason: '', result: { ...mockAiAnalysis(d), category: r.category, path: r.category, alternatives: [] } } : failed);
+  } catch { done(failed); }
+}
+/** 화면을 떠나도 계속되는 AI 분석(mock은 목업) */
 const ANALYSIS_MS = 2500;
 function startAnalysis(userId: string) {
   const token = Date.now().toString(36);
   patchDraft(userId, { ai: { status: 'analyzing', signature: token, category: '', reason: '' } });
+  if (!USE_MOCK) { void analyzeReal(userId, token); return; }
   setTimeout(() => {
     const state = getState(), d = state.drafts[userId];
     if (!d || d.ai.status !== 'analyzing' || d.ai.signature !== token) return;
@@ -50,7 +73,7 @@ function useDraft() {
     if (!user.seller) return;
     mutate(state => {
       const existing = state.drafts[user.id];
-      if (editId) { if (existing?.editingId !== editId) { const p = state.products.find(p => p.id === editId && p.sellerId === user.id); if (p && nowOf(state) < p.startsAt) state.drafts[user.id] = fromProduct(p); } }
+      if (editId) { if (USE_MOCK && existing?.editingId !== editId) { const p = state.products.find(p => p.id === editId && p.sellerId === user.id); if (p && nowOf(state) < p.startsAt) state.drafts[user.id] = fromProduct(p); } }
       else if (!existing || existing.editingId) state.drafts[user.id] = freshDraft(nowOf(state));
       else if (!existing.axes) state.drafts[user.id] = { ...existing, axes: { size: true, color: true }, colors: [], sizes: [], stock: {} };
     });
@@ -77,13 +100,20 @@ const TIME_SLOTS = Array.from({ length: 48 }, (_, i) => hhmm(Math.floor(i / 2), 
 
 /* ── 판매 상품 등록 / 판매 정보 수정 ─────────────────────────────────────────────── */
 export function WizardPage() {
-  const { s, user, editId, d, suffix, patch } = useDraft(); const now = useClock(); const navigate = useNavigate(); const [params, setParams] = useSearchParams();
+  const { s, user, editId, d, suffix, patch } = useDraft(); const now = useClock(); const navigate = useNavigate(); const [params, setParams] = useSearchParams(); const toast = useToast();
+  // 실제 모드: 수정할 상품의 편집 원본·이미지를 서버에서 받아 초안으로 만든다(mock은 store 상품으로 useDraft가 만든다)
+  const live = useLive(async signal => (editId ? getSellerProductWithImages(editId, signal) : null), (st, p) => {
+    if (!p) return;
+    mergeProducts(st, [p]);
+    const m = st.products.find(x => x.id === p.id)!;
+    if (canEdit(m, nowOf(st))) st.drafts[user.id] = fromProduct(m);
+  }, [editId]);
   const [error, setError] = useState(''), [uploading, setUploading] = useState(false), [busy, setBusy] = useState(false), [photo, setPhoto] = useState<number | null>(null), [activeColor, setActiveColor] = useState(0);
   const picking = params.get('pick') === 'category';
   if (!user.seller) return <Unavailable message="승인된 판매자만 상품을 등록할 수 있습니다."/>;
   const editing = editId ? s.products.find(p => p.id === editId && p.sellerId === user.id) : undefined;
-  if (editId && (!editing || editing.startsAt <= now)) return <Empty title="판매 시작 후에는 정보를 수정할 수 없어요"><Link to="/seller/products" className="btn">상품 관리로</Link></Empty>;
-  if (!d || !d.axes || (editId && d.editingId !== editId)) return null;
+  if (editId && (!editing || !canEdit(editing, now))) return live.loading || live.error ? <LiveStatus state={live}/> : <Empty title="판매 시작 후에는 정보를 수정할 수 없어요"><Link to="/seller/products" className="btn">상품 관리로</Link></Empty>;
+  if (!d || !d.axes || (editId && d.editingId !== editId)) return <LiveStatus state={live}/>;
   const axes = d.axes, colors = d.colors ?? [], sizes = d.sizes ?? [], stock = d.stock ?? {};
   const setStock = (key: string, n: number) => patch({ stock: { ...stock, [key]: n } });
   const color = colors[Math.min(activeColor, colors.length - 1)] ?? '';
@@ -99,8 +129,29 @@ export function WizardPage() {
 
   async function upload(files: FileList | null) {
     if (!files?.length) return; setUploading(true); setError('');
-    try { if (d.images.length + files.length > 10) throw new Error('상품 사진은 최대 10장까지 등록할 수 있습니다.'); const added = await Promise.all([...files].map(imageData)); patch({ images: [...d.images, ...added] }); if (!d.category) startAnalysis(user.id); }
-    catch (e) { setError((e as Error).message); } finally { setUploading(false); }
+    try {
+      if (d.images.length + files.length > 10) throw new Error('상품 사진은 최대 10장까지 등록할 수 있습니다.');
+      if (USE_MOCK) { const added = await Promise.all([...files].map(imageData)); patch({ images: [...d.images, ...added] }); }
+      else { // 실제 모드: 초안 상품을 만들고 사진을 한 장씩 올린다(권한 발급 → S3 PUT → 완료 확인)
+        const id = await ensureServerDraft(user.id), images = [...d.images], ids = [...(d.imageIds ?? [])];
+        for (const f of files) { const u = await uploadProductImage(id, f); images.push(u.url); ids.push(u.id); patch({ images: [...images], imageIds: [...ids] }); }
+      }
+      if (!d.category) startAnalysis(user.id);
+    }
+    catch (e) { setError(errorMessage(e)); } finally { setUploading(false); }
+  }
+  const serverId = d.editingId ?? d.serverId;
+  /** 사진 삭제·대표 지정: 실제 모드는 서버에도 반영 */
+  async function removePhoto(i: number) {
+    try { if (!USE_MOCK && serverId && d.imageIds?.[i]) await deleteProductImage(serverId, d.imageIds[i]); patch({ images: d.images.filter((_, j) => j !== i), ...(d.imageIds ? { imageIds: d.imageIds.filter((_, j) => j !== i) } : {}) }); }
+    catch (e) { setError(errorMessage(e)); }
+    setPhoto(null);
+  }
+  async function coverPhoto(i: number) {
+    const ids = d.imageIds && [d.imageIds[i], ...d.imageIds.filter((_, j) => j !== i)];
+    try { if (!USE_MOCK && serverId && ids) await reorderProductImages(serverId, ids, ids[0]); patch({ images: [d.images[i], ...d.images.filter((_, j) => j !== i)], ...(ids ? { imageIds: ids } : {}) }); }
+    catch (e) { setError(errorMessage(e)); }
+    setPhoto(null);
   }
   function openCategory() {
     if (d.ai.status === 'analyzing') navigate(`/seller/new/ai/analyzing${suffix}`);
@@ -112,8 +163,16 @@ export function WizardPage() {
   const closePicker = () => { const next = new URLSearchParams(params); next.delete('pick'); setParams(next, { replace: true }); };
   async function submit() {
     setBusy(true); setError('');
-    try { const product = await atomic(state => publishDraft(state, state.activeUserId, state.drafts[state.activeUserId], nowOf(state))); navigate(`/seller/published/${product.id}`, { replace: true }); }
-    catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+    try {
+      if (USE_MOCK) { const product = await atomic(state => publishDraft(state, state.activeUserId, state.drafts[state.activeUserId], nowOf(state))); navigate(`/seller/published/${product.id}`, { replace: true }); return; }
+      // 실제 모드: 단계별 저장(버전 이어받기) 후 심사 제출. 승인 상품은 수정 심사 제출
+      if (!d.images.length || !d.name.trim()) throw new Error('상품 사진과 상품명을 입력해 주세요.');
+      const id = await ensureServerDraft(user.id);
+      if (editing?.reviewStatus === 'APPROVED') { await submitRevisionFromDraft(d, id); mutate(st => { delete st.drafts[user.id]; }); toast('수정 내용을 심사 요청했어요.'); navigate('/seller/products', { replace: true }); return; }
+      const product = await submitListing(d, id);
+      mutate(st => { mergeProducts(st, [product]); delete st.drafts[user.id]; }); navigate(`/seller/published/${product.id}`, { replace: true });
+    }
+    catch (e) { setError(errorMessage(e)); } finally { setBusy(false); }
   }
   const chip = (on: boolean, label: string, onClick: () => void) => <button type="button" onClick={onClick} className={`inline-flex h-8 items-center gap-1 rounded-full px-3.5 text-[13px] ${on ? 'bg-[var(--ink)] font-bold text-white' : 'border border-[var(--border)] text-[var(--aux)]'}`}>{on && <Check size={13} strokeWidth={2.5}/>}{label}</button>;
   const qtyRow = (label: string, key: string, last: boolean) => <div key={key} className={`flex h-[52px] items-center justify-between ${last ? '' : 'border-b border-[var(--line)]'}`}><span className="text-[15px]">{label}</span><Stepper label={label} value={stock[key] ?? 0} onChange={n => setStock(key, n)}/></div>;
@@ -121,7 +180,7 @@ export function WizardPage() {
   return <div className="space-y-6 pb-4">
     <Header title={editId ? '판매 정보 수정' : '한정 판매 등록'} bare/>
     {editing && <div className="-mt-4 space-y-3">
-      <p className="flex items-center gap-2 text-[12px] text-[var(--meta)]"><span className="rounded-[3px] bg-[var(--soft)] px-1.5 py-0.5 text-[11px] font-bold text-[var(--aux)]">판매 예정</span>{`${new Date(editing.startsAt).getMonth() + 1}.${new Date(editing.startsAt).getDate()} (${WEEK[new Date(editing.startsAt).getDay()]}) ${hhmm(new Date(editing.startsAt).getHours(), new Date(editing.startsAt).getMinutes())} 오픈`}{editing.notifySubscribers !== undefined && ` · 알림 신청 ${editing.notifySubscribers}명`}</p>
+      {editing.startsAt > 0 && <p className="flex items-center gap-2 text-[12px] text-[var(--meta)]"><span className="rounded-[3px] bg-[var(--soft)] px-1.5 py-0.5 text-[11px] font-bold text-[var(--aux)]">판매 예정</span>{`${new Date(editing.startsAt).getMonth() + 1}.${new Date(editing.startsAt).getDate()} (${WEEK[new Date(editing.startsAt).getDay()]}) ${hhmm(new Date(editing.startsAt).getHours(), new Date(editing.startsAt).getMinutes())} 오픈`}{editing.notifySubscribers !== undefined && ` · 알림 신청 ${editing.notifySubscribers}명`}</p>}
       <div className="flex gap-2 rounded-[6px] bg-[var(--soft)] p-3.5"><Info size={15} className="mt-[2px] shrink-0 text-[var(--aux)]"/><p className="text-[12px] leading-[1.5] text-[var(--aux)]">수정하면 판매 심사를 다시 받아요.<br/>심사 중에도 기존 정보로 오픈 일정은 유지돼요.</p></div>
     </div>}
 
@@ -147,7 +206,7 @@ export function WizardPage() {
 
     <section className="space-y-3">
       <div><Label hint="· 필수">타 플랫폼 판매 URL</Label><p className="mt-1 text-[12px] text-[var(--meta)]">쿠팡·알리 등에서 판매 중인 같은 상품의 링크</p></div>
-      <label className="flex h-12 items-center gap-2 border-b border-[var(--line)]"><Link2 size={17} className="shrink-0 text-[var(--aux)]"/><input aria-label="타 플랫폼 판매 URL" className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-[var(--placeholder)]" value={d.originalUrl} placeholder="https://" onChange={e => patch({ originalUrl: e.target.value, reference: lookupReference(e.target.value) })}/></label>
+      <label className="flex h-12 items-center gap-2 border-b border-[var(--line)]"><Link2 size={17} className="shrink-0 text-[var(--aux)]"/><input aria-label="타 플랫폼 판매 URL" className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-[var(--placeholder)]" value={d.originalUrl} placeholder="https://" onChange={e => patch({ originalUrl: e.target.value, reference: lookupReference(e.target.value) /* TODO(api-gap): 타 플랫폼 가격 조회 API 없음(목업) */ })}/></label>
       {reference && <div className="flex items-center gap-3 rounded-[6px] bg-[var(--soft)] p-3">{reference.image && <ProductImage src={reference.image} alt={reference.title} className="h-12 w-12 shrink-0"/>}<div className="min-w-0 flex-1"><p className="text-[11px] font-bold text-[var(--meta)]">{reference.platform}</p><p className="truncate text-[13px]">{reference.title}</p><p className="text-[14px] font-bold">{money(reference.price)}</p></div><span className="flex shrink-0 items-center gap-1 text-[12px] font-bold text-[var(--positive)]"><Check size={14}/>확인됨</span></div>}
       {(d.extraUrls ?? []).map((url, i) => <label key={i} className="flex h-12 items-center gap-2 border-b border-[var(--line)]"><Link2 size={17} className="shrink-0 text-[var(--aux)]"/><input aria-label={`추가 URL ${i + 1}`} className="min-w-0 flex-1 bg-transparent text-[15px] outline-none" value={url} placeholder="https://" onChange={e => patch({ extraUrls: (d.extraUrls ?? []).map((u, j) => j === i ? e.target.value : u) })}/></label>)}
       <button type="button" onClick={() => patch({ extraUrls: [...(d.extraUrls ?? []), ''] })} className="flex items-center gap-1 text-[13px] text-[var(--aux)]"><Plus size={14}/>다른 플랫폼 URL 추가</button>
@@ -200,13 +259,16 @@ export function WizardPage() {
       <Button className="w-full text-[15px]!" disabled={busy || uploading || blocked} onClick={submit}>{busy ? '요청 중…' : editId ? '수정 내용 저장' : '판매 심사 요청하기'}</Button>
     </div>
 
-    {photo !== null && d.images[photo] && <Modal title={`상품 사진 ${photo + 1}`} onClose={() => setPhoto(null)}><div className="space-y-3"><ProductImage src={d.images[photo]} alt="선택한 사진" className="aspect-square w-full"/>{photo > 0 && <Button className="w-full" onClick={() => { patch({ images: [d.images[photo], ...d.images.filter((_, j) => j !== photo)] }); setPhoto(null); }}>대표 사진으로 지정</Button>}<Button outline className="w-full" onClick={() => { patch({ images: d.images.filter((_, j) => j !== photo) }); setPhoto(null); }}>삭제</Button></div></Modal>}
+    {photo !== null && d.images[photo] && <Modal title={`상품 사진 ${photo + 1}`} onClose={() => setPhoto(null)}><div className="space-y-3"><ProductImage src={d.images[photo]} alt="선택한 사진" className="aspect-square w-full"/>{photo > 0 && <Button className="w-full" onClick={() => void coverPhoto(photo)}>대표 사진으로 지정</Button>}<Button outline className="w-full" onClick={() => void removePhoto(photo)}>삭제</Button></div></Modal>}
     {picking && <CategoryPicker value={d.category} onClose={closePicker} onSave={category => { patch({ category }); closePicker(); }}/>}
   </div>;
 }
 function CategoryPicker({ value, onClose, onSave }: { value: string; onClose: () => void; onSave: (v: string) => void }) {
   const [pick, setPick] = useState(value);
-  return <Modal title="카테고리 선택" onClose={onClose}><div className="space-y-1">{CATEGORY_PATHS.map(path => <label key={path} className="divider flex items-center gap-3 py-3 text-[13px]"><input type="radio" name="category" value={path} checked={pick === path} onChange={() => setPick(path)}/>{path}</label>)}<Note>지원 목록에서만 선택할 수 있습니다. 등록 대상이 아닌 상품은 다른 카테고리로 우회 등록할 수 없습니다.</Note><Button className="mt-4 w-full" disabled={!pick} onClick={() => onSave(pick)}>카테고리 저장</Button></div></Modal>;
+  // 실제 모드: 서버 등록 카테고리 이름(registration-metadata)에서 고른다. 추측(명세 없음): Figma 경로 체계와 매핑되지 않아 서버 이름을 그대로 쓴다 — TODO(api-gap)
+  const meta = useApi(async signal => (USE_MOCK ? null : getRegistrationMetadata(signal)), []);
+  const list = meta.data?.categories ?? CATEGORY_PATHS;
+  return <Modal title="카테고리 선택" onClose={onClose}><div className="space-y-1">{!USE_MOCK && <LiveStatus state={meta}/>}{list.map(path => <label key={path} className="divider flex items-center gap-3 py-3 text-[13px]"><input type="radio" name="category" value={path} checked={pick === path} onChange={() => setPick(path)}/>{path}</label>)}<Note>지원 목록에서만 선택할 수 있습니다. 등록 대상이 아닌 상품은 다른 카테고리로 우회 등록할 수 없습니다.</Note><Button className="mt-4 w-full" disabled={!pick} onClick={() => onSave(pick)}>카테고리 저장</Button></div></Modal>;
 }
 
 /* ── AI 상품 분석 (결과 / 분석 중 / 실패와 재시도) ─────────────────────────────────── */

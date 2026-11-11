@@ -17,6 +17,7 @@ export interface Product {
   /** 선착순 마감(완판) 시각 — 백엔드 요청 필드 */ soldOutAt?: number;
   /** 판매에 참여(구매 시도)한 인원 — 백엔드 요청 필드 */ participants?: number;
   /** 타 플랫폼 판매가 확인 결과 — 백엔드 요청 필드 */ reference?: ReferenceListing;
+  /** 판매자 API 상품: 낙관적 잠금 version, 심사 상태, 서버 이미지 id(images와 같은 순서) */ version?: number; reviewStatus?: 'DRAFT' | 'IN_REVIEW' | 'REJECTED' | 'APPROVED'; imageIds?: string[];
   /** 서버(실제 API)에서 받은 상품의 재고 요약. 있으면 options[].stock은 서버의 남은 수량이고 로컬 주문·확보로 다시 빼지 않는다 */ live?: { initial: number; available: number };
 }
 export interface User { id: string; name: string; email: string; phone: string; seller: boolean; admin: boolean }
@@ -52,6 +53,7 @@ export interface Order {
 }
 export interface Inquiry { id: string; userId: string; sellerId: string; productId: string; orderId?: string; productName: string; kind: string; question: string; answer?: string; public: boolean; createdAt: number;
   /** 문의한 주문 수량 — 백엔드 요청 필드 (docs/backend-api-requests.md) */ quantity?: number; images?: string[]
+  /** 판매자 상품 문의 답변용 낙관적 잠금 version */ version?: number
   /** 실제 API 주문 문의: 메시지 전체(seller=true는 판매자)와 첨부 imageId (열람은 download API) */ messages?: { seller: boolean; body: string; createdAt: number }[]; imageIds?: string[] }
 export type AiStatus = 'before' | 'analyzing' | 'recommended' | 'uncertain' | 'failed' | 'unsupported' | 'stale';
 export interface Draft {
@@ -61,6 +63,7 @@ export interface Draft {
   maxPerAccount: number; startsAt: string; faqs: Faq[];
   ai: { status: AiStatus; signature: string; category: string; reason: string; result?: AiAnalysis };
   /** 단일 화면 등록(Figma 판매 상품 등록): 옵션 축, 색상·사이즈, 조합별 수량, 추가 URL, 타 플랫폼 확인 결과 */
+  /** 실제 API: 서버에 만든 초안 상품 id·서버 이미지 id(images와 같은 순서) */ serverId?: string; imageIds?: string[];
   axes?: { size: boolean; color: boolean }; colors?: string[]; sizes?: string[]; stock?: Record<string, number>; extraUrls?: string[]; reference?: ReferenceListing;
 }
 export interface ReferenceListing { platform: string; title: string; price: number; image?: string }
