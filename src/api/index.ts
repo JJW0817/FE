@@ -6,6 +6,7 @@ export * from './mappers';
 export * from './products';
 export * from './orders';
 export * from './addresses';
+export * from './inquiries';
 export { useLive } from './live';
 export type { LiveState } from './live';
 export { SERVICE_BASE } from './services';

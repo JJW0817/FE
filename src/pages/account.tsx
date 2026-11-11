@@ -12,7 +12,7 @@ import { deleteAddress, listAddresses, setDefaultAddress, takeAddressPick, toAdd
 import type { SavedAddress as ApiAddr } from './address';
 import { LogoutButton } from './auth';
 import { changePassword, restoreSession, validPassword } from '../auth';
-import { apiGet, apiPost, apiPut, apiPatch, apiDelete, apiPostForm, errorMessage } from '../api';
+import { apiGet, apiPost, apiPut, apiPatch, apiDelete, apiPostForm, errorMessage, addInquiryMessage, getInquiryImageUrl, getOrderInquiry, listInquiryInbox, mergeInquiries, useLive } from '../api';
 import { getPdf } from '../files';
 function ProfileEditModal({ userId, name: initialName, phone: initialPhone, onClose }: { userId: string; name: string; phone: string; onClose: () => void }) {
   const [name, setName] = useState(initialName), [phone, setPhone] = useState(initialPhone), [error, setError] = useState(''), [busy, setBusy] = useState(false); const toast = useToast();
@@ -880,6 +880,7 @@ export function FaqPage() {
 
 export function InquiryListPage() {
   const s = useStore(); const navigate = useNavigate(); const [tab, setTab] = useState<'전체' | '판매자 문의' | '1:1 문의'>('전체');
+  const live = useLive(sig => listInquiryInbox(s.activeUserId, sig), mergeInquiries, [s.activeUserId]);
   const all = s.inquiries.filter(q => q.userId === s.activeUserId);
   const sellerCount = all.filter(q => q.sellerId !== 'stockdrop').length;
   const directCount = all.filter(q => q.sellerId === 'stockdrop').length;
@@ -892,6 +893,7 @@ export function InquiryListPage() {
           <button key={t} onClick={() => setTab(t)} className={`border-b-2 py-2 text-[11px] ${tab === t ? 'border-[var(--ink)] font-bold' : 'muted border-transparent'}`}>{t} {count}</button>
         ))}
       </div>
+      <LiveStatus state={live}/>
       {filtered.map(q => (
         <Link key={q.id} to={`/inquiries/${q.id}`} className="divider block py-4 space-y-1.5">
           <div className="flex items-center justify-between gap-2">
@@ -903,18 +905,29 @@ export function InquiryListPage() {
           <p className="text-[12px] text-[#949494]">{q.sellerId === 'stockdrop' ? 'StockDrop 운영팀' : q.productName}</p>
         </Link>
       ))}
-      {!filtered.length && <Empty title="문의 내역이 없어요" message="문의 내역은 최근 1년까지 보관돼요."/>}
+      {!filtered.length && !live.loading && !live.error && <Empty title="문의 내역이 없어요" message="문의 내역은 최근 1년까지 보관돼요."/>}
       {filtered.length > 0 && <p className="pb-4 text-center text-[11px] text-[#949494]">문의 내역은 최근 1년까지 보관돼요</p>}
     </div>
   );
 }
 
+/** 문의 첨부 이미지: Query는 URL을 주지 않으므로 download API로 5분 유효 URL을 받아 보여 준다 */
+function InquiryImage({ orderId, imageId }: { orderId: string; imageId: string }) {
+  const [src, setSrc] = useState('');
+  useEffect(() => { const c = new AbortController(); getInquiryImageUrl(orderId, imageId, c.signal).then(setSrc, () => {}); return () => c.abort(); }, [orderId, imageId]);
+  return <ProductImage src={src} alt="첨부 사진" className="h-[72px] w-[72px] shrink-0"/>;
+}
 export function InquiryDetailPage() {
   const { id } = useParams(); const s = useStore(); const navigate = useNavigate();
   const [replyText, setReplyText] = useState(''), [replyBusy, setReplyBusy] = useState(false);
   const toast = useToast();
   const q = s.inquiries.find(i => i.id === id && i.userId === s.activeUserId);
-  if (!q) return <Empty title="문의를 찾을 수 없어요"><Link to="/inquiries" className="btn">문의 목록</Link></Empty>;
+  // 상세 API는 주문 id가 필요하다: store에 없으면(직접 진입) 문의함에서 찾아 orderId를 얻는다
+  const live = useLive(async sig => {
+    const orderId = q?.orderId ?? (await listInquiryInbox(s.activeUserId, sig)).find(i => i.id === id)?.orderId;
+    return orderId && id ? getOrderInquiry(orderId, id, s.activeUserId, sig) : null;
+  }, (st, d) => { if (d) mergeInquiries(st, [d]); }, [id, s.activeUserId]);
+  if (!q) return live.loading || live.error ? <LiveStatus state={live}/> : <Empty title="문의를 찾을 수 없어요"><Link to="/inquiries" className="btn">문의 목록</Link></Empty>;
   if (q.sellerId === 'stockdrop') return <div className="space-y-5">
     <Header title="문의 상세" back={true}/>
     <div className="flex items-center justify-between"><span className={`rounded px-2 py-0.5 text-[10px] font-semibold ${q.answer ? 'bg-[var(--positive-soft)] text-[var(--positive)]' : 'bg-[var(--blue-soft)] text-[var(--muted)]'}`}>{q.answer ? '답변 완료' : '접수됨'}</span><span className="muted text-[10px]">{q.kind} · {dateTime(q.createdAt)}</span></div>
@@ -922,6 +935,16 @@ export function InquiryDetailPage() {
     {q.answer ? <div className="space-y-2"><p className="text-[12px] font-bold">StockDrop 운영팀 답변</p><div className="rounded-[6px] border border-[var(--line)] p-4"><p className="text-[13px] leading-[1.8] whitespace-pre-line">{q.answer}</p></div></div> : <Note title="답변 대기 중">영업일 기준 1일 내에 답변드릴게요. 2영업일 안에 답변이 없으면 StockDrop이 직접 확인합니다.</Note>}
     <div className="space-y-2"><Field label="추가 문의"><textarea aria-label="추가 문의" className="field field-box" value={replyText} onChange={e => setReplyText(e.target.value.slice(0, 1000))} placeholder="추가로 궁금한 점을 입력해 주세요" rows={4}/></Field><p className="muted text-[10px]">문의 내역은 최근 1년까지 보관돼요</p></div>
     <div className="flex gap-2"><Link className="btn btn-outline flex-1" to="/inquiries">내 문의 내역</Link><Button className="flex-1" disabled={replyBusy || !replyText.trim()} onClick={async () => { setReplyBusy(true); try { mutate(state => { const inq = state.inquiries.find(i => i.id === id); if (inq) inq.question = inq.question + '\n\n---\n' + replyText.trim(); }); setReplyText(''); toast('추가 문의가 접수되었습니다.'); } catch { toast('접수에 실패했어요. 다시 시도해 주세요.'); } finally { setReplyBusy(false); } }}>추가 문의 보내기</Button></div>
+  </div>;
+  if (q.messages?.length && q.orderId) return <div className="space-y-5"> {/* 실제 API 주문 문의: 메시지 스레드 */}
+    <Header title="문의 상세" back={true}/>
+    <LiveStatus state={live}/>
+    <div className="space-y-0.5"><p className="text-[15px] font-bold">{q.productName.split(' · ')[0]}</p>{q.productName.includes(' · ') && <p className="text-[13px]">{q.productName.split(' · ').slice(1).join(' · ')}{q.quantity ? ` · ${q.quantity}개` : ''}</p>}<p className="muted text-[12px]">주문번호 {q.orderId}</p></div>
+    <div className="flex items-center justify-between gap-2"><span className={`rounded px-2 py-0.5 text-[10px] font-semibold ${q.answer ? 'bg-[#EEF8F3] text-[#3FB181]' : 'bg-[var(--soft)] text-[var(--muted)]'}`}>{q.answer ? '답변 완료' : '답변 대기'}</span><span className="muted text-[10px]">{q.kind} · {dateTime(q.createdAt)}</span></div>
+    {q.messages.map((m, i) => <div key={i} className={`rounded-[6px] p-4 space-y-1 ${m.seller ? 'border border-[var(--line)]' : 'bg-[var(--soft)]'}`}><p className="text-[11px] font-bold">{m.seller ? '판매자' : '나'} <span className="muted font-normal">{dateTime(m.createdAt)}</span></p><p className="text-[13px] leading-[1.8] whitespace-pre-line">{m.body}</p></div>)}
+    {!!q.imageIds?.length && <div className="flex gap-2 overflow-x-auto">{q.imageIds.map(imageId => <InquiryImage key={imageId} orderId={q.orderId!} imageId={imageId}/>)}</div>}
+    <Field label="추가 문의"><textarea aria-label="추가 문의" className="field field-box" value={replyText} onChange={e => setReplyText(e.target.value.slice(0, 1000))} placeholder="추가로 궁금한 점을 입력해 주세요" rows={4}/></Field>
+    <div className="flex gap-2"><Link className="btn btn-outline flex-1" to="/inquiries">내 문의 내역</Link><Button className="flex-1" disabled={replyBusy || !replyText.trim()} onClick={async () => { setReplyBusy(true); try { const u = await addInquiryMessage(q.orderId!, q.id, replyText.trim(), s.activeUserId); mutate(st => mergeInquiries(st, [u])); setReplyText(''); toast('추가 문의가 접수되었습니다.'); } catch (e) { toast(errorMessage(e)); } finally { setReplyBusy(false); } }}>추가 문의 보내기</Button></div>
   </div>;
   return (
     <div className="space-y-5">
@@ -968,6 +991,7 @@ export function InquiryDetailPage() {
   );
 }
 
+// TODO(api-gap): 운영(고객센터) 1:1 문의 API가 명세에 없다 — 이 작성 화면과 InquiryDetailPage의 운영 문의 분기는 로컬 목업 유지
 export function OpsInquiryComposePage() {
   const navigate = useNavigate(); const s = useStore(); const toast = useToast();
   const [kind, setKind] = useState('계정');

@@ -37,7 +37,7 @@ export interface ProductDetailDto extends Omit<ProductSummaryDto, 'image'> {
   options: ProductOptionDto[]; images: ImageDto[]; faqs: ProductFaqDto[]; canAttemptPurchase: boolean; serverTime: Iso;
 }
 export interface ScheduleDto { from: string; to: string; zone: string; days: { date: string; productCount: number; firstStartsAt: Iso }[]; serverTime: Iso }
-export interface ProductInquiryDto { id: string; question: string; answer: string | null; createdAt: Iso; answeredAt: Iso | null; projectedAt?: Iso }
+export interface ProductInquiryDto { id: string; productId?: string; question: string; answer: string | null; createdAt: Iso; answeredAt: Iso | null; projectedAt?: Iso }
 
 /* ── 주문·결제 ── */
 export type OrderState = 'RESERVING' | 'HELD' | 'STARTING_PAYMENT' | 'APPROVING_PAYMENT' | 'VERIFYING_PAYMENT' | 'CONFIRMING_STOCK' | 'COMPENSATING_PAYMENT' | 'RELEASING_STOCK' | 'CONFIRMED' | 'FAILED' | 'EXPIRED';

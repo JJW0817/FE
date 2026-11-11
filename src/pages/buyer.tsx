@@ -9,7 +9,7 @@ import { externalHref, imageData } from '../files';
 import { countdown, dateTime, shortDate, useClock } from '../hooks';
 import { loginHref, signedIn } from '../auth';
 import { listAddresses, toAddress } from './address';
-import { changeShippingAddress, confirmPayment, createOrder, errorMessage, getCheckout, getCheckoutTerms, getOrder, getProduct, isApiError, listOrders, listProducts, mergeCheckout, mergeOrderList, mergeOrders, mergeProducts, openTossPayment, useLive } from '../api';
+import { changeShippingAddress, confirmPayment, createOrder, createOrderInquiry, errorMessage, getCheckout, getCheckoutTerms, getOrder, getProduct, isApiError, listOrders, listProducts, mergeCheckout, mergeInquiries, mergeOrderList, mergeOrders, mergeProducts, openTossPayment, uploadInquiryImage, deleteInquiryImage, useLive } from '../api';
 import type { CheckoutTermsDto } from '../api';
 import { USE_MOCK } from '../config';
 import type { SavedAddress } from './address';
@@ -208,26 +208,35 @@ const INQUIRY_KINDS = ['하자·파손', '배송 지연', '오배송', '반품',
 export function OrderInquiryPage() {
   const { id } = useParams(); const s = useStore(), user = activeUser(s), navigate = useNavigate(), toast = useToast();
   const order = s.orders.find(o => o.id === id && o.userId === user.id);
-  const [kind, setKind] = useState('하자·파손'), [question, setQuestion] = useState(''), [images, setImages] = useState<string[]>([]), [error, setError] = useState(''), [busy, setBusy] = useState(false);
+  const [kind, setKind] = useState('하자·파손'), [question, setQuestion] = useState(''), [images, setImages] = useState<string[]>([]), [files, setFiles] = useState<File[]>([]), [error, setError] = useState(''), [busy, setBusy] = useState(false);
   if (!order) return <Empty title="주문을 찾을 수 없어요"><Link to="/orders" className="btn">주문 목록</Link></Empty>;
   const quantity = order.lines.reduce((n, l) => n + l.quantity, 0);
-  async function attach(files: FileList | null) { if (!files?.length) return; try { if (images.length + files.length > 5) throw new Error('사진은 최대 5장까지 첨부할 수 있어요.'); const added = await Promise.all([...files].map(imageData)); setImages([...images, ...added]); } catch (e) { setError((e as Error).message); } }
-  function submit() {
+  async function attach(fl: FileList | null) { if (!fl?.length) return; try { if (images.length + fl.length > 5) throw new Error('사진은 최대 5장까지 첨부할 수 있어요.'); const added = await Promise.all([...fl].map(imageData)); setImages([...images, ...added]); setFiles([...files, ...fl]); } catch (e) { setError((e as Error).message); } }
+  async function submit() {
     if (!question.trim()) { setError('문의 내용을 입력해 주세요.'); return; }
     setBusy(true);
     try {
+      if (!USE_MOCK) { // 실제 API: 이미지 3단계 업로드 후 imageIds로 등록. 실패하면 올린 이미지를 폐기
+        const uploaded: string[] = [];
+        try {
+          for (const f of files) uploaded.push(await uploadInquiryImage(order!.id, f));
+          const q = await createOrderInquiry(order!.id, { category: kind, body: question.trim(), imageIds: uploaded }, user.id);
+          mutate(st => mergeInquiries(st, [q]));
+          toast('문의가 판매자에게 전달되었습니다.'); navigate(`/inquiries/${q.id}`, { replace: true }); return;
+        } catch (e) { await Promise.all(uploaded.map(id => deleteInquiryImage(order!.id, id).catch(() => {}))); throw e; }
+      }
       const inquiryId = uid('q-');
       mutate(st => { st.inquiries.unshift({ id: inquiryId, userId: st.activeUserId, sellerId: order!.sellerId, productId: order!.productId, orderId: order!.id, productName: `${order!.product.brand} · ${order!.product.name}`, quantity, kind, question: question.trim(), images, public: false, createdAt: nowOf(st) }); });
       toast('문의가 판매자에게 전달되었습니다.'); navigate(`/inquiries/${inquiryId}`, { replace: true });
-    } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+    } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); }
   }
   const label = (text: string, hint: string) => <p className="mb-2.5 text-[13px] font-bold">{text}<span className="ml-1.5 text-[11px] font-normal text-[var(--meta)]">{hint}</span></p>;
-  return <form className="space-y-7 pb-4" onSubmit={e => { e.preventDefault(); submit(); }}>
+  return <form className="space-y-7 pb-4" onSubmit={e => { e.preventDefault(); void submit(); }}>
     <Header title="판매자에게 문의" bare/>
     <div className="-mt-2 flex items-center gap-3 rounded-[6px] bg-[var(--soft)] p-3.5"><ProductImage src={order.product.image} alt={order.product.name} className="h-12 w-12 shrink-0"/><div className="min-w-0 space-y-0.5"><p className="text-[11px] font-bold text-[var(--meta)]">{order.product.brand}</p><p className="text-[14px]">{order.product.name} · {quantity}개</p><p className="text-[12px] text-[var(--meta)]">주문번호 {order.id}</p></div></div>
     <div>{label('문의 유형', '· 필수')}<label className="relative block"><select aria-label="문의 유형" value={kind} onChange={e => setKind(e.target.value)} className="h-12 w-full appearance-none rounded-[6px] border border-[var(--line)] bg-[var(--surface)] px-4 text-[14px] outline-none">{INQUIRY_KINDS.map(k => <option key={k}>{k}</option>)}</select><ChevronDown size={18} className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-[var(--muted)]"/></label></div>
     <div>{label('문의 내용', '· 필수')}<div className="rounded-[6px] border border-[var(--line)] p-4"><textarea aria-label="문의 내용" className="h-[84px] w-full resize-none bg-transparent text-[14px] leading-[1.7] outline-none" value={question} onChange={e => { setError(''); setQuestion(e.target.value.slice(0, 1000)); }}/><p className="text-right text-[11px] text-[var(--meta)]">{question.length} / 1000</p></div></div>
-    <div>{label('사진 첨부', '· 선택 · 최대 5장')}<div className="flex gap-2 overflow-x-auto"><label className="flex h-[72px] w-[72px] shrink-0 cursor-pointer flex-col items-center justify-center gap-1 rounded-[6px] border border-[var(--border)]"><Camera size={18}/><span className="text-[11px] text-[var(--meta)]">{images.length}/5</span><input aria-label="사진 첨부" type="file" accept="image/jpeg,image/png,image/webp" multiple className="sr-only" disabled={images.length >= 5} onChange={e => { void attach(e.target.files); e.target.value = ''; }}/></label>{images.map((src, i) => <button type="button" key={i} aria-label={`사진 ${i + 1} 삭제`} onClick={() => setImages(images.filter((_, j) => j !== i))}><ProductImage src={src} alt={`첨부 사진 ${i + 1}`} className="h-[72px] w-[72px]"/></button>)}</div><p className="mt-3 text-[12px] text-[var(--meta)]">하자·오배송은 사진이 있으면 더 빠르게 처리돼요</p></div>
+    <div>{label('사진 첨부', '· 선택 · 최대 5장')}<div className="flex gap-2 overflow-x-auto"><label className="flex h-[72px] w-[72px] shrink-0 cursor-pointer flex-col items-center justify-center gap-1 rounded-[6px] border border-[var(--border)]"><Camera size={18}/><span className="text-[11px] text-[var(--meta)]">{images.length}/5</span><input aria-label="사진 첨부" type="file" accept="image/jpeg,image/png,image/webp" multiple className="sr-only" disabled={images.length >= 5} onChange={e => { void attach(e.target.files); e.target.value = ''; }}/></label>{images.map((src, i) => <button type="button" key={i} aria-label={`사진 ${i + 1} 삭제`} onClick={() => { setImages(images.filter((_, j) => j !== i)); setFiles(files.filter((_, j) => j !== i)); }}><ProductImage src={src} alt={`첨부 사진 ${i + 1}`} className="h-[72px] w-[72px]"/></button>)}</div><p className="mt-3 text-[12px] text-[var(--meta)]">하자·오배송은 사진이 있으면 더 빠르게 처리돼요</p></div>
     <div className="flex gap-2 rounded-[6px] bg-[var(--soft)] p-4"><Info size={15} className="mt-[2px] shrink-0 text-[var(--aux)]"/><p className="text-[12px] leading-[1.5] text-[var(--aux)]">판매자는 영업일 기준 1일 안에 답변해요.<br/>2영업일 안에 답변이 없으면 StockDrop이<br/>직접 확인하고 연락드려요.</p></div>
     <ErrorBox message={error}/>
     <Button type="submit" className="w-full text-[15px]!" disabled={busy}>문의 보내기</Button>
