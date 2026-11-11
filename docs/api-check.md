@@ -134,5 +134,5 @@ Access JWT 수명은 기본 15분이다. 서버 팀에 수명을 1~2분으로 �
 ## 16. 통과 기준과 알려진 한계
 
 - 1~15가 모두 통과하면 연동은 끝난 것이다. mock 모드(`VITE_USE_MOCK=true`, Vercel 프리뷰)는 서버 없이 그대로 동작한다.
-- 연동하지 않은 API: GA 분석 참여 4개(`/ai/analytics/identity`·`profile`, 화면 없음), `GET /signup-options`. 명세에 없어 mock으로 남긴 기능은 코드에 `TODO(api-gap)`, 명세가 애매해 추측한 곳은 `추측(명세 없음)`으로 표시했다(`grep -rn "TODO(api-gap)\|추측(명세 없음)" src`).
+- 연동하지 않은 API: GA 분석 참여 4개(`/ai/analytics/identity`·`profile`, 화면 없음). 명세에 없어 mock으로 남긴 기능은 코드에 `TODO(api-gap)`, 명세가 애매해 추측한 곳은 `추측(명세 없음)`으로 표시했다(`grep -rn "TODO(api-gap)\|추측(명세 없음)" src`).
 - 문제가 생기면 Network에서 실패한 요청의 응답 본문 `code`·`traceId`를 서버 팀에 그대로 전달한다.
