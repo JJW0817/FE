@@ -108,7 +108,7 @@ export function WizardPage() {
     const m = st.products.find(x => x.id === p.id)!;
     if (canEdit(m, nowOf(st))) st.drafts[user.id] = fromProduct(m);
   }, [editId]);
-  const [error, setError] = useState(''), [uploading, setUploading] = useState(false), [busy, setBusy] = useState(false), [photo, setPhoto] = useState<number | null>(null), [activeColor, setActiveColor] = useState(0);
+  const [error, setError] = useState(''), [uploading, setUploading] = useState(false), [progress, setProgress] = useState(''), [photoError, setPhotoError] = useState(''), [busy, setBusy] = useState(false), [photo, setPhoto] = useState<number | null>(null), [activeColor, setActiveColor] = useState(0);
   const picking = params.get('pick') === 'category';
   if (!user.seller) return <Unavailable message="승인된 판매자만 상품을 등록할 수 있습니다."/>;
   const editing = editId ? s.products.find(p => p.id === editId && p.sellerId === user.id) : undefined;
@@ -127,30 +127,41 @@ export function WizardPage() {
   const setDate = (date: string) => { if (!date) return; patch({ startsAt: `${date}T${startOk ? hhmm(start.getHours(), start.getMinutes()) : '21:00'}` }); };
   const setTime = (time: string) => patch({ startsAt: `${(startOk ? localDateTime(start.getTime()) : localDateTime(now)).slice(0, 10)}T${time}` });
 
-  async function upload(files: FileList | null) {
-    if (!files?.length) return; setUploading(true); setError('');
+  async function upload(picked: File[]) {
+    // input.value를 비우면 FileList도 비워지므로 호출한 쪽에서 배열로 복사해 넘긴다
+    if (!picked.length) return; setUploading(true); setPhotoError('');
     try {
-      if (d.images.length + files.length > 10) throw new Error('상품 사진은 최대 10장까지 등록할 수 있습니다.');
-      if (USE_MOCK) { const added = await Promise.all([...files].map(imageData)); patch({ images: [...d.images, ...added] }); }
-      else { // 실제 모드: 초안 상품을 만들고 사진을 한 장씩 올린다(권한 발급 → S3 PUT → 완료 확인)
+      if (d.images.length + picked.length > 10) throw new Error('상품 사진은 최대 10장까지 등록할 수 있습니다.');
+      for (const f of picked) {
+        if (/hei[cf]/i.test(f.type) || /\.hei[cf]$/i.test(f.name)) throw new Error(`${f.name}: HEIC는 올릴 수 없어요. JPG·PNG·WEBP로 바꿔 주세요.`);
+        if (!['image/jpeg', 'image/png', 'image/webp'].includes(f.type)) throw new Error(`${f.name}: JPG·PNG·WEBP 이미지만 올릴 수 있어요.`);
+        if (f.size < 1 || f.size > 10 * 1024 * 1024) throw new Error(`${f.name}: 사진은 10MB 이하여야 해요.`);
+      }
+      if (USE_MOCK) { const added = await Promise.all(picked.map(imageData)); patch({ images: [...d.images, ...added] }); }
+      else { // 실제 모드: 선택 즉시 초안 상품을 만들고 사진을 한 장씩 올린다(권한 발급 → S3 PUT → 완료 확인)
+        setProgress('준비 중…');
         const id = await ensureServerDraft(user.id), images = [...d.images], ids = [...(d.imageIds ?? [])];
-        for (const f of files) { const u = await uploadProductImage(id, f); images.push(u.url); ids.push(u.id); patch({ images: [...images], imageIds: [...ids] }); }
+        for (const [n, f] of picked.entries()) {
+          setProgress(`${n + 1}/${picked.length}장 올리는 중…`);
+          const u = await uploadProductImage(id, f);
+          images.push(u.url || URL.createObjectURL(f)); ids.push(u.id); patch({ images: [...images], imageIds: [...ids] }); // 열람 URL을 못 받아도 선택한 파일로 미리보기
+        }
       }
       if (!d.category) startAnalysis(user.id);
     }
-    catch (e) { setError(errorMessage(e)); } finally { setUploading(false); }
+    catch (e) { setPhotoError(errorMessage(e)); } finally { setUploading(false); setProgress(''); }
   }
   const serverId = d.editingId ?? d.serverId;
   /** 사진 삭제·대표 지정: 실제 모드는 서버에도 반영 */
   async function removePhoto(i: number) {
     try { if (!USE_MOCK && serverId && d.imageIds?.[i]) await deleteProductImage(serverId, d.imageIds[i]); patch({ images: d.images.filter((_, j) => j !== i), ...(d.imageIds ? { imageIds: d.imageIds.filter((_, j) => j !== i) } : {}) }); }
-    catch (e) { setError(errorMessage(e)); }
+    catch (e) { setPhotoError(errorMessage(e)); }
     setPhoto(null);
   }
   async function coverPhoto(i: number) {
     const ids = d.imageIds && [d.imageIds[i], ...d.imageIds.filter((_, j) => j !== i)];
     try { if (!USE_MOCK && serverId && ids) await reorderProductImages(serverId, ids, ids[0]); patch({ images: [d.images[i], ...d.images.filter((_, j) => j !== i)], ...(ids ? { imageIds: ids } : {}) }); }
-    catch (e) { setError(errorMessage(e)); }
+    catch (e) { setPhotoError(errorMessage(e)); }
     setPhoto(null);
   }
   function openCategory() {
@@ -188,9 +199,12 @@ export function WizardPage() {
     <section className="space-y-2.5">
       <Label hint="· 필수 · 최대 10장">상품 사진</Label>
       <div className="flex gap-2 overflow-x-auto">
-        {d.images.length < 10 && <label className="flex h-20 w-20 shrink-0 cursor-pointer flex-col items-center justify-center gap-1 rounded-[6px] border border-[var(--border)]"><Plus size={20} strokeWidth={1.5}/><span className="text-[11px] text-[var(--meta)]">{uploading ? '처리 중' : `${d.images.length}/10`}</span><input aria-label="상품 사진 업로드" type="file" accept="image/jpeg,image/png,image/webp" multiple className="sr-only" disabled={uploading} onChange={e => { void upload(e.target.files); e.target.value = ''; }}/></label>}
+        {d.images.length < 10 && <label className="flex h-20 w-20 shrink-0 cursor-pointer flex-col items-center justify-center gap-1 rounded-[6px] border border-[var(--border)]"><Plus size={20} strokeWidth={1.5}/><span className="text-[11px] text-[var(--meta)]">{uploading ? '처리 중' : `${d.images.length}/10`}</span><input aria-label="상품 사진 업로드" type="file" accept="image/jpeg,image/png,image/webp" multiple className="sr-only" disabled={uploading} onChange={e => { const picked = Array.from(e.target.files ?? []); e.target.value = ''; void upload(picked); }}/></label>}
         {d.images.map((src, i) => <button type="button" key={src.slice(-24) + i} onClick={() => setPhoto(i)} className="relative shrink-0"><ProductImage src={src} alt={`상품 사진 ${i + 1}`} className="h-20 w-20"/>{i === 0 && <span className="absolute bottom-1.5 left-1.5 rounded-[3px] bg-black/70 px-1.5 py-0.5 text-[10px] font-bold text-white">대표</span>}</button>)}
       </div>
+      {progress && <p role="status" className="text-[12px] text-[var(--aux)]">{progress}</p>}
+      <ErrorBox message={photoError}/>
+      <p className="text-[11px] text-[var(--meta)]">JPG·PNG·WEBP · 장당 10MB 이하 · 첫 번째 사진이 대표예요</p>
       <p className="flex items-center gap-1.5 text-[12px] text-[var(--aux)]"><Sparkles size={14}/>사진을 올리면 AI가 카테고리를 자동으로 분류해요</p>
     </section>
 
