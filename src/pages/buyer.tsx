@@ -9,8 +9,8 @@ import { externalHref, imageData } from '../files';
 import { countdown, dateTime, shortDate, useClock } from '../hooks';
 import { loginHref, signedIn } from '../auth';
 import { listAddresses, toAddress } from './address';
-import { changeShippingAddress, confirmPayment, createOrder, createOrderInquiry, errorMessage, getCheckout, getCheckoutTerms, getOrder, getProduct, isApiError, listOrders, listProducts, mergeCheckout, mergeInquiries, mergeOrderList, mergeOrders, mergeProducts, openTossPayment, uploadInquiryImage, deleteInquiryImage, useLive } from '../api';
-import type { CheckoutTermsDto } from '../api';
+import { changeShippingAddress, confirmPayment, createOrder, createOrderInquiry, errorMessage, getCheckout, getCheckoutTerms, getOrder, getProduct, isApiError, fetchUnreadCount, listNotifications, listOrders, markAllNotificationsRead, markNotificationRead, notificationPath, useApi, listProducts, mergeCheckout, mergeInquiries, mergeOrderList, mergeOrders, mergeProducts, openTossPayment, uploadInquiryImage, deleteInquiryImage, useLive } from '../api';
+import type { CheckoutTermsDto, InboxItem } from '../api';
 import { USE_MOCK } from '../config';
 import type { SavedAddress } from './address';
 
@@ -27,8 +27,9 @@ export function HomePage() {
   const showHero = !query && category === '전체' && filter === '전체';
   const urgent = s.products.filter(p => p.published && isUrgent(p));
   const seller = signedIn(s) && !!s.users.find(u => u.id === s.activeUserId)?.seller;
+  const unread = useApi(signal => (!USE_MOCK && signedIn(s) ? fetchUnreadCount(signal) : Promise.resolve(0)), [s.activeUserId]).data ?? 0;
   return <div className="space-y-4">
-    <header className="flex items-start justify-between pt-1"><div><h1 className="text-[22px] font-bold tracking-[-.5px]">STOCKDROP</h1><p className="mt-1 text-[12px] text-[var(--meta)]">남은 재고에 새 주인을, 정해진 시간에.</p></div><Link aria-label="알림 및 주문 확인" to="/notifications" className="grid h-9 w-9 place-items-center"><Bell size={21} strokeWidth={1.6}/></Link></header>
+    <header className="flex items-start justify-between pt-1"><div><h1 className="text-[22px] font-bold tracking-[-.5px]">STOCKDROP</h1><p className="mt-1 text-[12px] text-[var(--meta)]">남은 재고에 새 주인을, 정해진 시간에.</p></div><Link aria-label="알림 및 주문 확인" to="/notifications" className="relative grid h-9 w-9 place-items-center"><Bell size={21} strokeWidth={1.6}/>{unread > 0 && <span aria-label={`안 읽은 알림 ${unread}개`} className="absolute right-0 top-0 h-2 w-2 rounded-full bg-[var(--red)]"/>}</Link></header>
     <label className="flex h-12 items-center gap-2.5 rounded-[6px] bg-[var(--soft)] px-4"><Search size={18} className="text-[var(--meta)]"/><input aria-label="상품 검색" value={query} onChange={e => setParam('q', e.target.value)} placeholder="상품명·카테고리·판매처 검색" className="min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-[var(--placeholder)]"/></label>
     <div role="group" aria-label="상품 카테고리" className="-mx-4 flex justify-between border-b border-[var(--line)] px-4">{['전체', '의류', '패션잡화', '문구', '생활잡화'].map(c => <button key={c} onClick={() => setParam('category', c)} className={`border-b-2 pb-2.5 text-[14px] ${category === c ? 'border-[var(--ink)] font-bold' : 'border-transparent text-[var(--aux)]'}`}>{c}</button>)}</div>
     <div className="flex gap-1.5 overflow-x-auto">{['전체', '마감 임박', '판매 중', '판매 예정', '판매 종료'].map(f => <button key={f} onClick={() => setParam('state', f)} className={`flex h-[30px] shrink-0 items-center gap-1 rounded-[4px] px-2.5 text-[12px] ${filter === f ? 'bg-[var(--ink)] font-bold text-white' : f === '마감 임박' ? 'bg-[var(--soft)] font-bold text-[var(--urgent)]' : 'bg-[var(--soft)] text-[var(--aux)]'}`}>{f === '마감 임박' && <span className={`h-1.5 w-1.5 rounded-full ${filter === f ? 'bg-white' : 'bg-[var(--urgent)]'}`}/>}{f}</button>)}</div>
@@ -335,12 +336,18 @@ export function CalendarPage() {
   );
 }
 
-interface Notification { id: string; type: '구매' | '상품' | '맞춤 추천'; title: string; desc: string; time: string }
+interface Notification { id: string; type: '구매' | '상품' | '맞춤 추천'; title: string; desc: string; time: string; read?: boolean; path?: string }
 
 export function NotificationsPage() {
   const s = useStore(), now = useClock();
   const [tab, setTab] = useState<'전체' | '구매' | '상품'>('전체');
   const tabs = ['전체', '구매', '상품'] as const;
+  const navigate = useNavigate(), toast = useToast();
+  // 실제 모드: 서버 알림함 (mock 모드는 호출 없이 빈 목록 → 아래 목업을 쓴다)
+  const inbox = useApi(signal => (USE_MOCK ? Promise.resolve([] as InboxItem[]) : listNotifications(0, 50, signal)), [s.activeUserId]);
+  const [readIds, setReadIds] = useState<string[]>([]);
+  const open = (n: Notification) => { if (!n.read) { setReadIds(r => [...r, n.id]); markNotificationRead(n.id).catch(() => {}); } if (n.path) navigate(n.path); };
+  const readAll = () => markAllNotificationsRead().then(() => setReadIds((inbox.data ?? []).map(n => n.id))).catch(e => toast(errorMessage(e)));
 
   const userOrders = s.orders.filter(o => o.userId === s.activeUserId);
   const bookmarkedIds = s.bookmarks.filter(k => k.startsWith(`${s.activeUserId}:`)).map(k => k.split(':')[1]);
@@ -370,7 +377,7 @@ export function NotificationsPage() {
     }),
   ].sort((a, b) => b.ts - a.ts);
 
-  const notifications: Notification[] = raw.map(n => ({ ...n, time: dateTime(n.ts) }));
+  const notifications: Notification[] = USE_MOCK ? raw.map(n => ({ ...n, time: dateTime(n.ts) })) : (inbox.data ?? []).map(n => ({ id: n.id, type: n.kind, title: n.title, desc: n.desc, time: dateTime(n.ts), read: n.read || readIds.includes(n.id), path: notificationPath(n) }));
   const filtered = tab === '전체' ? notifications : notifications.filter(n => n.type === tab || (tab === '상품' && n.type === '맞춤 추천'));
 
   return (
@@ -381,16 +388,18 @@ export function NotificationsPage() {
           <button key={t} onClick={() => setTab(t)} className={`border-b-2 py-2 text-[12px] ${tab === t ? 'border-[var(--ink)] font-bold' : 'muted border-transparent'}`}>{t}</button>
         ))}
       </div>
+      {!USE_MOCK && <LiveStatus state={inbox}/>}
+      {!USE_MOCK && notifications.some(n => n.read === false) && <button className="muted text-[11px] underline" onClick={readAll}>모두 읽음</button>}
       {filtered.length ? filtered.map(n => (
-        <article key={n.id} className="divider py-4 space-y-1">
+        <article key={n.id} className={`divider py-4 space-y-1 ${n.path ? 'cursor-pointer' : ''}`} {...(n.path ? { role: 'button', tabIndex: 0, onClick: () => open(n), onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Enter') open(n); } } : {})}>
           <div className="flex items-center justify-between">
             <span className={`rounded px-2 py-0.5 text-[10px] font-semibold ${n.type === '맞춤 추천' ? 'bg-[var(--green-soft,#EEF8F3)] text-[var(--green)]' : 'bg-[var(--blue-soft)]'}`}>{n.type}</span>
             <span className="muted text-[10px]">{n.time}</span>
           </div>
-          <p className="text-[13px] font-semibold">{n.title}</p>
+          <p className={`text-[13px] ${n.read === false ? 'font-bold' : 'font-semibold'}`}>{n.title}{n.read === false && <span className="ml-1 text-[var(--red)]">·</span>}</p>
           <p className="muted text-[12px] leading-relaxed">{n.desc}</p>
         </article>
-      )) : (
+      )) : !USE_MOCK && inbox.loading ? null : (
         <Empty title="새로운 알림이 없어요" message="관심 상품을 저장하면 맞춤 알림을 받을 수 있어요."/>
       )}
     </div>

@@ -5,9 +5,9 @@ import { ArrowLeft, ArrowRight, Bell, Check, Eye, EyeOff, PackageCheck, Package,
 import { Button, ErrorBox, Field, Header, Modal, Note, useToast } from '../components/ui';
 import { getState, mutate, useStore } from '../store';
 import { initialAuth } from '../domain';
-import { apiGet, apiPut } from '../api';
+import { errorMessage, fetchMySettings, saveInterests, saveMarketingConsent, saveNotificationSettings } from '../api';
 import { homePath, login, logout, normalizeEmail, resetPassword, safeNext, sendCode, signedIn, signup, validEmail, validPassword, verifyCode, demoLogin } from '../auth';
-import { DEMO_ACCOUNTS, DEMO_LOGIN } from '../config';
+import { DEMO_ACCOUNTS, DEMO_LOGIN, USE_MOCK } from '../config';
 import { requestPushPermission } from '../firebase';
 const inputClass = 'w-full min-w-0 border-0 border-b border-[var(--line)] bg-transparent py-3 text-[14px] outline-none placeholder:text-[var(--muted)] focus:border-[var(--ink)] disabled:opacity-50';
 function useAuthNow() { const [now, setNow] = useState(Date.now()); useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []); return now; }
@@ -233,11 +233,14 @@ export function ResetPasswordNewPage() {
   );
 }
 export function CategorySelectionPage() {
-  const navigate = useNavigate(); const [params] = useSearchParams(); const next = safeNext(params.get('next'));
+  const navigate = useNavigate(); const [params] = useSearchParams(); const next = safeNext(params.get('next')); const toast = useToast(); const s = useStore();
   const CATS = ['의류·패션', '생활용품', '전자기기', '가전제품', '인테리어·가구', '공구·자재', '식품·음료', '뷰티·헬스', '스포츠·레저', '문구·도서', '유아·아동', '기타'];
   const [selected, setSelected] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem('stockdrop:categories') || '[]'); } catch { return []; } });
   const toggle = (cat: string) => setSelected(s => s.includes(cat) ? s.filter(c => c !== cat) : [...s, cat]);
-  const proceed = (cats: string[]) => { try { localStorage.setItem('stockdrop:categories', JSON.stringify(cats)); } catch {} navigate(`/notifications/settings?next=${encodeURIComponent(next)}`); };
+  const proceed = async (cats: string[]) => { try { localStorage.setItem('stockdrop:categories', JSON.stringify(cats)); } catch {}
+    // 로그인된 상태면 서버에 저장한다(건너뛰기·미로그인은 기기에만 저장). 실패해도 다음 단계로 진행 — 추측(명세 없음): 가입 직후 미로그인이면 서버 전송은 생략
+    if (!USE_MOCK && cats.length && signedIn(s)) { try { await saveInterests(cats); } catch (e) { toast(errorMessage(e)); } }
+    navigate(`/notifications/settings?next=${encodeURIComponent(next)}`); };
   return <div className="flex min-h-[calc(100dvh-60px)] flex-col">
     <header className="flex items-center justify-between py-3">
       <button className="muted py-2" aria-label="이전 화면" onClick={() => navigate(-1)}><ArrowLeft size={18}/></button>
@@ -258,17 +261,18 @@ export function NotificationSettingsPage() {
   const navigate = useNavigate(); const [params] = useSearchParams(); const next = safeNext(params.get('next'));
   const NOTIFS = [{ id: 'sale_start', title: '판매 시작 알림', desc: '관심 상품 판매 시작 즉시 알려드려요' }, { id: 'price_change', title: '관심 상품 가격 변동', desc: '찜한 상품 가격 변동 시 알려드려요' }, { id: 'low_stock', title: '한정 수량 임박 알림', desc: '재고가 5개 이하 남으면 알려드려요' }, { id: 'recommendation', title: '개인 맞춤 상품 추천', desc: '취향에 맞는 새 상품 등록 시 알려드려요' }];
   const [enabled, setEnabled] = useState<Record<string, boolean>>(() => { try { return JSON.parse(localStorage.getItem('stockdrop:notifications') || '{}'); } catch { return {}; } });
-  const [marketing, setMarketing] = useState(false);
+  const [marketing, setMarketing] = useState(false); const toast = useToast(); const s = useStore();
   const [pushState, setPushState] = useState<'default' | 'granted' | 'denied' | 'busy'>(() => (Notification.permission as any));
   const [pushToken, setPushToken] = useState<string | null>(null);
   const toggle = (id: string) => setEnabled(e => ({ ...e, [id]: !e[id] }));
   const allowPush = async () => { setPushState('busy'); const token = await requestPushPermission(); if (token) { setPushState('granted'); setPushToken(token); } else { setPushState(Notification.permission as any); } };
   useEffect(() => { if (Notification.permission === 'granted') allowPush(); }, []);
-  useEffect(() => { apiGet('/accounts/me/notification-settings').then((data: any) => { if (!data) return; setEnabled(e => ({ ...e, sale_start: !!data.saleStart, recommendation: !!data.personalizedRecommendation })); if (data.marketingConsent !== undefined) setMarketing(!!data.marketingConsent); }).catch(() => {}); }, []);
-  const proceed = () => {
+  // 알림 설정 조회 전용 API가 없어 GET /accounts/me로 읽는다. price_change·low_stock은 API가 없어 이 기기에만 저장 (TODO(api-gap))
+  const logged = !USE_MOCK && signedIn(s);
+  useEffect(() => { if (logged) fetchMySettings().then(m => { setEnabled(e => ({ ...e, sale_start: m.saleStart, recommendation: m.personalizedRecommendation })); setMarketing(m.marketing); }).catch(() => {}); }, [logged]);
+  const proceed = async () => {
     try { localStorage.setItem('stockdrop:notifications', JSON.stringify({ ...enabled, marketing })); } catch {}
-    apiPut('/accounts/me/notification-settings', { saleStart: !!enabled['sale_start'], personalizedRecommendation: !!enabled['recommendation'] }).catch(() => {});
-    apiPut('/accounts/me/marketing-consent', { marketingConsent: marketing }).catch(() => {});
+    if (logged) { try { await Promise.all([saveNotificationSettings(!!enabled['sale_start'], !!enabled['recommendation']), saveMarketingConsent(marketing)]); } catch (e) { toast(errorMessage(e)); return; } }
     navigate(next, { replace: true });
   };
   return <div className="flex min-h-[calc(100dvh-60px)] flex-col">

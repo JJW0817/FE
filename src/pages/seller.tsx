@@ -5,10 +5,13 @@ import { Plus, Check, ChevronRight, FileText, Info, Rocket, ScanSearch, Share2, 
 import { activeUser, feeFor, markDelivered, money, nowOf, saleState, uid } from '../domain';
 import type { Order, SellerSettings } from '../domain';
 import { atomic, mutate, useStore } from '../store';
+import { endSession } from '../auth';
 import { dateTime, useClock } from '../hooks';
-import { Badge, Button, CopyButton, copyText, Toggle, Empty, ErrorBox, Field, Header, InfoRow, MenuRow, Modal, Note, ORDER_LABELS, ProductImage, ProductSummary, Unavailable, useToast } from '../components/ui';
+import { Badge, Button, CopyButton, copyText, Toggle, Empty, ErrorBox, Field, Header, InfoRow, LiveStatus, MenuRow, Modal, Note, ORDER_LABELS, ProductImage, ProductSummary, Unavailable, useToast } from '../components/ui';
 import { PdfField } from '../components/PdfField';
-import { apiGet, apiPut } from '../api';
+import { apiGet, apiPut, errorMessage, fetchWithdrawalEligibility, useApi, withdrawAccount } from '../api';
+import { api } from '../api';
+import { USE_MOCK } from '../config';
 const hm = (t: number) => new Date(t).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
 const md = (t: number) => { const d = new Date(t); return `${d.getMonth() + 1}.${d.getDate()} (${'일월화수목금토'[d.getDay()]})`; };
 export function SellerProductsPage() {
@@ -746,40 +749,7 @@ export function SellerSettingsPage() {
   );
 
   // ── 회원 탈퇴 ───────────────────────────────────────────────
-  if (section === 'withdraw') return (
-    <form className="space-y-5" onSubmit={e => { e.preventDefault(); toast('탈퇴 처리 중입니다.'); }}>
-      <Header title="회원 탈퇴"/>
-      <h2 className="text-[18px] font-bold">탈퇴 전에 꼭 확인해 주세요.</h2>
-      <div className="rounded-[8px] bg-[var(--canvas)] p-4 space-y-3">
-        {[['진행 중인 주문', '없음'], ['정산 대기 금액', '0원'], ['판매 중인 드롭', '없음']].map(([label, value]) => (
-          <div key={label} className="flex items-center justify-between">
-            <span className="text-[13px]">{label}</span>
-            <span className="muted text-[13px]">{value}</span>
-          </div>
-        ))}
-      </div>
-      <Note>진행 중인 거래가 있으면 완료된 뒤에 탈퇴할 수 있어요</Note>
-      <div className="space-y-3">
-        <p className="text-[13px] font-bold">탈퇴하면 이렇게 돼요</p>
-        {['계정 정보, 배송지, 알림 설정이 바로 삭제돼요', '보유한 적립금과 쿠폰은 소멸되고 복구할 수 없어요', '주문·결제 기록은 관계 법령에 따라 5년간 보관돼요', '같은 이메일로는 30일 후에 다시 가입할 수 있어요'].map(text => (
-          <div key={text} className="flex items-start gap-2">
-            <span className="mt-0.5 text-[var(--muted)]">·</span>
-            <p className="text-[13px] leading-relaxed">{text}</p>
-          </div>
-        ))}
-      </div>
-      <Field label="탈퇴 사유">
-        <select aria-label="탈퇴 사유" className="field"><option>사용 빈도가 낮아요</option><option>다른 사유</option></select>
-      </Field>
-      <Field label="비밀번호 확인" required><input aria-label="비밀번호 확인" className="field" type="password" placeholder="••••••••"/></Field>
-      <label className="flex items-center gap-3">
-        <input type="checkbox" className="h-4 w-4"/>
-        <span className="text-[13px]">안내 사항을 모두 확인했고 탈퇴에 동의해요</span>
-      </label>
-      <Button type="submit" className="w-full">탈퇴하기</Button>
-    </form>
-  );
-
+  if (section === 'withdraw') return <WithdrawForm/>;
   // ── 알림 설정 fallback ──────────────────────────────────────
   return (
     <form className="space-y-5" onSubmit={handleSubmit}>
@@ -916,4 +886,59 @@ export function TermsPage() {
   const allRequired = items.filter(([,, r]) => r).every(([k]) => checks[k]);
   const allChecked = items.every(([k]) => checks[k]);
   return <div className="space-y-5"><Header title="판매자 약관 동의"/><div className="space-y-2"><p className="text-[10px] font-bold tracking-[1px]">STOCKDROP PARTNERS</p><h1 className="text-[22px] font-bold leading-[1.5] tracking-[-1px]">심사 요청 전에<br/>판매자 약관을 확인해 주세요</h1><p className="muted text-[12px] leading-relaxed">한정 수량 선착순 판매는 구매자와의 약속이에요.<br/>운영 정책을 꼭 읽고 동의해 주세요.</p></div><label className="divider flex items-center gap-3 py-3 text-[14px] font-bold"><input type="checkbox" className="h-5 w-5" checked={allChecked} onChange={() => { const next = !allChecked; const obj: Record<string, boolean> = {}; items.forEach(([k]) => { obj[k] = next; }); setChecks(obj); }}/>전체 동의하기</label>{items.map(([key, label, required]) => <div key={key} className="divider flex items-center gap-2 py-3 text-[12px]"><label className="flex flex-1 items-center gap-3"><input type="checkbox" className="h-4 w-4 shrink-0" checked={checks[key] ?? false} onChange={e => setChecks({ ...checks, [key]: e.target.checked })}/><span>{required ? '필수' : '선택'} {'  '}{label}</span></label><Link to="/legal" className="muted shrink-0 text-[11px] underline">보기</Link></div>)}<Note title="한정 판매 운영 정책 요약"><p className="mb-2"><b>01</b> {'  '}판매가 시작되면 한정 수량과 가격을 변경할 수 없어요.</p><p className="mb-2"><b>02</b> {'  '}결제 완료 후 2영업일 이내에 출고해야 해요.</p><p><b>03</b> {'  '}출고 지연·품절 취소가 반복되면 판매가 제한될 수 있어요.</p></Note><Button className="w-full" disabled={!allRequired} onClick={() => navigate('/apply')}>동의하고 심사 요청하기</Button></div>;
+}
+
+/** 회원 탈퇴 — 실제 모드: 탈퇴 가능 여부 조회 후 DELETE /v1/accounts/me, 성공하면 로그아웃과 같이 로컬 세션을 끝낸다. mock 모드는 기존 토스트만 */
+function WithdrawForm() {
+  const toast = useToast(), navigate = useNavigate();
+  const [reason, setReason] = useState('사용 빈도가 낮아요'), [password, setPassword] = useState(''), [agree, setAgree] = useState(false), [error, setError] = useState(''), [busy, setBusy] = useState(false);
+  const elig = useApi(signal => (USE_MOCK ? Promise.resolve(null) : fetchWithdrawalEligibility(signal)), []);
+  const e = elig.data;
+  const canWithdraw = !!e && e.verified && e.canWithdraw; // verified=false면 탈퇴 가능으로 해석하지 않는다
+  const count = (n: number | null | undefined) => (n == null ? '확인 불가' : n ? `${n}건` : '없음');
+  const rows = e ? [['진행 중인 주문', count(e.activeOrders)], ['정산 대기', count(e.pendingSettlements)], ['판매 중인 드롭', count(e.activeSales)]] : [['진행 중인 주문', '없음'], ['정산 대기 금액', '0원'], ['판매 중인 드롭', '없음']];
+  const submit = async (ev: React.FormEvent) => {
+    ev.preventDefault();
+    if (USE_MOCK) { toast('탈퇴 처리 중입니다.'); return; }
+    if (!agree) { setError('안내 사항 확인에 동의해 주세요.'); return; }
+    if (!password) { setError('비밀번호를 입력해 주세요.'); return; }
+    setBusy(true); setError('');
+    try { await withdrawAccount(password, reason); api.setAccessToken(null); mutate(endSession); toast('탈퇴가 완료되었습니다.'); navigate('/', { replace: true }); }
+    catch (x) { setError(errorMessage(x)); } finally { setBusy(false); }
+  };
+  return (
+    <form className="space-y-5" onSubmit={submit}>
+      <Header title="회원 탈퇴"/>
+      {!USE_MOCK && <LiveStatus state={elig}/>}
+      <h2 className="text-[18px] font-bold">탈퇴 전에 꼭 확인해 주세요.</h2>
+      <div className="rounded-[8px] bg-[var(--canvas)] p-4 space-y-3">
+        {rows.map(([label, value]) => (
+          <div key={label} className="flex items-center justify-between">
+            <span className="text-[13px]">{label}</span>
+            <span className="muted text-[13px]">{value}</span>
+          </div>
+        ))}
+      </div>
+      <Note>진행 중인 거래가 있으면 완료된 뒤에 탈퇴할 수 있어요</Note>
+      <div className="space-y-3">
+        <p className="text-[13px] font-bold">탈퇴하면 이렇게 돼요</p>
+        {['계정 정보, 배송지, 알림 설정이 바로 삭제돼요', '보유한 적립금과 쿠폰은 소멸되고 복구할 수 없어요', '주문·결제 기록은 관계 법령에 따라 5년간 보관돼요', '같은 이메일로는 30일 후에 다시 가입할 수 있어요'].map(text => (
+          <div key={text} className="flex items-start gap-2">
+            <span className="mt-0.5 text-[var(--muted)]">·</span>
+            <p className="text-[13px] leading-relaxed">{text}</p>
+          </div>
+        ))}
+      </div>
+      <Field label="탈퇴 사유">
+        <select aria-label="탈퇴 사유" className="field" value={reason} onChange={e => setReason(e.target.value)}><option>사용 빈도가 낮아요</option><option>다른 사유</option></select>
+      </Field>
+      <Field label="비밀번호 확인" required><input aria-label="비밀번호 확인" className="field" type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)}/></Field>
+      <label className="flex items-center gap-3">
+        <input type="checkbox" className="h-4 w-4" checked={agree} onChange={e => setAgree(e.target.checked)}/>
+        <span className="text-[13px]">안내 사항을 모두 확인했고 탈퇴에 동의해요</span>
+      </label>
+      <ErrorBox message={error}/>
+      <Button type="submit" className="w-full" disabled={busy || (!USE_MOCK && !canWithdraw)}>{busy ? '처리 중…' : '탈퇴하기'}</Button>
+    </form>
+  );
 }
