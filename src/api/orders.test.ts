@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from './client';
 import { changeShippingAddress, confirmPayment, createOrder, getCheckout, getCheckoutTerms, getOrder, getPaymentClientKey, holdFromApi, holdStatus, listOrders, mergeCheckout, mergeOrderList, orderFromCommand, requestPayment } from './orders';
 import { emptyState } from '../domain';
@@ -12,7 +12,7 @@ const cmd = (o: Partial<OrderCommandDto> = {}): OrderCommandDto => ({
 const ok = (data: unknown, status = 200) => new Response(JSON.stringify({ success: true, code: 'COMMON_SUCCESS', message: '', data }), { status, headers: { 'content-type': 'application/json' } });
 type Call = { url: string; method: string; body?: any };
 function fake(handler: (c: Call) => Response) { const calls: Call[] = []; api.configure({ mock: false, fetch: (async (u: RequestInfo | URL, init?: RequestInit) => { const c = { url: String(u), method: init?.method ?? 'GET', body: init?.body ? JSON.parse(String(init.body)) : undefined }; calls.push(c); return handler(c); }) as typeof fetch }); return calls; }
-afterEach(() => api.configure({ fetch: undefined }));
+afterEach(() => { vi.useRealTimers(); api.configure({ fetch: undefined }); });
 
 describe('변환', () => {
   it('state → hold 상태 (HELD만 결제 가능, CONFIRMED만 완료)', () => {
@@ -20,8 +20,9 @@ describe('변환', () => {
     expect(holdStatus('CONFIRMED')).toBe('consumed'); expect(holdStatus('FAILED')).toBe('released'); expect(holdStatus('EXPIRED')).toBe('released');
   });
   it('만료 시각은 서버 시각 차이를 보정한다', () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date('2030-01-01T00:01:00Z')); // 시계 고정
     const h = holdFromApi(cmd({ serverTime: new Date(Date.now() - 60_000).toISOString(), expiresAt: new Date(Date.now() - 60_000 + 300_000).toISOString() }), 'u');
-    expect(Math.abs(h.expiresAt - (Date.now() + 300_000))).toBeLessThan(50);
+    expect(Math.abs(h.expiresAt - (Date.now() + 300_000))).toBe(0);
     expect(h.lines).toEqual([{ optionId: 'op1', name: '크림', quantity: 2 }]);
   });
   it('확정 checkout은 주문으로도 들어가고, 미확정은 주문이 되지 않는다', () => {
