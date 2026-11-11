@@ -1,8 +1,9 @@
 import { initialAuth } from './domain';
 import type { State } from './domain';
 import { atomic, getState, mutate } from './store';
-import { api, apiPost, apiGet, setAccessToken, ApiError } from './api';
-import { DEMO_ACCOUNT_IDS, DEMO_LOGIN } from './config';
+import { api, ApiError, errorMessage, homePathFor, rolesToFlags } from './api';
+import type { AccountDto, AuthTokens, ChallengeDto, LoginDto, ResetTokenDto, VerificationTokenDto } from './api';
+import { DEMO_ACCOUNT_IDS, DEMO_LOGIN, USE_MOCK } from './config';
 export const DEMO_PASSWORD = 'Stockdrop123!';
 export const normalizeEmail = (value: string) => value.trim().toLowerCase();
 export const validEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizeEmail(value));
@@ -12,12 +13,27 @@ export function safeNext(value: string | null | undefined) { return value && /^\
 export const loginHref = (next: string) => `/login?next=${encodeURIComponent(safeNext(next))}`;
 function ensure(s: State) { return s.auth ??= initialAuth(); }
 export function selectProfile(s: State, id: string) { const user = s.users.find(u => u.id === id); if (!user) throw new Error('계정을 찾을 수 없습니다.'); const a = ensure(s); a.userId = id; a.onboarded = true; s.activeUserId = id; s.mode = user.admin ? 'admin' : 'buyer'; }
-/** 데모 로그인 — 서버 없이 목업 계정으로 로그인 (VITE_DEMO_LOGIN일 때만) */
+/** 데모 로그인 — 서버 없이 목업 계정으로 로그인 (mock 모드일 때만) */
 export function demoLogin(id: string) { if (!DEMO_LOGIN) throw new Error('데모 로그인을 사용할 수 없습니다.'); mutate(s => { selectProfile(s, id); ensure(s).demo = true; }); }
 export function endSession(s: State) { ensure(s).demo = false; ensure(s).userId = null; s.activeUserId = ''; s.mode = 'buyer'; }
+
+/* ── 세션 연동: 재발급 실패 시 로그아웃(보호된 화면은 App이 로그인으로 보낸다), 재발급 시 역할 갱신 ── */
+api.configure({
+  onSessionExpired: () => { if (signedIn(getState())) mutate(endSession); },
+  onRefreshed: syncRoles,
+});
+/** 토큰의 roles를 현재 계정의 판매자·운영자 플래그에 반영한다 (판매자 승인 직후 재발급 등) */
+function syncRoles(tokens: Pick<AuthTokens, 'accountId' | 'roles'>) {
+  if (!tokens.accountId || !Array.isArray(tokens.roles)) return;
+  const flags = rolesToFlags(tokens.roles), user = getState().users.find(u => u.id === tokens.accountId);
+  if (user && (user.seller !== flags.seller || user.admin !== flags.admin)) mutate(s => { const u = s.users.find(u => u.id === tokens.accountId); if (u) Object.assign(u, flags); });
+}
+/** 지금 로그인한 계정이 처음 가야 할 화면 (운영자 /admin, 판매자 /seller, 그 외 홈) */
+export function homePath(s: State = getState()) { const u = s.users.find(u => u.id === s.activeUserId); return u ? homePathFor({ seller: u.seller, admin: u.admin }) : '/'; }
+
 export async function logout() {
-  try { await api.post('/v1/auth/logout', undefined, { csrf: true, auth: false }); } catch {}
-  setAccessToken(null);
+  try { await api.post('/v1/auth/logout', undefined, { csrf: true, auth: false }); } catch { /* 서버에 닿지 않아도 이 기기의 세션은 끝낸다 */ }
+  api.setAccessToken(null);
   mutate(endSession);
 }
 export async function sendCode(emailValue: string, purpose: 'signup' | 'reset') {
@@ -26,8 +42,9 @@ export async function sendCode(emailValue: string, purpose: 'signup' | 'reset') 
   const now = Date.now(), key = `${purpose}:${email}`;
   const old = getState().auth?.challenges[key];
   if (old && now - old.sentAt < 60_000) throw new Error('인증번호는 60초 후 다시 요청할 수 있습니다.');
-  const path = purpose === 'signup' ? '/auth/email-verifications' : '/auth/password-resets';
-  const data = await apiPost(path, { email }) as { challengeId: string; expiresAt: string; resendAvailableAt: string };
+  const path = purpose === 'signup' ? '/v1/auth/email-verifications' : '/v1/auth/password-resets';
+  let data: ChallengeDto;
+  try { data = await api.post<ChallengeDto>(path, { email }, { auth: false }); } catch (e) { throw new Error(errorMessage(e)); }
   const expiresAt = new Date(data.expiresAt).getTime(), resendAvailableAt = new Date(data.resendAvailableAt).getTime();
   await atomic(s => { ensure(s).challenges[key] = { email, purpose, code: '', challengeId: data.challengeId, sentAt: resendAvailableAt - 60_000, expiresAt, attempts: 0, verified: false }; });
 }
@@ -35,30 +52,35 @@ export async function verifyCode(email: string, purpose: 'signup' | 'reset', cod
   const nEmail = normalizeEmail(email), key = `${purpose}:${nEmail}`;
   const c = getState().auth?.challenges[key];
   if (!c?.challengeId) return '인증번호를 먼저 요청해 주세요.';
-  const path = purpose === 'signup' ? '/auth/email-verifications/confirm' : '/auth/password-resets/confirm';
+  const path = purpose === 'signup' ? '/v1/auth/email-verifications/confirm' : '/v1/auth/password-resets/confirm';
   try {
-    const data = await apiPost(path, { email: nEmail, challengeId: c.challengeId, code }) as { verificationToken?: string; resetToken?: string };
+    const data = await api.post<VerificationTokenDto & ResetTokenDto>(path, { email: nEmail, challengeId: c.challengeId, code }, { auth: false });
     const token = data.verificationToken ?? data.resetToken ?? '';
     await atomic(s => { const ch = s.auth?.challenges[key]; if (ch) { ch.verified = true; ch.token = token; } });
     return null;
-  } catch (e) { return (e as Error).message; }
+  } catch (e) { return errorMessage(e); }
 }
-export async function login(emailValue: string, password: string) {
+/** 로그인. 끝나면 이 계정이 처음 갈 화면(역할별)을 돌려준다 */
+export async function login(emailValue: string, password: string): Promise<string> {
   const email = normalizeEmail(emailValue);
-  if (DEMO_LOGIN) { const demo = getState().users.find(u => DEMO_ACCOUNT_IDS.includes(u.id) && normalizeEmail(u.email) === email); if (demo) { if (password !== DEMO_PASSWORD) throw new Error('이메일 또는 비밀번호를 확인해 주세요.'); demoLogin(demo.id); return; } }
-  const data = await api.post<{ accessToken: string; accountId: string; roles: string[] }>('/v1/auth/login', { email, password }, { csrf: true, auth: false });
-  setAccessToken(data.accessToken);
+  if (DEMO_LOGIN) {
+    const demo = getState().users.find(u => DEMO_ACCOUNT_IDS.includes(u.id) && normalizeEmail(u.email) === email);
+    if (demo) { if (password !== DEMO_PASSWORD) throw new Error('이메일 또는 비밀번호를 확인해 주세요.'); demoLogin(demo.id); return '/'; }
+  }
+  if (USE_MOCK) throw new Error('이메일 또는 비밀번호를 확인해 주세요.');
+  let data: LoginDto;
+  try { data = await api.post<LoginDto>('/v1/auth/login', { email, password }, { csrf: true, auth: false }); } catch (e) { throw new Error(errorMessage(e)); }
+  api.setAccessToken(data.accessToken);
+  const flags = rolesToFlags(data.roles);
   await atomic(s => {
     let user = s.users.find(u => normalizeEmail(u.email) === email);
-    const seller = data.roles.some(r => r.toUpperCase() === 'SELLER'), admin = data.roles.some(r => r.toUpperCase() === 'ADMIN');
-    if (user) { user.id = data.accountId; user.seller = seller; user.admin = admin; }
-    else { user = { id: data.accountId, name: email.split('@')[0], email, phone: '', seller, admin }; s.users.push(user); }
+    if (user) { user.id = data.accountId; Object.assign(user, flags); }
+    else { user = { id: data.accountId, name: email.split('@')[0], email, phone: '', ...flags }; s.users.push(user); }
     selectProfile(s, data.accountId);
   });
-  // sync display name from server (fire-and-forget)
-  apiGet('/accounts/me').then((me: any) => {
-    if (me?.name) mutate(s => { const u = s.users.find(u => u.id === data.accountId); if (u) u.name = me.name; });
-  }).catch(() => {});
+  // 표시 이름은 서버 값으로 맞춘다 (실패해도 로그인은 유지)
+  api.get<AccountDto>('/v1/accounts/me').then(me => { if (me?.name) mutate(s => { const u = s.users.find(u => u.id === data.accountId); if (u) u.name = me.name; }); }).catch(() => {});
+  return homePath();
 }
 export async function signup(input: { email: string; password: string; name: string; phone: string; age: boolean; terms: boolean; privacy: boolean; marketing: boolean }) {
   if (!validPassword(input.password)) throw new Error('비밀번호는 영문·숫자·특수문자를 포함한 8~32자로 입력해 주세요.');
@@ -67,7 +89,8 @@ export async function signup(input: { email: string; password: string; name: str
   const email = normalizeEmail(input.email), key = `signup:${email}`;
   const c = getState().auth?.challenges[key];
   if (!c?.verified || !c.token) throw new Error('이메일 인증을 다시 진행해 주세요.');
-  await apiPost('/auth/signup', { email, password: input.password, name: input.name.trim(), verificationToken: c.token, marketingConsent: input.marketing });
+  // 가입 API는 토큰을 발급하지 않으므로 가입 뒤 이어서 로그인한다. 전화번호는 가입 API에 없다(docs/api-gap.md)
+  try { await api.post('/v1/auth/signup', { email, password: input.password, name: input.name.trim(), verificationToken: c.token, marketingConsent: input.marketing }, { auth: false }); } catch (e) { throw new Error(errorMessage(e)); }
   await login(email, input.password);
   await atomic(s => {
     const user = s.users.find(u => normalizeEmail(u.email) === email);
@@ -75,31 +98,24 @@ export async function signup(input: { email: string; password: string; name: str
     delete s.auth?.challenges[key];
   });
 }
+/** 앱을 다시 열었을 때 Refresh 쿠키로 Access JWT를 복원한다. 서버가 거절(401·403)하면 이 기기의 로그인을 끝낸다 */
 export async function restoreSession(): Promise<boolean> {
-  try {
-    const data = await api.refresh();
-    if (data.accountId && Array.isArray(data.roles)) {
-      const seller = data.roles.some(r => r.toUpperCase() === 'SELLER');
-      const admin = data.roles.some(r => r.toUpperCase() === 'ADMIN');
-      mutate(s => { const u = s.users.find(u => u.id === data.accountId); if (u) { u.seller = seller; u.admin = admin; } });
-    }
-    return true;
-  } catch (e) {
-    setAccessToken(null);
-    // only log out on explicit auth rejection (401/403); network errors and 404 keep mock session intact
+  try { await api.refresh(); return true; }
+  catch (e) {
+    // 네트워크 오류·서버 오류·mock 모드에서는 저장된 세션을 그대로 둔다
     if (e instanceof ApiError && (e.status === 401 || e.status === 403)) mutate(endSession);
     return false;
   }
 }
 export async function changePassword(currentPassword: string, newPassword: string) {
   if (!validPassword(newPassword)) throw new Error('비밀번호는 영문·숫자·특수문자를 포함한 8~32자로 입력해 주세요.');
-  await api.put('/v1/accounts/me/password', { currentPassword, newPassword });
+  try { await api.put('/v1/accounts/me/password', { currentPassword, newPassword }); } catch (e) { throw new Error(errorMessage(e)); }
 }
 export async function resetPassword(emailValue: string, password: string) {
   if (!validPassword(password)) throw new Error('영문·숫자·특수문자를 포함한 8~32자로 입력해 주세요.');
   const email = normalizeEmail(emailValue), key = `reset:${email}`;
   const c = getState().auth?.challenges[key];
   if (!c?.verified || !c.token) throw new Error('이메일 인증을 다시 진행해 주세요.');
-  await apiPost('/auth/password-resets/complete', { email, resetToken: c.token, newPassword: password });
-  mutate(s => { delete s.auth?.challenges[key]; delete s.auth?.loginFailures?.[email]; const user = s.users.find(u => normalizeEmail(u.email) === email); if (user && s.auth?.userId === user.id) endSession(s); });
+  try { await api.post('/v1/auth/password-resets/complete', { email, resetToken: c.token, newPassword: password }, { auth: false }); } catch (e) { throw new Error(errorMessage(e)); }
+  mutate(s => { delete s.auth?.challenges[key]; delete s.auth?.loginFailures?.[email]; const user = s.users.find(u => normalizeEmail(u.email) === email); if (user && s.auth?.userId === user.id) { api.setAccessToken(null); endSession(s); } });
 }
