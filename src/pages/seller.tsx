@@ -1,7 +1,7 @@
 import { LogoutButton } from './auth';
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Plus, Check, ChevronRight, Rocket, ScanSearch, Share2, Truck } from 'lucide-react';
+import { Plus, Check, ChevronRight, FileText, Info, Rocket, ScanSearch, Share2, Truck } from 'lucide-react';
 import { activeUser, feeFor, markDelivered, money, nowOf, saleState, uid } from '../domain';
 import type { Order, SellerSettings } from '../domain';
 import { atomic, mutate, useStore } from '../store';
@@ -126,6 +126,18 @@ export function SellerProductPage() {
           </div>
         </div>
       </div>
+      {approved && <section className="space-y-3">
+        <div className="flex items-center justify-between"><h2 className="text-[16px] font-bold">구매자에게 이렇게 보여요</h2><Link to={`/product/${p.id}`} className="muted flex items-center text-[12px]">미리보기<ChevronRight size={14}/></Link></div>
+        <div className="flex gap-3 rounded-[6px] border border-[var(--line)] p-3">
+          <ProductImage src={p.images[0]} alt={p.name} className="h-[72px] w-[72px] shrink-0 rounded-[4px]"/>
+          <div className="min-w-0 flex-1 space-y-1">
+            <p className="muted text-[11px] font-bold">{md(p.startsAt).split(' ')[0]} {hm(p.startsAt)} 오픈 · {totalStock}개 한정</p>
+            <p className="truncate text-[14px]">{p.name}</p>
+            <p className="font-number text-[16px] font-bold">{p.reference?.price && p.reference.price > p.price && <span className="mr-1.5 text-[var(--green)]">{Math.round((1 - p.price / p.reference.price) * 100)}%</span>}{money(p.price)}</p>
+            {p.reference?.price && p.reference.price > p.price && <p className="muted text-[11px]">{p.reference.platform} {money(p.reference.price)}보다 {money(p.reference.price - p.price)} 저렴</p>}
+          </div>
+        </div>
+      </section>}
       <div className="flex gap-2 pt-4"><Link to="/seller" className="btn btn-outline flex-1">판매자 홈</Link><Link to={approved ? '/seller/products' : '/seller/new'} className="btn flex-[1.6]">{approved ? '판매 상품 관리' : '다른 상품 등록하기'}</Link></div>
     </div>;
   }
@@ -389,6 +401,7 @@ export function SellerMyPage() {
         <p className="muted mb-2 mt-4 text-[13px] font-bold">설정</p>
         <MenuRow to="/seller/settings/account" label="알림 설정"/>
         <MenuRow to="/seller/support" label="이용 안내 · 고객지원"/>
+        <button className="divider flex min-h-[52px] w-full items-center gap-3 text-left" onClick={() => { mutate(state => { state.mode = 'buyer'; }); navigate('/'); }}><span className="min-w-0 flex-1 text-[13px]">구매자 모드로 전환</span><ChevronRight size={17} className="muted"/></button>
       </section>
       <div className="text-center"><LogoutButton/></div>
     </div>
@@ -445,29 +458,29 @@ export function SellerSettingsPage() {
     <form className="space-y-5" onSubmit={handleSubmit}>
       <Header title="사업자 서류 · 담당자 정보"/>
       <section className="space-y-4">
-        <h2 className="text-[14px] font-bold text-[var(--muted)]">사업자 서류</h2>
-        <div className="rounded-[6px] border border-[var(--line)] p-4 space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[13px] font-bold">사업자등록증</span>
-            <span className="rounded-[3px] bg-[var(--green-soft)] px-2 py-0.5 text-[10px] font-bold text-[var(--green)]">확인 완료</span>
+        <h2 className="text-[13px] font-bold text-[var(--muted)]">사업자 서류</h2>
+        <div className="divider flex items-center gap-3 pb-4">
+          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-[6px] bg-[var(--canvas)]"><FileText size={18} className="muted"/></div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2"><span className="text-[14px] font-bold">사업자등록증</span><span className="rounded-[3px] bg-[var(--green-soft)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--green)]">확인 완료</span></div>
+            <p className="muted mt-0.5 text-[12px]">lomfield_biz.pdf · 2026.05.02 업로드</p>
           </div>
-          <p className="muted text-[12px]">lomfield_biz.pdf · 2026.05.02 업로드</p>
-          <button type="button" className="muted text-[12px] underline">보기</button>
+          <button type="button" className="h-8 shrink-0 rounded-[4px] border border-[var(--line)] px-2.5 text-[12px] font-bold">보기</button>
         </div>
-        {form.business && <div className="rounded-[6px] bg-[var(--canvas)] p-4 space-y-2">
+        {form.business && <div className="space-y-1.5 px-2 text-[12px]">
           {form.business.name && <InfoRow label="상호" value={form.business.name}/>}
           {form.business.registrationNumber && <InfoRow label="사업자등록번호" value={form.business.registrationNumber}/>}
           {form.business.representative && <InfoRow label="대표자" value={form.business.representative}/>}
           {form.business.businessType && <InfoRow label="업태 · 종목" value={form.business.businessType}/>}
         </div>}
-        <Note>사업자 정보 변경은 고객지원으로 요청해 주세요.</Note>
+        <p className="muted px-1 text-[12px]">사업자 정보 변경은 고객지원으로 요청해 주세요.</p>
       </section>
-      <div className="h-2 -mx-4 bg-[var(--canvas)]"/>
+      <div className="-mx-4 h-px bg-[var(--line)]"/>
       <section className="space-y-4">
-        <h2 className="text-[14px] font-bold text-[var(--muted)]">담당자 정보</h2>
-        <Field label="담당자 이름" required><input aria-label="담당자 이름" className="field" value={user.name} readOnly/></Field>
-        <Field label="연락처" required hint="출고 · 정산 관련 긴급 연락에 사용돼요."><input aria-label="연락처" className="field" value={phone} onChange={e => setPhone(e.target.value)} type="tel"/></Field>
-        <Field label="업무 이메일" required><input aria-label="업무 이메일" className="field" value={email} onChange={e => setEmail(e.target.value)} type="email"/></Field>
+        <h2 className="text-[13px] font-bold text-[var(--muted)]">담당자 정보</h2>
+        <Field label="담당자 이름" required><input aria-label="담당자 이름" className="field-line" value={user.name} readOnly/></Field>
+        <Field label="연락처" required hint="출고 · 정산 관련 긴급 연락에 사용돼요."><input aria-label="연락처" className="field-line" value={phone} onChange={e => setPhone(e.target.value)} type="tel"/></Field>
+        <Field label="업무 이메일" required><input aria-label="업무 이메일" className="field-line" value={email} onChange={e => setEmail(e.target.value)} type="email"/></Field>
       </section>
       <ErrorBox message={error}/>
       <Button type="submit" className="w-full" disabled={busy}>{busy ? '저장 중…' : '저장하기'}</Button>
@@ -478,29 +491,26 @@ export function SellerSettingsPage() {
   if (section === 'bank') return (
     <form className="space-y-5" onSubmit={handleSubmit}>
       <Header title="정산 계좌 관리"/>
-      <section className="rounded-[8px] bg-[var(--canvas)] p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <p className="text-[13px] font-bold">현재 정산 계좌</p>
-          <span className="rounded-[3px] bg-[var(--green-soft)] px-2 py-0.5 text-[10px] font-bold text-[var(--green)]">인증 완료</span>
-        </div>
+      <h2 className="text-[13px] font-bold text-[var(--muted)]">현재 정산 계좌</h2>
+      <section className="rounded-[8px] bg-[var(--canvas)] p-5">
         <div>
-          <p className="text-[13px] font-bold">{form.bank || 'KB국민은행'}</p>
+          <div className="flex items-center justify-between"><p className="muted text-[13px]">{form.bank || 'KB국민은행'}</p><span className="flex items-center gap-1 rounded-[3px] bg-[var(--surface)] px-2 py-0.5 text-[10px] font-bold text-[var(--green)]"><Check size={11}/>인증 완료</span></div>
           <p className="font-number text-[22px] font-bold mt-1">123456-04-***024</p>
           <p className="muted text-[11px] mt-1">예금주 로엠필드(김서윤) · 2026.05.08 등록</p>
         </div>
       </section>
-      <div className="rounded-[6px] border border-[var(--line)] p-4 space-y-3">
+      <div className="space-y-2">
         <InfoRow label="정산 주기" value="구매 확정 후 D+7 영업일"/>
         <InfoRow label="다음 정산 예정일" value="2026.11.11 (수)"/>
         <InfoRow label="정산 예정 금액" value={<span className="font-bold">1,284,000원</span>}/>
-        <button type="button" className="w-full rounded-[6px] border border-[var(--line)] py-2 text-[12px] font-bold">정산 내역 보기</button>
+        <button type="button" className="flex items-center pt-1 text-[13px] font-bold">정산 내역 보기<ChevronRight size={15}/></button>
       </div>
-      <div className="h-px bg-[var(--line)]"/>
-      <h2 className="text-[14px] font-bold">계좌 변경</h2>
-      <Field label="은행" required><select aria-label="은행" value={form.bank || ''} onChange={e => change('bank', e.target.value)} className="field"><option value="">은행을 선택해 주세요</option>{['KB국민은행','신한은행','우리은행','하나은행','IBK기업은행','NH농협은행','카카오뱅크','토스뱅크'].map(b => <option key={b}>{b}</option>)}</select></Field>
-      <Field label="계좌번호" required hint="'-' 없이 숫자만 입력"><input aria-label="계좌번호" className="field" inputMode="numeric" value={form.account ?? ''} onChange={e => change('account', e.target.value)} placeholder="'-' 없이 숫자만 입력"/></Field>
-      <Field label="예금주"><input aria-label="예금주" className="field" value={form.holder ?? ''} onChange={e => change('holder', e.target.value)}/></Field>
-      <Note>사업자등록증의 상호 또는 대표자명과 같아야 해요. 1원 입금으로 본인 계좌를 확인해요. 변경한 계좌는 다음 정산부터 적용돼요.</Note>
+      <div className="-mx-4 h-px bg-[var(--line)]"/>
+      <h2 className="text-[13px] font-bold text-[var(--muted)]">계좌 변경</h2>
+      <Field label="은행" required><select aria-label="은행" value={form.bank || ''} onChange={e => change('bank', e.target.value)} className="field-line"><option value="">은행을 선택해 주세요</option>{['KB국민은행','신한은행','우리은행','하나은행','IBK기업은행','NH농협은행','카카오뱅크','토스뱅크'].map(b => <option key={b}>{b}</option>)}</select></Field>
+      <Field label="계좌번호" required><input aria-label="계좌번호" className="field-line" inputMode="numeric" value={form.account ?? ''} onChange={e => change('account', e.target.value)} placeholder="'-' 없이 숫자만 입력"/></Field>
+      <Field label="예금주" hint="사업자등록증의 상호 또는 대표자명과 같아야 해요"><input aria-label="예금주" className="field-line" value={form.holder ?? ''} onChange={e => change('holder', e.target.value)}/></Field>
+      <div className="flex gap-2 rounded-[6px] bg-[var(--canvas)] p-4 text-[12px] text-[#7B7B7B]"><Info size={15} className="mt-px shrink-0"/><p>1원 입금으로 본인 계좌를 확인해요. 변경한 계좌는 다음 정산부터 적용돼요.</p></div>
       <ErrorBox message={error}/>
       <Button type="submit" className="w-full" disabled={busy}>{busy ? '저장 중…' : '계좌 인증하고 변경'}</Button>
     </form>
@@ -672,11 +682,11 @@ export function SellerSettingsPage() {
   if (section === 'shipping') return (
     <form className="space-y-5" onSubmit={async e => { e.preventDefault(); toast('배송 설정을 저장했습니다.'); }}>
       <Header title="택배사 · 배송비 변경"/>
-      <Field label="반품 택배사" required><select aria-label="반품 택배사" value={shipCarrier} onChange={e => setShipCarrier(e.target.value)} className="field">{['CJ대한통운', '한진택배', '롯데택배', '우체국택배'].map(c => <option key={c}>{c}</option>)}</select></Field>
-      <Field label="택배 집하 시간" required><select aria-label="택배 집하 시간" value={shipPickup} onChange={e => setShipPickup(e.target.value)} className="field">{['평일 14:00', '평일 15:00', '평일 16:00', '평일 17:00'].map(t => <option key={t}>{t}</option>)}</select></Field>
-      <Field label="반품 배송비 (편도)" required><input aria-label="반품 배송비" type="number" inputMode="numeric" min={0} step={500} value={returnFee} onChange={e => setReturnFee(e.target.value)} className="field"/></Field>
-      <Field label="교환 배송비 (왕복)" required><input aria-label="교환 배송비" type="number" inputMode="numeric" min={0} step={500} value={exchangeFee} onChange={e => setExchangeFee(e.target.value)} className="field"/></Field>
-      <Note>변경 내용은 새로 등록하는 드롭부터 적용돼요. 이미 등록된 상품은 등록 시점의 배송 설정을 유지해요.</Note>
+      <Field label="반품 택배사" required><select aria-label="반품 택배사" value={shipCarrier} onChange={e => setShipCarrier(e.target.value)} className="field rounded-[6px] border px-4 text-[15px]">{['CJ대한통운', '한진택배', '롯데택배', '우체국택배'].map(c => <option key={c}>{c}</option>)}</select></Field>
+      <Field label="택배 집하 시간" required><select aria-label="택배 집하 시간" value={shipPickup} onChange={e => setShipPickup(e.target.value)} className="field rounded-[6px] border px-4 text-[15px]">{['평일 14:00', '평일 15:00', '평일 16:00', '평일 17:00'].map(t => <option key={t}>{t}</option>)}</select></Field>
+      <Field label="반품 배송비 (편도)" required><input aria-label="반품 배송비" type="number" inputMode="numeric" min={0} step={500} value={returnFee} onChange={e => setReturnFee(e.target.value)} className="field-line"/></Field>
+      <Field label="교환 배송비 (왕복)" required><input aria-label="교환 배송비" type="number" inputMode="numeric" min={0} step={500} value={exchangeFee} onChange={e => setExchangeFee(e.target.value)} className="field-line"/></Field>
+      <div className="space-y-1 rounded-[6px] bg-[var(--canvas)] p-4"><p className="text-[13px] font-bold">변경 내용은 새로 등록하는 드롭부터 적용돼요</p><p className="muted text-[12px]">이미 등록된 상품은 등록 시점의 배송 설정을 유지해요.</p></div>
       <Button type="submit" className="w-full">저장하기</Button>
     </form>
   );
@@ -699,20 +709,20 @@ export function SellerSettingsPage() {
       </div>
       <Field label="스토어 이름" required>
         <div className="relative">
-          <input aria-label="스토어 이름" className="field pr-10" value={form.displayName ?? ''} onChange={e => change('displayName', e.target.value)}/>
+          <input aria-label="스토어 이름" className="field-line pr-10" value={form.displayName ?? ''} onChange={e => change('displayName', e.target.value)}/>
           <button type="button" aria-label="지우기" onClick={() => change('displayName', '')} className="absolute right-3 top-1/2 -translate-y-1/2"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" stroke="#949494" strokeWidth="1.2"/><path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="#949494" strokeWidth="1.2" strokeLinecap="round"/></svg></button>
         </div>
         <p className="muted mt-1 text-[12px]">이름 변경은 30일에 한 번 가능해요</p>
       </Field>
       <Field label="스토어 한 줄 소개">
         <div className="relative">
-          <input aria-label="스토어 한 줄 소개" className="field pr-14" placeholder="오래 입는 기본 니트를 만듭니다" maxLength={40}/>
+          <input aria-label="스토어 한 줄 소개" className="field-line pr-14" placeholder="오래 입는 기본 니트를 만듭니다" maxLength={40}/>
           <span className="muted absolute right-3 top-1/2 -translate-y-1/2 text-[12px]">0/40</span>
         </div>
       </Field>
       <Button type="submit" className="w-full" disabled={busy}>{busy ? '저장 중…' : '저장하기'}</Button>
       <div className="h-px bg-[var(--line)]"/>
-      <h2 className="text-[14px] font-bold text-[var(--muted)]">로그인 정보</h2>
+      <h2 className="text-[13px] font-bold text-[var(--muted)]">로그인 정보</h2>
       <div className="divider flex items-center justify-between py-4">
         <span className="text-[15px]">로그인 이메일</span>
         <div className="flex items-center gap-2">
@@ -848,7 +858,8 @@ export function SellerSupportPage() {
 export function InspectionFailPage() {
   const { id } = useParams(); const s = useStore(), user = activeUser(s), navigate = useNavigate(); const p = s.products.find(p => p.id === id && p.sellerId === user.id); if (!user.seller) return <Unavailable/>; if (!p) return <Empty title="상품을 찾을 수 없어요"><Link to="/seller" className="btn">판매자 홈</Link></Empty>;
   const CRITERIA = ['정품 여부', '상품 상태', '구성품', '수량'];
-  const result = (p as any).inspectionResult as Record<string, { pass: boolean; reason: string }> | undefined;
+  // shortcut: 검수 결과 API 전이라 결과가 없으면 Figma 예시 결과를 보여 준다, 검수 API 연결 시 교체
+  const result = ((p as any).inspectionResult ?? { '정품 여부': { pass: true, reason: '브랜드 정품 인증 확인' }, '상품 상태': { pass: false, reason: '등록 사진과 달리 외박스 모서리에 찍힘이 있어요' }, '구성품': { pass: false, reason: '설명서와 품질보증서가 빠져 있어요' }, '수량': { pass: true, reason: `옵션별 한정 수량 ${p.options.reduce((n, o) => n + o.stock, 0)}개 일치` } }) as Record<string, { pass: boolean; reason: string }>;
   const failCount = CRITERIA.filter(label => result?.[label] && !result[label].pass).length;
   return <div className="space-y-5">
     <div className="flex items-center justify-between pt-1">
