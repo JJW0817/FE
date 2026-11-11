@@ -1,7 +1,7 @@
 {
   "rewrites": [
-    { "source": "/pg/:path*", "destination": "https://PG_TUNNEL_HOST/:path*" },
-    { "source": "/api/:path*", "destination": "https://GW_TUNNEL_HOST/api/:path*" },
+    { "source": "/pg/:path*", "destination": "https://depending-skin-betty-preliminary.trycloudflare.com/:path*" },
+    { "source": "/api/:path*", "destination": "https://carrying-extra-rio-followed.trycloudflare.com/api/:path*" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
