@@ -38,7 +38,19 @@ export async function logout() {
   api.setAccessToken(null);
   mutate(endSession);
 }
-export async function sendCode(emailValue: string, purpose: 'signup' | 'reset') {
+/** 서버 시각은 나노초(.200089800Z)까지 온다 — 밀리초 3자리로 잘라 파싱한다(Safari 호환) */
+export const parseServerTime = (v: string) => new Date(v.replace(/(\.\d{3})\d+/, '$1')).getTime();
+const sending = new Map<string, Promise<void>>();
+/** 같은 목적·이메일로 발송 중이면 새 요청을 보내지 않고 진행 중인 것을 돌려준다(중복 클릭·StrictMode) */
+export function sendCode(emailValue: string, purpose: 'signup' | 'reset') {
+  const key = `${purpose}:${normalizeEmail(emailValue)}`;
+  const running = sending.get(key);
+  if (running) return running;
+  const p = doSendCode(emailValue, purpose).finally(() => sending.delete(key));
+  sending.set(key, p);
+  return p;
+}
+async function doSendCode(emailValue: string, purpose: 'signup' | 'reset') {
   const email = normalizeEmail(emailValue);
   if (!validEmail(email)) throw new Error('올바른 이메일 주소를 입력해 주세요.');
   const now = Date.now(), key = `${purpose}:${email}`;
@@ -46,8 +58,8 @@ export async function sendCode(emailValue: string, purpose: 'signup' | 'reset') 
   if (old && now - old.sentAt < 60_000) throw new Error('인증번호는 60초 후 다시 요청할 수 있습니다.');
   const path = purpose === 'signup' ? '/v1/auth/email-verifications' : '/v1/auth/password-resets';
   let data: ChallengeDto;
-  try { data = await api.post<ChallengeDto>(path, { email }, { auth: false }); } catch (e) { throw new Error(errorMessage(e)); }
-  const expiresAt = new Date(data.expiresAt).getTime(), resendAvailableAt = new Date(data.resendAvailableAt).getTime();
+  try { data = await api.post<ChallengeDto>(path, { email }, { auth: false }); } catch (e) { throw e instanceof ApiError ? new ApiError(errorMessage(e), e.status, e.code, e.traceId, e.violations) : new Error(errorMessage(e)); }
+  const expiresAt = parseServerTime(data.expiresAt), resendAvailableAt = parseServerTime(data.resendAvailableAt);
   await atomic(s => { ensure(s).challenges[key] = { email, purpose, code: '', challengeId: data.challengeId, sentAt: resendAvailableAt - 60_000, expiresAt, attempts: 0, verified: false }; });
 }
 export async function verifyCode(email: string, purpose: 'signup' | 'reset', code: string): Promise<string | null> {

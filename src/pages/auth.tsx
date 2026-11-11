@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Bell, Check, Eye, EyeOff, PackageCheck, Package, Tag, ShieldCheck } from 'lucide-react';
+import { CodeInput } from '../components/CodeInput';
 import { Button, ErrorBox, Field, Header, Modal, Note, useToast } from '../components/ui';
 import { getState, mutate, useStore } from '../store';
 import { initialAuth } from '../domain';
+import type { ApiError } from '../api';
 import { errorMessage, fetchMySettings, saveInterests, saveMarketingConsent, saveNotificationSettings } from '../api';
 import { homePath, login, logout, normalizeEmail, resetPassword, safeNext, sendCode, signedIn, signup, validEmail, validPassword, verifyCode, demoLogin } from '../auth';
 import { DEMO_ACCOUNTS, DEMO_LOGIN, USE_MOCK } from '../config';
@@ -45,11 +47,7 @@ function EmailVerification({ email, setEmail, purpose, onError }: { email: strin
           <div className="flex items-center gap-2"><span className="text-[13px] font-bold">인증번호</span><span className="text-[11px] text-[var(--muted)]">· 필수</span></div>
           {remainLabel && <span className="text-[12px] font-bold text-[var(--red)]">{remainLabel}</span>}
         </div>
-        <div className="flex gap-1.5 py-3">
-          {[0,1,2,3,4,5].map(i => <div key={i} className={`flex h-[55px] flex-1 items-center justify-center rounded-[4px] border text-[22px] font-bold ${codeError ? 'border-[var(--red)]' : code.length > i ? 'border-[var(--ink)]' : 'border-[var(--line)]'}`}>{code[i] ?? ''}</div>)}
-        </div>
-        {/* hidden real input for keyboard input */}
-        <input aria-label="이메일 인증번호" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={e => { setCode(e.target.value.replace(/\D/g, '')); setCodeError(''); }} className="sr-only"/>
+        <CodeInput value={code} onChange={v => { setCode(v); setCodeError(''); }} error={!!codeError}/>
         {codeError && <p className="text-[12px] text-[var(--red)]">인증번호가 일치하지 않아요.</p>}
         {!remain && <p className="text-[12px] text-[var(--muted)]">인증 시간이 지났어요. 다시 요청해 주세요.</p>}
       </div>
@@ -71,7 +69,7 @@ export function LegalPage() { const [params] = useSearchParams(); const kind = p
 /** 회원가입 1단계: 이름 + 이메일 인증 → /signup/info 로 이동 */
 export function SignupPage() {
   const s = useStore(), next = useNext(), navigate = useNavigate();
-  const [email, setEmail] = useState(''), [name, setName] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const [email, setEmail] = useState(''), [name, setName] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState(''), [exists, setExists] = useState(false);
   if (signedIn(s)) return <Navigate to={next} replace/>;
   const handleSend = async () => {
     if (!validEmail(email) || !name.trim() || busy) return;
@@ -79,7 +77,7 @@ export function SignupPage() {
     try {
       await sendCode(email, 'signup');
       navigate(`/signup/verify?email=${encodeURIComponent(email)}&name=${encodeURIComponent(name)}&next=${encodeURIComponent(next)}`);
-    } catch (e) { setError((e as Error).message); }
+    } catch (e) { setError((e as Error).message); setExists((e as ApiError).code === 'ACCOUNT_EMAIL_ALREADY_EXISTS'); }
     finally { setBusy(false); }
   };
   return (
@@ -90,9 +88,9 @@ export function SignupPage() {
       </div>
       <div className="space-y-6">
         <Field label="이름" required><input aria-label="이름" value={name} onChange={e => setName(e.target.value)} autoComplete="name" maxLength={30} placeholder="실명을 입력해 주세요" className={inputClass}/></Field>
-        <Field label="이메일" required><div className="flex items-center gap-3"><input aria-label="이메일" type="email" autoComplete="email" autoCapitalize="none" value={email} onChange={e => { setEmail(e.target.value); setError(''); }} placeholder="가입할 이메일 주소" className={`${inputClass} flex-1`}/><Button outline className="min-h-9! shrink-0 px-3 text-[11px]!" disabled={busy || !validEmail(email) || !name.trim()} onClick={handleSend}>{busy ? '전송 중…' : '인증번호 요청'}</Button></div></Field>
+        <Field label="이메일" required><div className="flex items-center gap-3"><input aria-label="이메일" type="email" autoComplete="email" autoCapitalize="none" value={email} onChange={e => { setEmail(e.target.value); setError(''); setExists(false); }} placeholder="가입할 이메일 주소" className={`${inputClass} flex-1`}/><Button outline className="min-h-9! shrink-0 px-3 text-[11px]!" disabled={busy || !validEmail(email) || !name.trim()} onClick={handleSend}>{busy ? '전송 중…' : '인증번호 요청'}</Button></div>{exists && <div className="mt-2 flex items-center justify-between gap-3"><p role="alert" className="text-[12px] text-[var(--red)]">이미 가입된 이메일이에요.</p><Link to={`/login?next=${encodeURIComponent(next)}`} className="btn btn-outline min-h-9! shrink-0 px-3 text-[11px]!">로그인하러 가기</Link></div>}</Field>
         <p className="muted text-[11px] leading-relaxed">구매와 판매에 사용할 하나의 계정을 만들어요.<br/>판매자 신청은 가입 후 마이페이지에서 진행할 수 있어요.</p>
-        <ErrorBox message={error}/>
+        <ErrorBox message={exists ? '' : error}/>
       </div>
     </AuthShell>
   );
@@ -101,14 +99,14 @@ export function SignupVerifyPage() {
   const s = useStore(), navigate = useNavigate();
   const [params] = useSearchParams();
   const email = params.get('email') || '', name = params.get('name') || '', next = safeNext(params.get('next'));
-  if (!email || !name) return <Navigate to={`/signup?next=${encodeURIComponent(next)}`} replace/>;
-  if (signedIn(s)) return <Navigate to={next} replace/>;
   const [code, setCode] = useState(''), [busy, setBusy] = useState(false), [codeError, setCodeError] = useState(''), [error, setError] = useState(''), [now, setNow] = useState(Date.now());
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
   const c = s.auth?.challenges[`signup:${normalizeEmail(email)}`];
   const remain = Math.max(0, Math.ceil(((c?.expiresAt ?? now) - now) / 1000));
   const cooldown = c ? Math.max(0, Math.ceil((c.sentAt + 60000 - now) / 1000)) : 0;
   const remainLabel = remain ? `${Math.floor(remain / 60).toString().padStart(2, '0')}:${String(remain % 60).padStart(2, '0')}` : '';
+  if (!email || !name) return <Navigate to={`/signup?next=${encodeURIComponent(next)}`} replace/>;
+  if (signedIn(s)) return <Navigate to={next} replace/>;
   const goNext = () => navigate(`/signup/info?email=${encodeURIComponent(email)}&name=${encodeURIComponent(name)}&next=${encodeURIComponent(next)}`, { replace: true });
   const resend = async () => { setBusy(true); setError(''); try { await sendCode(email, 'signup'); setNow(Date.now()); setCode(''); setCodeError(''); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } };
   const verify = async () => { setBusy(true); setError(''); setCodeError(''); try { const err = await verifyCode(email, 'signup', code); if (err) { setCodeError(err); setCode(''); } else goNext(); } catch (e) { setCodeError((e as Error).message); } finally { setBusy(false); } };
@@ -122,8 +120,7 @@ export function SignupVerifyPage() {
             <div className="flex items-center gap-2"><span className="text-[13px] font-bold">인증번호</span><span className="text-[11px] text-[var(--muted)]">· 필수</span></div>
             {remainLabel && <span className="text-[12px] font-bold text-[var(--red)]">{remainLabel}</span>}
           </div>
-          <div className="flex gap-1.5 py-3">{[0,1,2,3,4,5].map(i => <div key={i} className={`flex h-[55px] flex-1 items-center justify-center rounded-[4px] border text-[22px] font-bold ${codeError ? 'border-[var(--red)]' : code.length > i ? 'border-[var(--ink)]' : 'border-[var(--line)]'}`}>{code[i] ?? ''}</div>)}</div>
-          <input aria-label="이메일 인증번호" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={e => { setCode(e.target.value.replace(/\D/g, '')); setCodeError(''); }} className="sr-only"/>
+          <CodeInput value={code} onChange={v => { setCode(v); setCodeError(''); }} error={!!codeError}/>
           {codeError && <p className="text-[12px] text-[var(--red)]">인증번호가 일치하지 않아요.</p>}
           {!remain && <p className="text-[12px] text-[var(--muted)]">인증 시간이 지났어요. 다시 요청해 주세요.</p>}
         </div>
