@@ -1,20 +1,16 @@
 import { LogoutButton } from './auth';
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Plus, Check, ChevronRight } from 'lucide-react';
+import { Plus, Check, ChevronRight, Rocket, ScanSearch, Share2, Truck } from 'lucide-react';
 import { activeUser, feeFor, markDelivered, money, nowOf, saleState, uid } from '../domain';
 import type { Order, SellerSettings } from '../domain';
 import { atomic, mutate, useStore } from '../store';
 import { dateTime, useClock } from '../hooks';
-import { Badge, Button, CopyButton, Empty, ErrorBox, Field, Header, InfoRow, MenuRow, Modal, Note, ORDER_LABELS, ProductImage, ProductSummary, Unavailable, useToast } from '../components/ui';
+import { Badge, Button, CopyButton, copyText, Toggle, Empty, ErrorBox, Field, Header, InfoRow, MenuRow, Modal, Note, ORDER_LABELS, ProductImage, ProductSummary, Unavailable, useToast } from '../components/ui';
 import { PdfField } from '../components/PdfField';
 import { apiGet, apiPut } from '../api';
-export function SellerDashboard() {
-  const s = useStore(), user = activeUser(s), now = useClock(); const navigate = useNavigate(); if (!user.seller) return <Unavailable/>;
-  const products = s.products.filter(p => p.sellerId === user.id), orders = s.orders.filter(o => o.sellerId === user.id), waiting = s.inquiries.filter(q => q.sellerId === user.id && !q.answer).length;
-  const event = products.find(p => feeFor(s, p).sold > 0) ?? products[0], fee = event ? feeFor(s, event) : undefined;
-  return <div className="space-y-4"><Header title="판매자 대시보드" subtitle={`${s.sellerSettings[user.id]?.displayName ?? user.name} · 승인 완료`} back={false}/><div className="flex items-center justify-between bg-[var(--blue-soft)] px-3 py-3 text-[11px]"><b>판매자 모드</b><button className="muted" onClick={() => { mutate(state => { state.mode = 'buyer'; }); navigate('/my'); }}>구매자로 전환</button></div><Link to="/seller/new" className="btn w-full"><Plus size={17}/>새 상품 등록하기</Link><div className="grid grid-cols-2 gap-x-4 gap-y-5 bg-[var(--canvas)] p-4">{[['판매 예정', products.filter(p => saleState(p, now) === '판매 예정').length, '/seller/products?state=판매 예정'], ['판매 중', products.filter(p => saleState(p, now) === '판매 중').length, '/seller/products?state=판매 중'], ['신규 주문', orders.filter(o => o.status === 'paid').length, '/seller/orders'], ['배송 대기', orders.filter(o => ['paid', 'preparing'].includes(o.status)).length, '/seller/orders'], ['답변 대기 문의', waiting, '/seller/inquiries'], ['상품 판매금액', money(orders.filter(o => !['cancelled', 'refunded'].includes(o.status)).reduce((n, o) => n + o.total - o.shipping, 0)), '/seller/orders']].map(([label, value, to]) => <Link key={label} to={String(to)}><p className="muted mb-2 text-[10px]">{label}</p><p className="font-number text-[20px] font-bold">{value}</p></Link>)}</div>{event && fee ? <section className="divider space-y-3 py-4"><div className="flex items-start justify-between gap-3"><h2 className="text-[14px] font-bold">{event.name}</h2><Badge live>판매율 {(fee.rate * 100).toFixed(1)}%</Badge></div><p className="muted text-[11px] leading-relaxed">최초 {fee.initial}개 · 최종 판매 {fee.sold}개<br/>상품 판매금액 {money(fee.revenue)}</p><InfoRow label="예상 플랫폼 수수료" value={money(fee.fee)} strong/><Link to={`/seller/product/${event.id}`} className="muted block text-right text-[11px] underline">판매 현황 보기</Link></section> : <Empty title="첫 상품을 등록해 보세요" message="상품이 게시되면 고객이 상품을 확인하고 문의할 수 있어요."/>}<Note title="수수료 정책">판매율 90% 이하에는 수수료가 없습니다. 90%를 초과하면 최종 상품 판매금액 전체의 10%가 적용됩니다. 취소·반품 수량과 금액, 배송비는 제외합니다.</Note></div>;
-}
+const hm = (t: number) => new Date(t).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
+const md = (t: number) => { const d = new Date(t); return `${d.getMonth() + 1}.${d.getDate()} (${'일월화수목금토'[d.getDay()]})`; };
 export function SellerProductsPage() {
   const s = useStore(), user = activeUser(s), now = useClock(); const [params, setParams] = useSearchParams(); const tab = params.get('state') ?? '전체'; if (!user.seller) return <Unavailable/>; const settings = s.sellerSettings[user.id]; const allProducts = s.products.filter(p => p.sellerId === user.id); const products = allProducts.filter(p => tab === '전체' || saleState(p, now) === tab); const thisMonth = s.orders.filter(o => o.sellerId === user.id && !['cancelled','refunded'].includes(o.status)).reduce((n, o) => n + o.lines.reduce((a, l) => a + l.quantity, 0), 0); const alarmCount = 226; const soldOutCount = allProducts.filter(p => saleState(p, now) === '판매 종료').length;
   const chips: [string, number][] = [['전체', allProducts.length], ['판매 중', allProducts.filter(p => saleState(p, now) === '판매 중').length], ['판매 예정', allProducts.filter(p => saleState(p, now) === '판매 예정').length], ['심사 중', 0], ['판매 종료', soldOutCount]];
@@ -22,28 +18,30 @@ export function SellerProductsPage() {
     <Header title="판매 상품 관리" action={<Link to="/seller/new" aria-label="상품 등록"><Plus size={22}/></Link>}/>
     <div className="flex items-center justify-between py-3"><span className="text-[13px] font-bold">{settings?.displayName ?? user.name}</span><span className="muted text-[12px]">{new Date(now).getMonth()+1}월 기준</span></div>
     <div className="mb-4 flex justify-around rounded-[4px] bg-[var(--canvas)] py-4">{([['이번 달 판매', `${thisMonth}개`], ['알림 신청', `${alarmCount}명`], ['완판', `${soldOutCount}건`]] as [string,string][]).map(([label, value]) => <div key={label} className="text-center"><p className="font-number text-[16px] font-bold">{value}</p><p className="muted mt-1 text-[11px]">{label}</p></div>)}</div>
-    <div className="mb-4 flex flex-wrap gap-2">{chips.map(([label, count]) => <button key={label} onClick={() => setParams(label === '전체' ? {} : { state: label })} className={`rounded-full px-3 py-1 text-[12px] font-bold ${(tab === label || (tab === '전체' && label === '전체')) ? 'bg-[var(--ink)] text-[var(--surface)]' : 'muted border border-[var(--line)] bg-[var(--surface)]'}`}>{label} {count}</button>)}</div>
+    <div className="-mx-4 mb-2 flex gap-1.5 overflow-x-auto px-4">{chips.map(([label, count]) => <button key={label} onClick={() => setParams(label === '전체' ? {} : { state: label })} className={`h-[30px] shrink-0 rounded-[4px] px-2.5 text-[12px] ${tab === label ? 'bg-[var(--ink)] font-bold text-[var(--surface)]' : 'muted bg-[var(--soft)]'}`}>{label} {count}</button>)}</div>
     {products.map(p => {
-      const status = saleState(p, now); const sold = s.orders.filter(o => o.productId === p.id && !['cancelled','refunded'].includes(o.status)).reduce((n, o) => n + o.lines.reduce((a, l) => a + l.quantity, 0), 0); const total = p.options.reduce((n, o) => n + o.stock, 0); const remaining = Math.max(0, total - sold); const isLive = status === '판매 중'; const secondsLeft = Math.max(0, Math.floor((p.endsAt - now) / 1000)); const hh = String(Math.floor(secondsLeft/3600)).padStart(2,'0'), mm = String(Math.floor(secondsLeft%3600/60)).padStart(2,'0'), ss = String(secondsLeft%60).padStart(2,'0');
+      const status = saleState(p, now); const sold = s.orders.filter(o => o.productId === p.id && !['cancelled','refunded'].includes(o.status)).reduce((n, o) => n + o.lines.reduce((a, l) => a + l.quantity, 0), 0); const total = p.options.reduce((n, o) => n + o.stock, 0); const remaining = Math.max(0, total - sold); const isLive = status === '판매 중', ended = status === '판매 종료'; const secondsLeft = Math.max(0, Math.floor((p.endsAt - now) / 1000)); const hh = String(Math.floor(secondsLeft/3600)).padStart(2,'0'), mm = String(Math.floor(secondsLeft%3600/60)).padStart(2,'0'), ss = String(secondsLeft%60).padStart(2,'0');
       return <div key={p.id} className="divider space-y-3 py-4">
         <div className="flex gap-3">
           <ProductImage src={p.images[0]} alt={p.name} className="h-[72px] w-[72px] shrink-0"/>
           <div className="min-w-0 flex-1 space-y-1">
-            <div className="flex items-center gap-2"><span className={`rounded-[3px] px-2 py-0.5 text-[11px] font-bold ${isLive ? 'bg-[#EEF8F3] text-[#3FB181]' : 'bg-[var(--soft)] text-[var(--muted)]'}`}>{isLive ? '판매 중' : status}</span><span className="muted text-[11px] font-bold">{isLive ? `오늘 ${new Date(p.endsAt).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',hour12:false})} 종료` : `${new Date(p.startsAt).toLocaleDateString('ko-KR',{month:'numeric',day:'numeric'})} (${['일','월','화','수','목','금','토'][new Date(p.startsAt).getDay()]}) ${new Date(p.startsAt).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',hour12:false})} 오픈`}</span></div>
+            <div className="flex items-center gap-2"><span className={`rounded-[3px] px-2 py-0.5 text-[11px] font-bold ${isLive ? 'bg-[#EEF8F3] text-[#3FB181]' : 'bg-[var(--soft)] text-[var(--muted)]'}`}>{isLive ? '판매 중' : status}</span><span className="muted text-[11px] font-bold">{isLive ? `오늘 ${hm(p.startsAt)} – ${hm(p.endsAt)}` : ended ? `${md(p.endsAt)} ${hm(p.endsAt)} 종료` : `${md(p.startsAt)} ${hm(p.startsAt)} 오픈`}</span></div>
             <p className="text-[14px]">{p.name}</p>
             <p className="font-number text-[15px] font-bold">{money(p.price)} <span className="muted text-[12px] font-normal">{total}개 한정</span></p>
           </div>
         </div>
         {isLive && <><div className="flex items-center justify-between text-[12px]"><span className="font-bold">{sold} / {total}개 판매</span><span className="muted">{hh}:{mm}:{ss} 남음</span></div><div className="h-1 w-full rounded-full bg-[var(--line)]"><div className="h-1 rounded-full bg-[var(--ink)]" style={{width: total > 0 ? `${(sold/total)*100}%` : '0%'}}/></div></>}
-        {!isLive && status === '판매 예정' && <p className="muted text-[12px]">D-{Math.max(0, Math.ceil((p.startsAt - now)/86400000))} · 알림 신청 {alarmCount}명</p>}
-        <div className="grid grid-cols-2 gap-2">{isLive ? <Link to={`/seller/product/${p.id}`} className="btn btn-outline text-[13px]!">판매 현황</Link> : <Link to={`/seller/new?edit=${p.id}`} className="btn btn-outline text-[13px]!">수정</Link>}<Link to={`/seller/orders?product=${p.id}`} className="btn text-[13px]!">주문 관리</Link></div>
+        {ended && <><div className="flex items-center justify-between text-[12px]"><span className="font-bold">{sold} / {total}개 판매</span><span className="muted">{sold >= total ? '완판' : '판매 종료'}</span></div><div className="h-1 w-full rounded-full bg-[var(--line)]"><div className="h-1 rounded-full bg-[var(--muted)]" style={{width: total > 0 ? `${Math.min(100, sold/total*100)}%` : '0%'}}/></div></>}
+        {status === '판매 예정' && <p className="muted text-[12px]">D-{Math.max(0, Math.ceil((p.startsAt - now)/86400000))} · 알림 신청 {alarmCount}명</p>}
+        {isLive || ended ? <Link to={`/seller/product/${p.id}`} className="btn btn-outline w-full text-[13px]!">{isLive ? '판매 현황' : '판매 결과'}</Link> : status === '판매 예정' && <Link to={`/seller/new?edit=${p.id}`} className="btn btn-outline w-full text-[13px]!">판매 정보 수정</Link>}
       </div>;
     })}
-    {!products.length && <Empty title="등록한 상품이 없어요"><Link className="btn" to="/seller/new">새 상품 등록</Link></Empty>}
+    {!products.length && <Empty title="등록한 상품이 없어요"/>}
+    <Link className="btn mt-6 w-full" to="/seller/new"><Plus size={17}/>새 한정 판매 등록</Link>
   </div>;
 }
 export function SellerProductPage() {
-  const { id } = useParams(); const s = useStore(), user = activeUser(s), now = useClock(), location = useLocation(), navigate = useNavigate(); const p = s.products.find(p => p.id === id && p.sellerId === user.id); if (!user.seller || !p) return <Unavailable/>;
+  const { id } = useParams(); const s = useStore(), user = activeUser(s), now = useClock(), location = useLocation(), navigate = useNavigate(), toast = useToast(); const p = s.products.find(p => p.id === id && p.sellerId === user.id); if (!user.seller || !p) return <Unavailable/>;
   const status = saleState(p, now), fee = feeFor(s, p), published = location.pathname.includes('/published/');
   const productOrders = s.orders.filter(o => o.productId === p.id && !['cancelled','refunded'].includes(o.status));
   const totalSold = fee.sold;
@@ -94,7 +92,7 @@ export function SellerProductPage() {
 
     return <div className="space-y-5">
       <div className="flex items-center justify-between pt-1">
-        <h1 className="text-[18px] font-bold">심사 요청 결과</h1>
+        <h1 className="text-[18px] font-bold">{approved ? '판매 심사 결과' : '심사 요청 결과'}</h1>
         <button onClick={() => navigate('/seller/products')} aria-label="닫기" className="p-1"><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M17 5L5 17M5 5l12 12" stroke="#222" strokeWidth="1.8" strokeLinecap="round"/></svg></button>
       </div>
       <div className="relative overflow-hidden rounded-[8px]">
@@ -128,6 +126,7 @@ export function SellerProductPage() {
           </div>
         </div>
       </div>
+      <div className="flex gap-2 pt-4"><Link to="/seller" className="btn btn-outline flex-1">판매자 홈</Link><Link to={approved ? '/seller/products' : '/seller/new'} className="btn flex-[1.6]">{approved ? '판매 상품 관리' : '다른 상품 등록하기'}</Link></div>
     </div>;
   }
 
@@ -138,7 +137,7 @@ export function SellerProductPage() {
     const recentOrders = productOrders.slice().sort((a,b) => b.createdAt - a.createdAt).slice(0, 10);
     const alarmCount = 226;
     return <div className="space-y-5">
-      <Header title="판매 현황"/>
+      <Header title="판매 현황" action={<button aria-label="상품 링크 공유" onClick={() => copyText(`${window.location.origin}${window.location.pathname}#/product/${p.id}`).then(() => toast('상품 링크를 복사했습니다.')).catch(e => toast(e.message))}><Share2 size={20}/></button>}/>
       <div className="flex items-center gap-3">
         <div className="shrink-0 rounded-[4px]" style={{outline:'2px solid #E5484D', outlineOffset:'2px'}}><ProductImage src={p.images[0]} alt={p.name} className="h-[56px] w-[56px]"/></div>
         <div className="min-w-0 flex-1">
@@ -166,7 +165,7 @@ export function SellerProductPage() {
         {([['결제 완료', `${totalSold}건`], ['결제 진행 중', '3명'], ['알림 신청', `${alarmCount}명`]] as [string,string][]).map(([lbl,val]) => <div key={lbl} className="rounded-[6px] border border-[var(--line)] p-3"><p className="muted text-[11px]">{lbl}</p><p className="font-number mt-2 text-[16px] font-bold">{val}</p></div>)}
       </div>
       <section>
-        <div className="mb-3 flex items-center justify-between"><h2 className="text-[15px] font-bold">실시간 주문</h2><span className="muted text-[12px]">전체 {totalSold}건</span></div>
+        <div className="mb-3 flex items-center justify-between"><h2 className="text-[15px] font-bold">실시간 주문</h2><Link to={`/seller/orders?product=${p.id}`} className="muted text-[12px]">전체 {totalSold}건 ›</Link></div>
         {recentOrders.map(o => {
           const mask = (n: string) => n.replace(/^(.)(.)(.)$/, '$1*$3').replace(/^(.).+(.)$/, (_,a,z) => `${a}*${z}`);
           const t = new Date(o.createdAt); const tStr = `${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}:${String(t.getSeconds()).padStart(2,'0')}`;
@@ -179,6 +178,7 @@ export function SellerProductPage() {
         })}
         {!recentOrders.length && <Empty title="아직 주문이 없어요"/>}
       </section>
+      <div className="space-y-1 rounded-[8px] bg-[var(--soft)] p-4"><p className="text-[13px] font-bold">판매가 끝나면 주문 내역을 알림으로 보내드려요</p><p className="text-[12px] text-[#7B7B7B]">발송 준비와 송장 등록도 알림에서 바로 이어서 할 수 있어요. 판매 중에는 이 화면에서 실시간 현황만 확인해 주세요.</p></div>
     </div>;
   }
 
@@ -244,7 +244,7 @@ export function SellerProductPage() {
 
 export function SellerInquiriesPage() {
   const s = useStore(), user = activeUser(s); const [tab, setTab] = useState<'order' | 'product'>('order'); const [onlyUnanswered, setOnlyUnanswered] = useState(false); if (!user.seller) return <Unavailable/>; const all = s.inquiries.filter(q => q.sellerId === user.id); const byTab = all.filter(q => tab === 'order' ? !!q.orderId : !q.orderId); const items = onlyUnanswered ? byTab.filter(q => !q.answer) : byTab;
-  return <div className="space-y-0"><Header title="문의함" subtitle="고객의 상품·주문 문의에 답변해 주세요." back={false}/><div className="divider flex gap-5">{([['order', `주문 문의 ${all.filter(q => !!q.orderId).length}`], ['product', `상품 문의 ${all.filter(q => !q.orderId).length}`]] as [string, string][]).map(([t, label]) => <button key={t} onClick={() => setTab(t as 'order' | 'product')} className={`border-b-2 py-3 text-[11px] ${tab === t ? 'border-[var(--ink)] font-bold' : 'muted border-transparent'}`}>{label}</button>)}</div><div className="flex items-center gap-3 py-3 text-[11px]"><label className="flex items-center gap-2"><input type="checkbox" checked={onlyUnanswered} onChange={e => setOnlyUnanswered(e.target.checked)}/>미답변만 보기</label>{onlyUnanswered && <span className="ml-auto font-bold text-[var(--red)]">미답변 {byTab.filter(q => !q.answer).length}건</span>}</div>{items.map(q => <Link key={q.id} to={`/seller/inquiries/${q.id}`} className="divider block space-y-2 py-4"><div className="flex items-center justify-between"><Badge live={!q.answer}>{q.answer ? '답변 완료' : '답변 대기'}</Badge><span className="muted text-[10px]">{dateTime(q.createdAt)}</span></div><p className="text-[13px] font-bold">{q.productName}</p><p className="muted text-[10px]">{q.kind}{q.orderId ? ` · ${q.orderId}` : ''}</p><p className="line-clamp-2 text-[12px] leading-relaxed">{q.question}</p></Link>)}{!items.length && <Empty title="해당 조건의 문의가 없어요"/>}</div>;
+  return <div className="space-y-0"><Header title="문의함" subtitle="고객의 상품·주문 문의에 답변해 주세요."/><div className="divider flex gap-5">{([['order', `주문 문의 ${all.filter(q => !!q.orderId).length}`], ['product', `상품 문의 ${all.filter(q => !q.orderId).length}`]] as [string, string][]).map(([t, label]) => <button key={t} onClick={() => setTab(t as 'order' | 'product')} className={`border-b-2 py-3 text-[11px] ${tab === t ? 'border-[var(--ink)] font-bold' : 'muted border-transparent'}`}>{label}</button>)}</div><div className="flex items-center gap-3 py-3 text-[11px]"><label className="flex items-center gap-2"><input type="checkbox" checked={onlyUnanswered} onChange={e => setOnlyUnanswered(e.target.checked)}/>미답변만 보기</label>{onlyUnanswered && <span className="ml-auto font-bold text-[var(--red)]">미답변 {byTab.filter(q => !q.answer).length}건</span>}</div>{items.map(q => <Link key={q.id} to={`/seller/inquiries/${q.id}`} className="divider block space-y-2 py-4"><div className="flex items-center justify-between"><Badge live={!q.answer}>{q.answer ? '답변 완료' : '답변 대기'}</Badge><span className="muted text-[10px]">{dateTime(q.createdAt)}</span></div><p className="text-[13px] font-bold">{q.productName}</p><p className="muted text-[10px]">{q.kind}{q.orderId ? ` · ${q.orderId}` : ''}</p><p className="line-clamp-2 text-[12px] leading-relaxed">{q.question}</p></Link>)}{!items.length && <Empty title="해당 조건의 문의가 없어요"/>}</div>;
 }
 export function SellerInquiryDetailPage() {
   const { id } = useParams(); const s = useStore(), user = activeUser(s), toast = useToast(); const q = s.inquiries.find(i => i.id === id && i.sellerId === user.id); const [answer, setAnswer] = useState(q?.answer ?? ''), [publicAnswer, setPublic] = useState(q?.public ?? false), [error, setError] = useState('');
@@ -285,7 +285,7 @@ export function SellerOrderPage() {
   const { id } = useParams(); const s = useStore(), user = activeUser(s), toast = useToast(), now = useClock(); const order = s.orders.find(o => o.id === id && o.sellerId === user.id); const [showTracking, setShowTracking] = useState(false), [confirm, setConfirm] = useState(false), [error, setError] = useState(''), [busy, setBusy] = useState(false);
   if (!user.seller || !order) return <Unavailable message="판매자 주문을 찾을 수 없습니다."/>;
   const o = order; const paidAt = new Date(o.createdAt); const dueDate = new Date(paidAt); dueDate.setDate(dueDate.getDate() + 2); const dueDateStr = `${dueDate.getMonth()+1}.${String(dueDate.getDate()).padStart(2,'0')} (${['일','월','화','수','목','금','토'][dueDate.getDay()]})`;
-  const needsTracking = ['paid', 'preparing'].includes(o.status);
+  const needsTracking = ['paid', 'preparing'].includes(o.status); const orderInquiries = s.inquiries.filter(q => q.orderId === o.id && q.sellerId === user.id);
   return <div className="space-y-5">
     <Header title="주문 상세" subtitle={`${o.id} · ${new Date(o.createdAt).getMonth()+1}.${String(new Date(o.createdAt).getDate()).padStart(2,'0')} ${String(new Date(o.createdAt).getHours()).padStart(2,'0')}:${String(new Date(o.createdAt).getMinutes()).padStart(2,'0')} 결제`}/>
     {needsTracking ? <><h1 className="text-[24px] font-bold tracking-[-.7px]">송장을 등록해 주세요</h1><p className="text-[13px] text-[#7B7B7B]">결제 후 2영업일 이내 출고 · {dueDateStr}까지</p></> : <h1 className="text-[24px] font-bold tracking-[-.7px]">{o.status === 'shipping' ? '상품이 배송 중이에요' : o.status === 'delivered' ? '배송이 완료됐어요' : ORDER_LABELS[o.status]}</h1>}
@@ -297,13 +297,12 @@ export function SellerOrderPage() {
     <section className="divider space-y-2 pb-4"><h2 className="text-[15px] font-bold">배송지</h2><p className="text-[12px]">{o.address.name} · {o.address.phone}</p><p className="muted text-[12px] leading-relaxed">{o.address.address} {o.address.detail}<br/>{o.address.request}</p></section>
     <section className="divider space-y-2 pb-4"><h2 className="text-[15px] font-bold">배송 처리</h2><InfoRow label="출고지" value={s.sellerSettings[user.id]?.shippingAddress || '성수 물류창고'}/><InfoRow label="택배사" value={o.carrier || <span className="text-[var(--muted)]">미등록</span>}/><InfoRow label="운송장 번호" value={o.tracking ? <span className="inline-flex items-center gap-1">{o.tracking}<CopyButton value={o.tracking}/></span> : <span className="text-[var(--muted)]">미등록</span>}/></section>
     <Note>송장을 등록하면 구매자에게 배송 중으로 안내돼요. 판매자의 수동 배송완료 처리는 구매확정이나 정산 송금을 의미하지 않습니다.</Note>
-    <div className="rounded-[4px] border border-[var(--line)] p-4 space-y-2"><p className="text-[13px] font-bold">이 주문의 문의</p><p className="muted text-[12px]">배송 지연 문의 1건</p></div>
+    {orderInquiries.length > 0 && <Link to={`/seller/inquiries/${orderInquiries[0].id}`} className="flex items-center gap-3 rounded-[4px] border border-[var(--line)] p-4"><div className="flex-1 space-y-1"><p className="text-[13px] font-bold">이 주문의 문의</p><p className="muted text-[12px]">{orderInquiries[0].kind} 문의 {orderInquiries.length}건</p></div>{orderInquiries.some(q => !q.answer) && <span className="rounded-[3px] bg-[var(--red-soft)] px-2 py-0.5 text-[11px] font-bold text-[var(--red)]">미답변 {orderInquiries.filter(q => !q.answer).length}</span>}<ChevronRight size={16} className="muted"/></Link>}
     <section className="divider space-y-3 py-3"><h2 className="text-[15px] font-bold">배송 진행 내역</h2>{o.processedAt && <InfoRow label={dateTime(o.processedAt)} value="배송완료 · 판매자 수동 등록"/>}{o.shippedAt && <InfoRow label={dateTime(o.shippedAt)} value="운송장 등록 · 배송 중"/>}<InfoRow label={dateTime(o.createdAt)} value="결제 완료"/></section>
     <ErrorBox message={error}/>
     <div className="flex gap-2">
       {o.status === 'shipping' ? <><Button outline className="flex-[1]" onClick={() => setConfirm(true)}>배송완료 확인</Button><Button className="flex-[2]" onClick={() => setShowTracking(true)}>송장 등록</Button></> : needsTracking ? <><Button outline className="flex-[1]" onClick={() => setConfirm(true)} disabled>배송완료</Button><Button className="flex-[2]" onClick={() => setShowTracking(true)}>송장 등록</Button></> : <Button className="w-full" disabled>{ORDER_LABELS[o.status]}</Button>}
     </div>
-    <Link className="btn btn-outline w-full" to="/seller/orders">주문 목록으로</Link>
     {showTracking && <TrackingModal order={o} onClose={() => setShowTracking(false)} onSaved={() => { setShowTracking(false); toast('운송장을 등록했습니다.'); }}/>}
     {confirm && <DeliveredModal order={o} now={now} onClose={() => setConfirm(false)}/>}
   </div>;
@@ -366,11 +365,11 @@ export function SellerMyPage() {
         <ChevronRight size={17} className="muted shrink-0"/>
       </div>
       <div className="mb-4 flex rounded-[4px] bg-[var(--canvas)]">
-        {([['진행 중 드롭', `${activeDrops}건`], ['이번 달 정산 예정', money(settlement)], ['미답변 문의', `${unanswered}건`, unanswered > 0]] as [string, string, boolean?][]).map(([label, value, red], i) => (
-          <div key={label} className={`flex flex-1 flex-col items-center gap-1 py-4 ${i > 0 ? 'border-l border-[var(--line)]' : ''}`}>
+        {([['진행 중 드롭', `${activeDrops}건`, '/seller/products'], ['이번 달 정산 예정', money(settlement), '/seller/settings/bank'], ['미답변 문의', `${unanswered}건`, '/seller/inquiries', unanswered > 0]] as [string, string, string, boolean?][]).map(([label, value, to, red], i) => (
+          <Link key={label} to={to} className={`flex flex-1 flex-col items-center gap-1 py-4 ${i > 0 ? 'border-l border-[var(--line)]' : ''}`}>
             <span className={`font-number text-[15px] font-bold ${red ? 'text-[var(--red)]' : ''}`}>{value}</span>
             <span className="muted text-[11px]">{label}</span>
-          </div>
+          </Link>
         ))}
       </div>
       <section className="mb-4">
@@ -391,6 +390,7 @@ export function SellerMyPage() {
         <MenuRow to="/seller/settings/account" label="알림 설정"/>
         <MenuRow to="/seller/support" label="이용 안내 · 고객지원"/>
       </section>
+      <div className="text-center"><LogoutButton/></div>
     </div>
   );
 }
@@ -407,6 +407,7 @@ export function SellerSettingsPage() {
   const [exchangeFee, setExchangeFee] = useState('6000');
   const [addrTab, setAddrTab] = useState<'ship' | 'return'>('ship');
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [sameAsShip, setSameAsShip] = useState(false), [defaultReturn, setDefaultReturn] = useState(false);
 
   useEffect(() => {
     apiGet('/sellers/me').then((me: any) => {
@@ -569,9 +570,9 @@ export function SellerSettingsPage() {
         <div className="flex items-center justify-between">
           <p className="text-[14px] font-bold">반품 · 교환 설정</p>
         </div>
-        <div className="flex items-center justify-between text-[13px]">
-          <span>반품지를 기본 출고지와 동일하게</span>
-          <span className="muted text-[12px]">성수 물류창고로 반품을 받아요</span>
+        <div className="flex items-center justify-between gap-3">
+          <div><p className="text-[14px]">반품지를 기본 출고지와 동일하게</p><p className="muted text-[12px]">성수 물류창고로 반품을 받아요</p></div>
+          <Toggle label="반품지를 기본 출고지와 동일하게" checked={!form.returnAddress || form.returnAddress === form.shippingAddress} onChange={on => change('returnAddress', on ? form.shippingAddress ?? '' : '파주 보관센터')}/>
         </div>
         <InfoRow label="반품 택배사" value="CJ대한통운"/>
         <InfoRow label="반품 배송비 (편도)" value="3,000원"/>
@@ -636,11 +637,11 @@ export function SellerSettingsPage() {
     <form className="space-y-5" onSubmit={handleSubmit}>
       <Header title="반품지 추가"/>
       <div className="flex items-center gap-3 rounded-[8px] bg-[var(--canvas)] p-3">
-        <input type="checkbox" id="same-as-ship" className="h-4 w-4" onChange={e => { if (e.target.checked) { change('returnAddress', form.shippingAddress); setForm(f => ({ ...f, returnPostal: f.shippingPostal })); } }}/>
-        <div>
-          <label htmlFor="same-as-ship" className="text-[13px] font-bold">반품지를 기본 출고지와 동일하게</label>
+        <div className="flex-1">
+          <p className="text-[13px] font-bold">반품지를 기본 출고지와 동일하게</p>
           <p className="muted text-[11px]">성수 물류창고 주소를 그대로 불러와요</p>
         </div>
+        <Toggle label="반품지를 기본 출고지와 동일하게" checked={sameAsShip} onChange={on => { setSameAsShip(on); if (on) setForm(f => ({ ...f, returnAddress: f.shippingAddress, returnPostal: f.shippingPostal })); }}/>
       </div>
       <Field label="반품지명" required><input aria-label="반품지명" className="field" value={form.returnAddress ? '파주 보관센터' : ''} onChange={() => {}} placeholder="파주 보관센터"/></Field>
       <Field label="반품 담당자" required><input aria-label="반품 담당자" className="field" value={user.name} readOnly/></Field>
@@ -655,13 +656,13 @@ export function SellerSettingsPage() {
           <input aria-label="상세 주소" className="field" placeholder="B동"/>
         </div>
       </Field>
-      <label className="flex items-center gap-3">
-        <input type="checkbox" className="h-4 w-4"/>
-        <div>
+      <div className="flex items-center gap-3 rounded-[8px] bg-[var(--canvas)] p-3">
+        <div className="flex-1">
           <p className="text-[13px] font-bold">기본 반품지로 설정</p>
           <p className="muted text-[11px]">구매자 반품 접수 시 이 주소로 안내돼요</p>
         </div>
-      </label>
+        <Toggle label="기본 반품지로 설정" checked={defaultReturn} onChange={setDefaultReturn}/>
+      </div>
       <ErrorBox message={error}/>
       <Button type="submit" className="w-full" disabled={busy}>{busy ? '저장 중…' : '저장하기'}</Button>
     </form>
@@ -785,15 +786,12 @@ export function SellerSettingsPage() {
   );
 }
 export function SellerSupportPage() {
-  const [tab, setTab] = useState('전체');
   const faqs: [string, string][] = [
     ['정산', '정산은 언제 입금되나요?'],
     ['출고', '출고 마감 시간을 넘기면 어떻게 되나요?'],
     ['검수', '검수에서 반려되면 다시 신청할 수 있나요?'],
     ['반품', '구매자가 반품을 요청하면?'],
   ];
-  const faqTabs = ['전체', '정산', '출고', '검수', '반품'];
-  const filtered = faqs.filter(([cat]) => tab === '전체' || cat === tab);
   return (
     <div className="space-y-0">
       <Header title="이용 안내 · 고객지원"/>
@@ -803,13 +801,13 @@ export function SellerSupportPage() {
       </label>
       <section className="mb-5 space-y-3">
         <h2 className="text-[15px] font-bold">판매 가이드</h2>
-        {[['첫 드롭', '등록하기', '등록부터\n승인까지 5단계'], ['출고 · 배송', '규칙', '결제 후 48시간\n내 출고'], ['검수 기준 안내', '반려 없이 통과하는', '사진 · 상태']].map(([title, sub, desc]) => (
-          <div key={title} className="rounded-[8px] bg-[var(--canvas)] p-4">
-            <p className="text-[13px] font-bold">{title}</p>
-            <p className="muted mt-0.5 text-[11px]">{sub}</p>
-            <p className="muted mt-2 whitespace-pre-line text-[12px] leading-relaxed">{desc}</p>
+        <div className="grid grid-cols-3 gap-2">{([[Rocket, '첫 드롭\n등록하기', '등록부터\n승인까지 5단계'], [ScanSearch, '검수 기준 안내', '반려 없이 통과하는\n사진 · 상태'], [Truck, '출고 · 배송\n규칙', '결제 후 48시간\n내 출고']] as const).map(([Icon, title, desc]) => (
+          <div key={title} className="rounded-[8px] bg-[var(--canvas)] p-3">
+            <Icon size={18} strokeWidth={1.6}/>
+            <p className="mt-3 whitespace-pre-line text-[13px] font-bold leading-snug">{title}</p>
+            <p className="muted mt-1 whitespace-pre-line text-[11px] leading-snug">{desc}</p>
           </div>
-        ))}
+        ))}</div>
       </section>
       <div className="mb-5 h-px bg-[var(--line)]"/>
       <section className="mb-5 space-y-3">
@@ -817,15 +815,10 @@ export function SellerSupportPage() {
           <h2 className="text-[15px] font-bold">판매자 자주 묻는 질문</h2>
           <button className="muted text-[12px]">전체보기</button>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {faqTabs.map(t => (
-            <button key={t} onClick={() => setTab(t)} className={`inline-flex h-8 items-center rounded-full px-3.5 text-[12px] transition-colors ${tab === t ? 'bg-[var(--ink)] font-bold text-[var(--surface)]' : 'border border-[var(--line)] muted'}`}>{t}</button>
-          ))}
-        </div>
-        {filtered.map(([, q], i) => (
+        {faqs.map(([, q], i) => (
           <div key={i} className="flex items-center justify-between gap-3 border-b border-[var(--line)] py-4">
             <div className="flex items-start gap-3">
-              <span className="text-[14px] font-bold text-[var(--muted)]">Q</span>
+              <span className="text-[14px] font-bold text-[var(--green)]">Q</span>
               <span className="text-[14px]">{q}</span>
             </div>
             <span className="shrink-0 muted text-[12px]">›</span>

@@ -76,7 +76,8 @@ main > div.flex:has(> header + div > img) > div:last-child .btn.flex-1 > svg { d
   to { opacity: 1; transform: translate(-50%, 0) scale(1); }
 }
 
-main { animation: page-in 220ms cubic-bezier(.22, 1, .36, 1) both; }
+/* backwards: 애니메이션이 끝난 뒤 transform을 남기지 않아야 화면 안 fixed 버튼이 뷰포트 기준으로 붙는다 */
+main { animation: page-in 220ms cubic-bezier(.22, 1, .36, 1) backwards; }
 
 .btn {
   transition: transform 160ms cubic-bezier(.22, 1, .36, 1),
