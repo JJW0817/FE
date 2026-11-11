@@ -50,6 +50,13 @@ describe('토큰 첨부', () => {
     const blob = await client.get<Blob>('/v1/seller-applications/a1/certificate', { responseType: 'blob' });
     expect(blob.size).toBe(5);
   });
+  it('파일 응답은 Accept에 application/pdf를 먼저 두고, 일반 요청은 application/json', async () => {
+    const { client, calls } = setup(() => new Response('%PDF-', { status: 200, headers: { 'content-type': 'application/pdf' } }));
+    await client.post('/v1/admin/seller-applications/a1/certificate-review', undefined, { responseType: 'blob' });
+    expect(calls[0].headers.Accept.startsWith('application/pdf')).toBe(true);
+    const json = setup(() => ok(null)); await json.client.get('/v1/products');
+    expect(json.calls[0].headers.Accept).toBe('application/json');
+  });
 });
 
 describe('401 재발급·재시도', () => {

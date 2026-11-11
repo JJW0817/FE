@@ -13,7 +13,7 @@ import type { SavedAddress as ApiAddr } from './address';
 import { LogoutButton } from './auth';
 import { changePassword, restoreSession, validPassword } from '../auth';
 import { USE_MOCK } from '../config';
-import { apiPut, apiDelete, approveSellerApplication, decideProductReview, errorMessage, getAdminApplication, getAdminProductReviewWithImages, listAdminApplications, listAdminProductReviews, markApplication, mergeAdminApplications, mergeAdminProductList, mergeProducts, rejectSellerApplication, reviewCertificate, fetchMyApplication, mergeApplication, resubmitApplication, submitApplication, updateMyName, addInquiryMessage, getInquiryImageUrl, getOrderInquiry, listInquiryInbox, mergeInquiries, useLive } from '../api';
+import { ApiError, apiPut, apiDelete, approveSellerApplication, decideProductReview, errorMessage, getAdminApplication, getAdminProductReviewWithImages, listAdminApplications, listAdminProductReviews, markApplication, mergeAdminApplications, mergeAdminProductList, mergeProducts, rejectSellerApplication, reviewCertificate, fetchMyApplication, mergeApplication, resubmitApplication, submitApplication, updateMyName, addInquiryMessage, getInquiryImageUrl, getOrderInquiry, listInquiryInbox, mergeInquiries, useLive } from '../api';
 import { getPdf } from '../files';
 function ProfileEditModal({ userId, name: initialName, phone: initialPhone, onClose }: { userId: string; name: string; phone: string; onClose: () => void }) {
   const [name, setName] = useState(initialName), [phone, setPhone] = useState(initialPhone), [error, setError] = useState(''), [busy, setBusy] = useState(false); const toast = useToast();
@@ -308,7 +308,7 @@ export function AdminDetailPage() {
         <div className="flex items-center gap-3">
           <FileText size={14} className="shrink-0 text-[#7B7B7B]"/>
           <span className="flex-1 text-[12px] text-[#7B7B7B]">사업자등록증.pdf · 1쪽 · 1.2MB</span>
-          <button className="text-[12px] font-bold text-[var(--ink)]" onClick={async () => { setError(''); const tab = USE_MOCK ? null : window.open('', '_blank'); /* 클릭 직후 탭을 열어 모바일 사파리 팝업 차단을 피한다 */ try { if (USE_MOCK) { app.document && getPdf(app.document.id).catch(() => {}); } else { const url = URL.createObjectURL(await reviewCertificate(app.id)); if (tab) tab.location.href = url; else window.open(url, '_blank'); } setPdfViewed(true); } catch (e) { tab?.close(); setError(errorMessage(e)); } }}>열람하기</button>
+          <button className="text-[12px] font-bold text-[var(--ink)]" onClick={async () => { setError(''); const tab = USE_MOCK ? null : window.open('', '_blank'); /* 클릭 직후 탭을 열어 모바일 사파리 팝업 차단을 피한다 */ try { if (USE_MOCK) { app.document && getPdf(app.document.id).catch(() => {}); } else { const pdf = await reviewCertificate(app.id); const url = URL.createObjectURL(pdf.type ? pdf : new Blob([pdf], { type: 'application/pdf' })); if (tab) tab.location.href = url; else window.open(url, '_blank'); } setPdfViewed(true); } catch (e) { tab?.close(); setError(e instanceof ApiError ? `${e.code}: ${e.message}` : errorMessage(e)); } }}>열람하기</button>
         </div>
       </div>
       {/* URL Section */}

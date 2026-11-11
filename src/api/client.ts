@@ -82,7 +82,9 @@ export function createApiClient(initial: ClientConfig = {}) {
   }
 
   async function send(method: string, path: string, o: RequestOptions): Promise<Response> {
-    const headers: Record<string, string> = { Accept: 'application/json', ...o.headers };
+    // 파일 응답은 Accept: application/json이면 서버가 406(COMMON_NOT_ACCEPTABLE)을 준다. 오류 본문(JSON)도 받을 수 있게 json을 낮은 순위로 함께 둔다
+    const accept = o.responseType === 'blob' ? 'application/pdf, image/*;q=0.9, application/json;q=0.5, */*;q=0.1' : 'application/json';
+    const headers: Record<string, string> = { Accept: accept, ...o.headers };
     if (o.auth !== false && accessToken) headers.Authorization = `Bearer ${accessToken}`;
     if (o.csrf) { const c = await getCsrf(); headers[c.headerName] = c.token; }
     let body: BodyInit | undefined;
