@@ -1,5 +1,10 @@
 import { deletePushSubscription, getPushConfiguration, registerPushSubscription, vapidKeyBytes, type PushSubscriptionBody } from './api/push';
 
+const isIos = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isStandalone = () => (navigator as Navigator & { standalone?: boolean }).standalone === true || window.matchMedia?.('(display-mode: standalone)').matches === true;
+/** 구독 버튼을 보여도 되는지: 서버는 iOS(web.push.apple.com)만 받고, iOS는 홈 화면에 추가한 앱(standalone)에서만 푸시 구독이 된다 */
+export const canSubscribePush = () => supported() && isIos() && isStandalone();
+
 /** 이 브라우저가 등록한 서버 구독 ID — 로그아웃 전에 해제할 때 쓴다 */
 const KEY = 'stockdrop:push-subscription-id';
 const supported = () => typeof navigator !== 'undefined' && 'serviceWorker' in navigator && typeof window !== 'undefined' && 'PushManager' in window && 'Notification' in window;
@@ -9,7 +14,7 @@ const supported = () => typeof navigator !== 'undefined' && 'serviceWorker' in n
  * 결과: 'granted' 등록 완료 / 'denied'·'default' 권한 없음 / 'disabled' 서버 푸시 꺼짐 / 'unsupported' 브라우저 미지원
  */
 export async function enablePush(): Promise<NotificationPermission | 'disabled' | 'unsupported'> {
-  if (!supported()) return 'unsupported';
+  if (!canSubscribePush()) return 'unsupported';
   const config = await getPushConfiguration();
   if (!config.enabled || !config.publicKey) return 'disabled';
   const permission = await Notification.requestPermission();

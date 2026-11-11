@@ -162,8 +162,10 @@ export function CheckoutPage() {
       const latest = getState();
       if (!address.name.trim() || !address.phone.trim() || !address.address.trim()) throw new Error('배송지를 먼저 입력해 주세요.');
       if (!USE_MOCK) { // 실제 API: 배송지 확정(직전 version) → 토스 결제창(이동). 결과는 돌아온 뒤 위 effect가 처리
-        if (addrId) { const cur = await getCheckout(id!); const d = await changeShippingAddress(id!, addrId, cur.version); mutate(st => mergeCheckout(st, d)); }
-        await openTossPayment({ orderId: id!, orderName: p!.name, amount: hold!.lines.reduce((n, l) => n + l.quantity * p!.price, 0) + p!.shipping });
+        let cur = await getCheckout(id!); // 승인 금액은 서버가 계산한 totalAmount를 쓴다(화면 계산값 사용 안 함)
+        if (addrId) { cur = await changeShippingAddress(id!, addrId, cur.version); mutate(st => mergeCheckout(st, cur)); }
+        if (cur.totalAmount == null) throw new Error('결제 금액을 확인하지 못했어요. 잠시 후 다시 시도해 주세요.');
+        await openTossPayment({ orderId: id!, orderName: cur.productName ?? p!.name, amount: cur.totalAmount });
         return;
       }
       await atomic(state => beginPayment(state, state.activeUserId, id!, nowOf(state)));

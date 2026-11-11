@@ -75,22 +75,32 @@ export const changeShippingAddress = (id: string, addressId: string, expectedVer
   api.patch<OrderCommandDto>(`/v1/orders/${enc(id)}/shipping-address`, { addressId, expectedVersion }, { service: purchase });
 
 /* ── 토스 결제창 ── */
-// 추측(명세 없음): 토스 SDK v2 표준 결제창을 script 태그로 불러와 redirect 방식으로 결제한다. 명세는 clientKey 조회~paymentKey 전달만 규정.
-const TOSS_SDK = 'https://js.tosspayments.com/v2/standard';
+/**
+ * 서버가 정해 주는 것: clientKey(GET /payments/client-configuration)와 승인 금액(주문의 totalAmount — 승인 요청에는 금액을 보내지 않는다).
+ * 명세가 정하지 않아 여기서만 고정하는 값(추측): SDK 버전·redirect 방식·결제 수단·고객 키. 바꿀 일이 생기면 이 상수만 고친다.
+ */
+const TOSS = {
+  sdk: 'https://js.tosspayments.com/v2/standard',
+  method: 'CARD' as const,
+  currency: 'KRW' as const,
+  // 추측(명세 없음): 비회원 결제 키(ANONYMOUS) — 저장된 카드·간편결제 없이 결제창이 열린다
+  customerKey: (Toss: any) => Toss.ANONYMOUS as string,
+};
 function loadToss(): Promise<any> {
   const w = window as any;
   if (w.TossPayments) return Promise.resolve(w.TossPayments);
   return new Promise((res, rej) => {
-    const s = document.createElement('script'); s.src = TOSS_SDK; s.onload = () => res(w.TossPayments); s.onerror = () => rej(new Error('결제창을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.')); document.head.appendChild(s);
+    const s = document.createElement('script'); s.src = TOSS.sdk; s.onload = () => res(w.TossPayments); s.onerror = () => rej(new Error('결제창을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.')); document.head.appendChild(s);
   });
 }
 /** 결제창을 연다. 성공/실패 시 successUrl/failUrl로 이동한다(HashRouter 경로: `#/checkout/{id}`). 반환하지 않고 페이지가 이동한다 */
+/** amount·orderName은 서버의 checkout 응답(totalAmount·productName) 값을 그대로 넘긴다 */
 export async function openTossPayment(o: { orderId: string; orderName: string; amount: number }, signal?: AbortSignal) {
   const [Toss, clientKey] = await Promise.all([loadToss(), getPaymentClientKey(signal)]);
   const base = `${location.origin}${location.pathname}#/checkout/${enc(o.orderId)}`;
-  // 추측(명세 없음): 비회원 결제 키(ANONYMOUS), 카드 결제, 토스 orderId는 우리 주문 UUID 사용
-  await Toss(clientKey).payment({ customerKey: Toss.ANONYMOUS }).requestPayment({
-    method: 'CARD', amount: { currency: 'KRW', value: o.amount }, orderId: o.orderId, orderName: o.orderName, successUrl: base, failUrl: `${base}?payFail=1`,
+  // 추측(명세 없음): 토스 orderId는 우리 주문 UUID(36자, 토스 허용 6~64자)를 쓴다
+  await Toss(clientKey).payment({ customerKey: TOSS.customerKey(Toss) }).requestPayment({
+    method: TOSS.method, amount: { currency: TOSS.currency, value: o.amount }, orderId: o.orderId, orderName: o.orderName, successUrl: base, failUrl: `${base}?payFail=1`,
   });
 }
 const FINAL: OrderState[] = ['CONFIRMED', 'FAILED', 'EXPIRED'];

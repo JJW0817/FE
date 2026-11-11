@@ -20,7 +20,7 @@ function fake(handler: (c: Call) => unknown) {
   return calls;
 }
 afterEach(() => api.configure({ fetch: undefined }));
-const sig = (c: Call) => `${c.method} ${c.url.replace('/api/v1', '')}`;
+const sig = (c: Call) => `${c.method} ${c.url.replace(/^(\/pg)?\/api\/v1/, '')}`;
 
 describe('변환', () => {
   it('SellerProduct → Product (null은 빈 값, 승인만 published, 반려 사유, version·심사 상태 보관)', () => {

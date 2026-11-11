@@ -1,6 +1,6 @@
 /**
  * STOCKDROP API 클라이언트 (1개). 규칙은 docs/api-spec.md 0절.
- * - 기본 주소 `/api` (로컬은 vite proxy → VITE_API_TARGET). 경로는 명세 그대로 `/v1/...`
+ * - 상대 경로만 쓴다: Gateway `/api`, PurchaseGateway `/pg/api`(services.ts). 배포는 vercel.json rewrites, 로컬은 vite proxy가 터널·서버로 넘긴다. 경로는 명세 그대로 `/v1/...`
  * - Access JWT 자동 첨부, 401이면 재발급(`/v1/auth/refresh`) 후 1회 재시도, 재발급 실패 시 세션 종료 콜백
  * - 성공 응답 `{ success, code, message, data }`는 `data`만 돌려주고, 에러 `{ code, message, traceId, violations }`는 ApiError로 던진다
  * - login·logout·refresh처럼 CSRF가 필요한 호출은 `csrf: true`
@@ -52,7 +52,6 @@ const DEFAULT_MESSAGE = '요청에 실패했어요. 잠시 후 다시 시도해 
 export function createApiClient(initial: ClientConfig = {}) {
   const cfg: Required<Pick<ClientConfig, 'base' | 'mock'>> & ClientConfig = { base: '/api', mock: false, services: SERVICE_BASE, ...initial };
   let accessToken: string | null = null;
-  let csrf: { headerName: string; token: string } | null = null;
   let refreshing: Promise<AuthTokens> | null = null;
   const doFetch = (...args: Parameters<typeof fetch>) => (cfg.fetch ?? fetch)(...args);
 
@@ -76,12 +75,10 @@ export function createApiClient(initial: ClientConfig = {}) {
     return (body && typeof body === 'object' && 'success' in body ? (body as { data: T }).data : body) as T;
   }
 
-  async function getCsrf(force = false) {
-    if (csrf && !force) return csrf;
+  /** 쿠키 요청(login·refresh·logout) 직전마다 새로 받는다. 캐시 금지 — 로그인 성공 등으로 토큰이 바뀐다(서버 안내). 항상 /api(account)로 간다 */
+  async function getCsrf() {
     const res = await send('GET', '/v1/auth/csrf', { auth: false });
-    const body = await parse<{ headerName: string; token: string }>(res, 'json');
-    csrf = { headerName: body.headerName, token: body.token };
-    return csrf;
+    return parse<{ headerName: string; token: string }>(res, 'json');
   }
 
   async function send(method: string, path: string, o: RequestOptions): Promise<Response> {
@@ -114,8 +111,8 @@ export function createApiClient(initial: ClientConfig = {}) {
   async function request<T>(method: string, path: string, o: RequestOptions = {}): Promise<T> {
     if (cfg.mock) throw new ApiError('mock 모드에서는 서버를 호출하지 않아요.', 0, MOCK_CODE);
     let res = await send(method, path, o);
-    // CSRF 토큰이 만료·교체된 경우 한 번만 다시 받아 재시도
-    if (res.status === 403 && o.csrf) { const err = await toError(res.clone()); if (err.code === 'COMMON_CSRF_REJECTED') { await getCsrf(true); res = await send(method, path, o); } }
+    // CSRF가 거절되면 한 번만 재시도(send가 토큰을 새로 받는다)
+    if (res.status === 403 && o.csrf) { const err = await toError(res.clone()); if (err.code === 'COMMON_CSRF_REJECTED') res = await send(method, path, o); }
     if (res.status === 401 && o.auth !== false) {
       let renewed = false, rejected = true;
       try { await refresh(); renewed = true; } catch (e) { rejected = !(e instanceof ApiError) || (e.status > 0 && e.status < 500); }
@@ -137,7 +134,7 @@ export function createApiClient(initial: ClientConfig = {}) {
     upload: <T>(method: 'POST' | 'PUT', path: string, form: FormData, o?: RequestOptions) => request<T>(method, path, { ...o, form }),
     refresh,
     getAccessToken: () => accessToken,
-    setAccessToken: (token: string | null) => { accessToken = token; if (!token) csrf = null; },
+    setAccessToken: (token: string | null) => { accessToken = token; },
     configure: (next: ClientConfig) => { Object.assign(cfg, next); },
   };
 }

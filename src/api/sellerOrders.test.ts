@@ -13,7 +13,7 @@ function fake(handler: (c: Call) => unknown) {
   return calls;
 }
 afterEach(() => api.configure({ fetch: undefined }));
-const sig = (c: Call) => `${c.method} ${c.url.replace('/api/v1', '')}`;
+const sig = (c: Call) => `${c.method} ${c.url.replace(/^(\/pg)?\/api\/v1/, '')}`;
 const cmd = (o: Partial<OrderCommandDto> = {}): OrderCommandDto => ({
   orderId: 'o1', orderNumber: 'N1', version: 7, state: 'CONFIRMED', delivery: 'PREPARING', productId: 'p1', sellerId: 's1', productName: '상품', brandOrStore: '스토어', items: [{ optionId: 'op1', label: '크림', quantity: 1 }],
   address: { recipientName: '홍', recipientPhone: '010', postalCode: '1', roadAddress: '도로', detailAddress: null, deliveryMemo: null }, unitPrice: 1000, shippingFee: 3000, totalAmount: 4000, dispatchBusinessDays: 2, expiresAt: null,

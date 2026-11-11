@@ -5,10 +5,10 @@
 
 ## 0. 준비
 
-- [ ] `.env.local`에서 `VITE_USE_MOCK`, `VITE_DEMO_LOGIN`, `VITE_MOCK_AUTH`를 **모두 지운다**(하나라도 `true`면 mock 모드가 되어 서버를 호출하지 않는다). `VITE_API_TARGET`을 서버 주소로 맞춘다.
+- [ ] `.env.local`에서 `VITE_USE_MOCK=false`로 둔다(명시하면 `VITE_DEMO_LOGIN`·`VITE_MOCK_AUTH`가 `true`여도 실제 API 모드). 설정이 없을 때는 셋 중 하나라도 `true`면 mock이다. `VITE_API_TARGET`(Gateway, 기본 8000)·`VITE_PG_TARGET`(PurchaseGateway, 기본 8001)을 서버(또는 터널) 주소로 맞춘다. 터널·Vercel 설정은 `docs/tunnel.md`.
 - [ ] `npm run dev`로 띄우고 `http://localhost:5173`으로 접속한다. 로그인 화면에 역할 선택(구매자·판매자·운영자) 데모 버튼이 **보이지 않아야** 한다. 보이면 mock 모드다.
 - [ ] 테스트 계정을 준비한다: 구매자 1(가입 테스트용 새 이메일 + 실제 메일 수신 가능), 판매자 1, 운영자 1.
-- [ ] **게이트웨이 구성 확인.** 명세에는 일반 Gateway(`:8000`)와 PurchaseGateway(`:8001`)가 따로 있다. 이 단계의 인증 API는 Account 서비스다. Account가 어느 주소 뒤에 있는지, 두 Gateway가 한 호스트의 경로로 합쳐지는지 서버 팀에 확인한다(`docs/api-gap.md`와 인수인계 질문 참고). 주소가 갈리면 `src/api/services.ts`의 `SERVICE_BASE`(account·general·purchase) 값만 고친다. 각 API가 어느 서비스로 가는지는 도메인 모듈(`src/api/*.ts`)의 `service`에 있다.
+- [ ] **게이트웨이 구성.** 앱은 상대 경로만 부른다: `/api/v1/…`(Gateway :8000 — 인증·계정·조회·알림·AI·결제 설정) / `/pg/api/v1/…`(PurchaseGateway :8001 — 주문 생성·결제·체크아웃·판매자 상품·운영자 상품 심사·배송). 로컬은 vite proxy, 배포는 `vercel.json` rewrites가 넘긴다. Network 탭에서 인증 요청이 `/api`, 주문 생성이 `/pg/api`로 나가는지 본다. 주소는 `src/api/services.ts` 한 곳.
 
 ## 1. CSRF 토큰 (모든 인증 단계의 기반)
 
@@ -131,8 +131,17 @@ Access JWT 수명은 기본 15분이다. 서버 팀에 수명을 1~2분으로 �
 - [ ] 판매 집계 `GET /seller/products/sales-summary` 수치가 주문과 맞는다.
 - 함수만: 판매자 주소록 7개, 사업자등록증 재심사·재심사 상태. mock 유지: 정산, 배송 완료 시각·장소·메모, 연락처 전화번호.
 
-## 16. 통과 기준과 알려진 한계
+## 16. 아이폰(Safari) 확인 순서 (Vercel Preview + 터널)
 
-- 1~15가 모두 통과하면 연동은 끝난 것이다. mock 모드(`VITE_USE_MOCK=true`, Vercel 프리뷰)는 서버 없이 그대로 동작한다.
+준비: `docs/tunnel.md`의 1~2절(터널 주소 반영, Preview `VITE_USE_MOCK=false`)을 끝내고 Preview 주소를 아이폰 Safari로 연다. 쿠키·푸시는 HTTPS여야 한다.
+
+- [ ] **1. 사파리 로그인.** 로그인 화면에 역할 선택 데모 버튼이 **없다**. 구매자 계정으로 로그인 → 홈으로 이동. (Safari가 막는 건 다른 사이트 쿠키이고, 앱이 같은 origin `/api`로 부르므로 `stockdrop_refresh`·`stockdrop_csrf` 쿠키가 저장돼야 한다.) 안 되면 `/api/v1/auth/csrf` 응답이 JSON인지부터 본다.
+- [ ] **2. 새로고침 후 로그인 유지.** 로그인 상태에서 새로고침(또는 탭을 닫았다 다시 열기) → 로그인 화면으로 튕기지 않는다(`POST /api/v1/auth/refresh`가 200). 로그인·refresh·로그아웃 직전마다 `GET /api/v1/auth/csrf`가 새로 호출된다.
+- [ ] **3. 홈 화면에 추가.** 공유 버튼 → **홈 화면에 추가** → 홈 화면의 STOCKDROP 아이콘으로 연다(주소창 없는 standalone). 다시 로그인된 상태인지 본다(PWA는 Safari와 쿠키가 분리될 수 있어 로그인이 풀려 있으면 한 번 로그인).
+- [ ] **4. 푸시 구독.** `/notifications/settings`에서 홈 화면 앱으로 열었을 때만 **알림 받기 시작** 버튼이 보인다. Safari 탭(주소창 있음)으로 열면 "홈 화면에 추가하면 알림을 받을 수 있어요" 안내와 `설정 저장하고 시작` 버튼만 보인다. 버튼 → 권한 허용 → `POST /api/v1/notifications/push-subscriptions` 200(`endpoint`가 `web.push.apple.com`). 서버에서 테스트 푸시를 보내 알림이 뜨고, 누르면 해당 화면으로 가는지 본다(8절).
+
+## 17. 통과 기준과 알려진 한계
+
+- 1~16이 모두 통과하면 연동은 끝난 것이다. mock 모드(`VITE_USE_MOCK=true`, Vercel 프리뷰)는 서버 없이 그대로 동작한다.
 - 연동하지 않은 API: GA 분석 참여 4개(`/ai/analytics/identity`·`profile`, 화면 없음). 명세에 없어 mock으로 남긴 기능은 코드에 `TODO(api-gap)`, 명세가 애매해 추측한 곳은 `추측(명세 없음)`으로 표시했다(`grep -rn "TODO(api-gap)\|추측(명세 없음)" src`).
 - 문제가 생기면 Network에서 실패한 요청의 응답 본문 `code`·`traceId`를 서버 팀에 그대로 전달한다.

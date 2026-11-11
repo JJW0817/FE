@@ -137,3 +137,14 @@ describe('CSRF·mock·네트워크', () => {
     await expect(client.get('/v1/products')).rejects.toMatchObject({ status: 0, code: NETWORK_CODE });
   });
 });
+
+describe('CSRF는 쿠키 요청마다 새로 받는다', () => {
+  it('login을 두 번 부르면 csrf도 두 번 받고, 매번 새 토큰을 헤더에 싣는다', async () => {
+    let n = 0;
+    const { client, calls } = setup(call => path(call) === '/v1/auth/csrf' ? ok({ headerName: 'X-XSRF-TOKEN', token: `csrf-${++n}` }) : tokens('t'));
+    await client.post('/v1/auth/login', { email: 'a@b.c', password: 'p' }, { auth: false, csrf: true });
+    await client.post('/v1/auth/login', { email: 'a@b.c', password: 'p' }, { auth: false, csrf: true });
+    expect(calls.map(c => path(c))).toEqual(['/v1/auth/csrf', '/v1/auth/login', '/v1/auth/csrf', '/v1/auth/login']);
+    expect(calls[1].headers['X-XSRF-TOKEN']).toBe('csrf-1'); expect(calls[3].headers['X-XSRF-TOKEN']).toBe('csrf-2');
+  });
+});

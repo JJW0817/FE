@@ -14,8 +14,7 @@
 | PurchaseGateway | `http://localhost:8001` (서비스 직접 포트 8081 상품 Command, 8083 주문 Command) | 구매자 상품 문의 등록, 주문 생성·결제·배송지 변경·주문 문의 쓰기, 판매자 상품·출고, 운영자 상품 심사 |
 | Account | 명세에 주소 미기재 | 인증, 회원, 배송지, 판매자 입점·마이페이지, 운영자 입점 심사 |
 
-- 앱은 기본 주소를 `/api` 하나로 쓴다. 로컬은 vite proxy가 `VITE_API_TARGET`으로 넘긴다. 명세의 모든 경로는 `/api/v1/...` 형식이다.
-- 위 세 갈래가 실제로 한 호스트 뒤에 있는지, 경로로 나뉘는지는 명세만으로 알 수 없다 (`docs/api-gap.md` 확인 사항).
+- 앱은 상대 경로만 쓴다: Gateway `/api/v1/…`, PurchaseGateway `/pg/api/v1/…`(인증은 반드시 `/api`). 로컬은 vite proxy(`VITE_API_TARGET`·`VITE_PG_TARGET`), 배포는 `vercel.json` rewrites가 넘긴다 (`docs/tunnel.md`). 명세의 경로는 `/api/v1/...` 형식이다.
 
 ### 0.2 인증 방식
 

@@ -8,7 +8,7 @@ import { initialAuth } from '../domain';
 import { errorMessage, fetchMySettings, saveInterests, saveMarketingConsent, saveNotificationSettings } from '../api';
 import { homePath, login, logout, normalizeEmail, resetPassword, safeNext, sendCode, signedIn, signup, validEmail, validPassword, verifyCode, demoLogin } from '../auth';
 import { DEMO_ACCOUNTS, DEMO_LOGIN, USE_MOCK } from '../config';
-import { enablePush } from '../push';
+import { canSubscribePush, enablePush } from '../push';
 const inputClass = 'w-full min-w-0 border-0 border-b border-[var(--line)] bg-transparent py-3 text-[14px] outline-none placeholder:text-[var(--muted)] focus:border-[var(--ink)] disabled:opacity-50';
 function useAuthNow() { const [now, setNow] = useState(Date.now()); useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []); return now; }
 const DEMO_NEXT_KEY = 'stockdrop:demo-next';
@@ -263,6 +263,7 @@ export function NotificationSettingsPage() {
   const [enabled, setEnabled] = useState<Record<string, boolean>>(() => { try { return JSON.parse(localStorage.getItem('stockdrop:notifications') || '{}'); } catch { return {}; } });
   const [marketing, setMarketing] = useState(false); const toast = useToast(); const s = useStore();
   const toggle = (id: string) => setEnabled(e => ({ ...e, [id]: !e[id] }));
+  const pushReady = USE_MOCK || canSubscribePush(); // mock은 기존 화면 그대로. 실제 모드는 홈 화면에 추가된 iOS 앱에서만 구독 버튼
   // 알림 설정 조회 전용 API가 없어 GET /accounts/me로 읽는다. price_change·low_stock은 API가 없어 이 기기에만 저장 (TODO(api-gap))
   const logged = !USE_MOCK && signedIn(s);
   useEffect(() => { if (logged) fetchMySettings().then(m => { setEnabled(e => ({ ...e, sale_start: m.saleStart, recommendation: m.personalizedRecommendation })); setMarketing(m.marketing); }).catch(() => {}); }, [logged]);
@@ -297,8 +298,9 @@ export function NotificationSettingsPage() {
         <input type="checkbox" checked={marketing} onChange={e => setMarketing(e.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 rounded-[4px]"/>
         <div><p>광고성 정보 수신 동의 (선택)</p><p className="muted mt-1 text-[11px] font-normal leading-relaxed">개인 맞춤 알림 서비스를 위해 마케팅 정보 수신에 동의합니다.</p></div>
       </label>
+      {!pushReady && <Note title="푸시 알림"><p>홈 화면에 추가하면 알림을 받을 수 있어요. 사파리 공유 버튼 → ‘홈 화면에 추가’ 후 홈 화면의 STOCKDROP 앱으로 열어 주세요.</p></Note>}
     </div>
-    <div className="pb-6 pt-4"><Button className="w-full" onClick={() => proceed(true)}>알림 받기 시작</Button></div>
+    <div className="pb-6 pt-4"><Button className="w-full" onClick={() => proceed(pushReady)}>{pushReady ? '알림 받기 시작' : '설정 저장하고 시작'}</Button></div>
   </div>;
 }
 export function LogoutButton() { const [open, setOpen] = useState(false), [busy, setBusy] = useState(false), navigate = useNavigate(), toast = useToast(); return <><button className="muted py-4 text-[12px] underline underline-offset-4" onClick={() => setOpen(true)}>로그아웃</button>{open && <Modal title="로그아웃할까요?" onClose={() => setOpen(false)}><Note>주문과 신청 내역은 유지됩니다. 진행 중인 재고 확보 시간은 로그아웃해도 멈추거나 연장되지 않습니다.</Note><div className="mt-6 flex gap-3"><Button outline className="flex-1" onClick={() => setOpen(false)}>취소</Button><Button className="flex-1" disabled={busy} onClick={async () => { setBusy(true); await logout(); navigate('/', { replace: true }); toast('로그아웃했습니다.'); }}>로그아웃하기</Button></div></Modal>}</>; }

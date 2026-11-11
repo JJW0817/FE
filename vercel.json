@@ -1,0 +1,7 @@
+{
+  "rewrites": [
+    { "source": "/pg/:path*", "destination": "https://PG_TUNNEL_HOST/:path*" },
+    { "source": "/api/:path*", "destination": "https://GW_TUNNEL_HOST/api/:path*" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
