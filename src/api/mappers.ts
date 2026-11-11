@@ -1,6 +1,6 @@
 /** API 응답 → 화면이 쓰는 기존 도메인 타입 변환. 화면 코드는 그대로 두고 여기서 모양을 맞춘다 */
-import type { Address, Order, OrderStatus, Product } from '../domain';
-import type { DeliveryState, OrderAddressDto, OrderDetailDto, OrderState, ProductDetailDto } from './types';
+import type { Address, Order, OrderStatus } from '../domain';
+import type { DeliveryState, OrderAddressDto, OrderDetailDto, OrderState } from './types';
 
 export const ms = (iso?: string | null): number | undefined => (iso ? Date.parse(iso) : undefined);
 
@@ -19,21 +19,6 @@ export function orderStatus(state: OrderState, delivery: DeliveryState | null): 
 
 export function addressFromApi(a: OrderAddressDto): Address {
   return { name: a.recipientName, phone: a.recipientPhone, address: a.roadAddress, detail: a.detailAddress ?? '', request: a.deliveryMemo ?? '', postalCode: a.postalCode };
-}
-
-export function productFromApi(d: ProductDetailDto): Product {
-  const images = [...d.images].sort((a, b) => a.position - b.position).map(i => i.url).filter((u): u is string => !!u);
-  return {
-    id: d.id, sellerId: d.sellerId, name: d.name, brand: d.brandOrStore, category: d.category, description: d.description, images, originalUrl: d.sourceUrl,
-    price: d.price, shipping: d.shippingFee, maxPerAccount: d.perAccountLimit, dispatchDays: d.dispatchBusinessDays,
-    startsAt: Date.parse(d.startsAt), endsAt: Date.parse(d.endsAt), published: true,
-    options: d.options.map(o => ({ id: o.id, name: o.label, stock: o.availableQuantity })),
-    dimensions: d.dimensions.map(x => ({ name: x.name, values: x.values.join(', ') })),
-    extras: d.attributes.map(a => ({ key: a.name, value: a.value })),
-    reason: d.disposalReason ?? '',
-    faqs: d.faqs.map(f => ({ id: f.id, question: f.question, answer: f.answer, confirmed: true })),
-    soldOutAt: ms(d.soldOutAt),
-  };
 }
 
 export function orderFromApi(d: OrderDetailDto, userId: string, image = ''): Order {

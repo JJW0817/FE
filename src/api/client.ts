@@ -6,6 +6,8 @@
  * - login·logout·refresh처럼 CSRF가 필요한 호출은 `csrf: true`
  */
 import { USE_MOCK } from '../config';
+import { SERVICE_BASE } from './services';
+import type { Service } from './services';
 
 export interface Violation { field: string; message: string }
 export class ApiError extends Error {
@@ -15,6 +17,8 @@ export const MOCK_CODE = 'MOCK_MODE';
 export const NETWORK_CODE = 'NETWORK';
 
 export interface RequestOptions {
+  /** 어느 서비스로 보낼지 (기본 account). 주소는 services.ts */
+  service?: Service;
   query?: Record<string, string | number | boolean | null | undefined>;
   body?: unknown;
   /** multipart 본문. Content-Type은 브라우저가 boundary와 함께 정한다 */
@@ -33,6 +37,8 @@ export interface AuthTokens { accessToken: string; tokenType: string; expiresAt:
 export interface ClientConfig {
   fetch?: typeof fetch;
   base?: string;
+  /** 서비스별 기본 주소. 기본은 services.ts의 SERVICE_BASE */
+  services?: Partial<Record<Service, string>>;
   /** true면 네트워크를 쓰지 않고 `MOCK_MODE` 에러를 던진다 */
   mock?: boolean;
   /** 재발급 실패(또는 401 재시도 후에도 401)로 세션을 끝내야 할 때 */
@@ -44,15 +50,15 @@ export interface ClientConfig {
 const DEFAULT_MESSAGE = '요청에 실패했어요. 잠시 후 다시 시도해 주세요.';
 
 export function createApiClient(initial: ClientConfig = {}) {
-  const cfg: Required<Pick<ClientConfig, 'base' | 'mock'>> & ClientConfig = { base: '/api', mock: false, ...initial };
+  const cfg: Required<Pick<ClientConfig, 'base' | 'mock'>> & ClientConfig = { base: '/api', mock: false, services: SERVICE_BASE, ...initial };
   let accessToken: string | null = null;
   let csrf: { headerName: string; token: string } | null = null;
   let refreshing: Promise<AuthTokens> | null = null;
   const doFetch = (...args: Parameters<typeof fetch>) => (cfg.fetch ?? fetch)(...args);
 
-  const url = (path: string, query?: RequestOptions['query']) => {
+  const url = (path: string, query?: RequestOptions['query'], service: Service = 'account') => {
     const q = query ? Object.entries(query).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`).join('&') : '';
-    return `${cfg.base}${path}${q ? `${path.includes('?') ? '&' : '?'}${q}` : ''}`;
+    return `${cfg.services?.[service] ?? cfg.base}${path}${q ? `${path.includes('?') ? '&' : '?'}${q}` : ''}`;
   };
 
   async function toError(res: Response): Promise<ApiError> {
@@ -85,7 +91,7 @@ export function createApiClient(initial: ClientConfig = {}) {
     let body: BodyInit | undefined;
     if (o.form) body = o.form;
     else if (o.body !== undefined) { headers['Content-Type'] = 'application/json'; body = JSON.stringify(o.body); }
-    try { return await doFetch(url(path, o.query), { method, headers, body, credentials: 'include', signal: o.signal }); }
+    try { return await doFetch(url(path, o.query, o.service), { method, headers, body, credentials: 'include', signal: o.signal }); }
     catch (e) { if ((e as Error).name === 'AbortError') throw e; throw new ApiError('서버에 연결할 수 없어요. 네트워크를 확인하고 다시 시도해 주세요.', 0, NETWORK_CODE); }
   }
 

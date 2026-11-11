@@ -1,22 +1,26 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { CalendarDays, Timer, Camera, ChevronDown, Info, Search, Bell, ExternalLink, Bookmark, Clock3, Plus, Minus, Truck, CheckCircle2, ChevronRight, PackageCheck, Calendar } from 'lucide-react';
-import { clockLeft, useNotified, Badge, BottomSheet, Button, Chip, CopyButton, DeliveryProgress, Empty, ErrorBox, Field, Header, InfoRow, Modal, Note, ORDER_LABELS, ProductCard, ProductImage, ProductSummary, useToast } from '../components/ui';
-import { categoryGroup, activeUser, available, beginPayment, DomainError, money, nowOf, reserve, resolvePayment, saleState, uid } from '../domain';
+import { clockLeft, useNotified, LiveStatus, Badge, BottomSheet, Button, Chip, CopyButton, DeliveryProgress, Empty, ErrorBox, Field, Header, InfoRow, Modal, Note, ORDER_LABELS, ProductCard, ProductImage, ProductSummary, useToast } from '../components/ui';
+import { categoryGroup, activeUser, available, stockLeft, stockTotal, beginPayment, DomainError, money, nowOf, reserve, resolvePayment, saleState, uid } from '../domain';
 import type { Address, Hold, Product, Order } from '../domain';
 import { atomic, getState, mutate, useStore } from '../store';
 import { externalHref, imageData } from '../files';
 import { countdown, dateTime, shortDate, useClock } from '../hooks';
 import { loginHref, signedIn } from '../auth';
 import { listAddresses, toAddress } from './address';
+import { getProduct, listProducts, mergeProducts, useLive } from '../api';
+import { USE_MOCK } from '../config';
 import type { SavedAddress } from './address';
 
 /** 구매자 홈 / 판매자 홈 — Figma "구매자 홈", "판매자 홈"(판매 등록 버튼) */
 export function HomePage() {
   const s = useStore(), now = useClock(); const [params, setParams] = useSearchParams(); const [notified, toggleNotify] = useNotified();
+  // shortcut: 공개 상품을 한 번에 100개까지만 받아 기존처럼 화면에서 거른다. 상품이 많아지면 keyword·status·page를 서버 쿼리로 넘긴다
+  const live = useLive(signal => listProducts({ size: 100 }, signal), (state, r) => mergeProducts(state, r.items));
   const query = params.get('q') ?? '', category = params.get('category') ?? '전체', filter = params.get('state') ?? '전체';
   const setParam = (key: string, value: string) => { const next = new URLSearchParams(params); if (!value || value === '전체') next.delete(key); else next.set(key, value); setParams(next, { replace: true }); };
-  const left = (p: Product) => p.options.reduce((n, o) => n + available(s, p, o.id, now), 0);
+  const left = (p: Product) => stockLeft(s, p, now);
   const isUrgent = (p: Product) => saleState(p, now) === '판매 중' && p.endsAt - now <= 3_600_000 && left(p) > 0;
   const products = s.products.filter(p => p.published && (category === '전체' || categoryGroup(p.category) === category) && (filter === '전체' || (filter === '마감 임박' ? isUrgent(p) : saleState(p, now) === filter)) && `${p.name} ${p.brand} ${p.category}`.toLowerCase().includes(query.toLowerCase()));
   const showHero = !query && category === '전체' && filter === '전체';
@@ -29,10 +33,10 @@ export function HomePage() {
     <div className="flex gap-1.5 overflow-x-auto">{['전체', '마감 임박', '판매 중', '판매 예정', '판매 종료'].map(f => <button key={f} onClick={() => setParam('state', f)} className={`flex h-[30px] shrink-0 items-center gap-1 rounded-[4px] px-2.5 text-[12px] ${filter === f ? 'bg-[var(--ink)] font-bold text-white' : f === '마감 임박' ? 'bg-[var(--soft)] font-bold text-[var(--urgent)]' : 'bg-[var(--soft)] text-[var(--aux)]'}`}>{f === '마감 임박' && <span className={`h-1.5 w-1.5 rounded-full ${filter === f ? 'bg-white' : 'bg-[var(--urgent)]'}`}/>}{f}</button>)}</div>
     {showHero && <div className="rounded-[6px] bg-[var(--ink)] px-[18px] py-5 text-white"><p className="text-[10px] font-bold">STOCKDROP 시간 한정 판매</p><h2 className="mt-1.5 text-[22px] font-bold tracking-[-.6px]">단 3시간, 한정 판매</h2><p className="mt-1.5 text-[12px] opacity-80">혼자 운영하는 쇼핑몰의 남은 재고를 새 주인에게.</p></div>}
     {showHero && urgent.length > 0 && <section className="space-y-3 pt-3"><div className="flex items-center justify-between"><h2 className="flex items-center gap-1.5 text-[18px] font-bold"><Timer size={19} className="text-[var(--urgent)]"/>곧 마감돼요</h2><span className="text-[12px] text-[var(--aux)]">마감 임박 {urgent.length}</span></div>
-      {urgent.slice(0, 1).map(p => { const total = p.options.reduce((n, o) => n + o.stock, 0), l = left(p); return <Link key={p.id} to={`/product/${p.id}`} className="block"><div className="relative"><ProductImage src={p.images[0]} alt={p.name} className="h-[240px] w-full"/><span className="absolute left-3 top-3 rounded-[4px] bg-[var(--urgent)] px-2 py-1 text-[11px] font-bold text-white">마감 임박</span><span className="absolute right-3 top-3 flex items-center gap-1 rounded-[4px] bg-black/75 px-2 py-1 text-[12px] font-bold tabular-nums text-white"><Timer size={13}/>{clockLeft(p.endsAt - now)} 남음</span></div><p className="mt-3 text-[12px] font-bold text-[var(--aux)]">{p.brand}</p><div className="mt-1 flex items-center justify-between"><h3 className="text-[16px]">{p.name}</h3><p className="text-[18px] font-bold">{money(p.price)}</p></div><div className="mt-2 flex items-center justify-between"><p className="text-[13px] font-bold text-[var(--urgent)]">서두르세요! {l}개 남았어요</p><p className="text-[12px] text-[var(--meta)]">{total}개 중 {total - l}개 판매</p></div><div className="mt-2 h-1 w-full rounded-full bg-[var(--line)]"><div className="h-1 rounded-full bg-[var(--urgent)]" style={{ width: `${total ? (total - l) / total * 100 : 0}%` }}/></div></Link>; })}
+      {urgent.slice(0, 1).map(p => { const total = stockTotal(p), l = left(p); return <Link key={p.id} to={`/product/${p.id}`} className="block"><div className="relative"><ProductImage src={p.images[0]} alt={p.name} className="h-[240px] w-full"/><span className="absolute left-3 top-3 rounded-[4px] bg-[var(--urgent)] px-2 py-1 text-[11px] font-bold text-white">마감 임박</span><span className="absolute right-3 top-3 flex items-center gap-1 rounded-[4px] bg-black/75 px-2 py-1 text-[12px] font-bold tabular-nums text-white"><Timer size={13}/>{clockLeft(p.endsAt - now)} 남음</span></div><p className="mt-3 text-[12px] font-bold text-[var(--aux)]">{p.brand}</p><div className="mt-1 flex items-center justify-between"><h3 className="text-[16px]">{p.name}</h3><p className="text-[18px] font-bold">{money(p.price)}</p></div><div className="mt-2 flex items-center justify-between"><p className="text-[13px] font-bold text-[var(--urgent)]">서두르세요! {l}개 남았어요</p><p className="text-[12px] text-[var(--meta)]">{total}개 중 {total - l}개 판매</p></div><div className="mt-2 h-1 w-full rounded-full bg-[var(--line)]"><div className="h-1 rounded-full bg-[var(--urgent)]" style={{ width: `${total ? (total - l) / total * 100 : 0}%` }}/></div></Link>; })}
     </section>}
     <div className="flex items-end justify-between pt-6"><div><h2 className="text-[18px] font-bold">{query ? `검색 결과 ${products.length}개` : '새로 올라온 상품'}</h2><p className="mt-1 text-[12px] text-[var(--meta)]">의류 · 패션잡화 · 문구 · 생활잡화</p></div>{showHero && <button className="text-[12px] text-[var(--aux)]" onClick={() => setParam('state', '판매 예정')}>더보기</button>}</div>
-    {products.length ? <div className="grid grid-cols-2 gap-x-3 gap-y-6">{products.map(p => <ProductCard key={p.id} product={p} now={now} availableCount={left(p)} notified={notified.includes(p.id)} onNotify={() => toggleNotify(p.id)}/>)}</div> : <Empty title="검색 결과가 없어요" message="검색어나 카테고리를 바꿔 보세요."><Button outline onClick={() => setParams({})}>필터 초기화</Button></Empty>}
+    {products.length ? <div className="grid grid-cols-2 gap-x-3 gap-y-6">{products.map(p => <ProductCard key={p.id} product={p} now={now} availableCount={left(p)} notified={notified.includes(p.id)} onNotify={() => toggleNotify(p.id)}/>)}</div> : live.loading || live.error ? <LiveStatus state={live}/> : <Empty title="검색 결과가 없어요" message="검색어나 카테고리를 바꿔 보세요."><Button outline onClick={() => setParams({})}>필터 초기화</Button></Empty>}
     <p className="py-4 text-[11px] text-[var(--meta)]">미판매 새 상품만 판매합니다. 중고·전시·하자 상품은 제외돼요.</p>
     {seller && <Link to="/seller/new" className="fixed bottom-[88px] right-[max(16px,calc(50%-179px))] z-30 flex h-12 items-center gap-2 rounded-full bg-[var(--ink)] pl-3 pr-5 text-[15px] font-bold text-white shadow-lg"><span className="grid h-6 w-6 place-items-center rounded-full bg-[var(--positive)]"><Plus size={16} strokeWidth={2.5}/></span>판매 등록</Link>}
   </div>;
@@ -48,12 +52,16 @@ const SCHEDULE_MOCK: { productId: string; name: string; category: string; price:
 const DAY_MS = 86_400_000, SALE_MS = 10_800_000;
 const hm = (t: number) => { const d = new Date(t); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 export function SchedulePage() {
-  const now = useClock(); const [notified, toggleNotify] = useNotified(); const [weekOffset, setWeekOffset] = useState<0 | 1>(0);
+  const s = useStore(), now = useClock(); const [notified, toggleNotify] = useNotified(); const [weekOffset, setWeekOffset] = useState<0 | 1>(0);
   const today = new Date(now); today.setHours(0, 0, 0, 0); const todayMs = today.getTime();
   const [selected, setSelected] = useState<number | 'all'>(todayMs);
   const monday = todayMs - ((today.getDay() + 6) % 7) * DAY_MS + weekOffset * 7 * DAY_MS;
   const days = Array.from({ length: 7 }, (_, i) => monday + i * DAY_MS);
-  const items = SCHEDULE_MOCK.map(m => ({ ...m, startsAt: todayMs + m.start * 60_000, endsAt: todayMs + m.start * 60_000 + SALE_MS }));
+  const thisMonday = todayMs - ((today.getDay() + 6) % 7) * DAY_MS;
+  // 이번 주·다음 주(14일) 판매 시작 상품. 일정 API(/v1/products/schedule)는 날짜별 개수만 줘서 목록 API로 받는다
+  const live = useLive(signal => listProducts({ startsFrom: thisMonday, startsTo: thisMonday + 14 * DAY_MS, size: 100 }, signal), (state, r) => mergeProducts(state, r.items), [thisMonday]);
+  const items = USE_MOCK ? SCHEDULE_MOCK.map(m => ({ ...m, startsAt: todayMs + m.start * 60_000, endsAt: todayMs + m.start * 60_000 + SALE_MS }))
+    : s.products.filter(p => p.published).map(p => ({ productId: p.id, name: p.name, category: p.category, price: p.price, image: p.images[0] ?? '', startsAt: p.startsAt, endsAt: p.endsAt }));
   const inRange = (t: number) => selected === 'all' ? t >= monday && t < monday + 7 * DAY_MS : t >= selected && t < selected + DAY_MS;
   const visible = items.filter(i => inRange(i.startsAt) && i.endsAt > now);
   const selling = visible.filter(i => i.startsAt <= now), upcoming = visible.filter(i => i.startsAt > now);
@@ -74,14 +82,17 @@ export function SchedulePage() {
     <div className="flex items-center gap-1 py-3"><button onClick={() => setSelected('all')} className={`w-10 shrink-0 text-[13px] font-bold ${selected === 'all' ? 'text-[var(--ink)]' : 'text-[var(--aux)]'}`}>전체</button>{days.map(t => { const isToday = t === todayMs, on = selected === t, past = t < todayMs; return <button key={t} onClick={() => setSelected(t)} aria-label={`${md(t)} ${WEEKDAY[new Date(t).getDay()]}요일`} className={`flex h-[54px] flex-1 flex-col items-center justify-center rounded-[6px] ${on ? 'bg-[var(--ink)] text-white' : ''}`}><span className={`text-[11px] ${on ? 'font-bold' : 'text-[var(--meta)]'}`}>{isToday ? '오늘' : WEEKDAY[new Date(t).getDay()]}</span><span className={`text-[16px] font-bold ${on ? '' : past ? 'text-[var(--placeholder)]' : ''}`}>{new Date(t).getDate()}</span></button>; })}</div>
     <div className="-mx-4 h-2 bg-[var(--divider)]"/>
     <div className="flex items-center justify-between pb-2 pt-5"><h2 className="text-[16px] font-bold">{selected === 'all' ? `${md(days[0])} – ${md(days[6])}` : `${new Date(selected).getMonth() + 1}월 ${new Date(selected).getDate()}일 ${WEEKDAY[new Date(selected).getDay()]}요일`}</h2><span className="text-[12px] text-[var(--meta)]">판매 {visible.length}개</span></div>
-    {visible.length ? <>{group('지금 판매 중', selling, true)}<div className="h-4"/>{group('오픈 예정', upcoming, false)}</> : <Empty title="선택한 날의 판매 일정이 없어요" message="다른 요일을 선택하거나 전체 일정을 확인해 보세요."/>}
+    {visible.length ? <>{group('지금 판매 중', selling, true)}<div className="h-4"/>{group('오픈 예정', upcoming, false)}</> : live.loading || live.error ? <LiveStatus state={live}/> : <Empty title="선택한 날의 판매 일정이 없어요" message="다른 요일을 선택하거나 전체 일정을 확인해 보세요."/>}
   </div>;
 }
 
 export function ProductPage() {
-  const { id } = useParams(); const s = useStore(), now = useClock(), toast = useToast(); const p = s.products.find(p => p.id === id); const navigate = useNavigate(); const [optionsOpen, setOptionsOpen] = useState(false); const [extPopup, setExtPopup] = useState(false); const [selectedFaq, setSelectedFaq] = useState<string | null>(null);
-  if (!p || !p.published) return <Empty title="상품을 찾을 수 없어요"><Link to="/" className="btn">홈으로</Link></Empty>;
-  const status = saleState(p, now), qty = p.options.reduce((n, o) => n + available(s, p, o.id, now), 0), saved = s.bookmarks.includes(`${s.activeUserId}:${p.id}`);
+  const { id } = useParams(); const s = useStore(), now = useClock(), toast = useToast(); const p = s.products.find(p => p.id === id);
+  const live = useLive(signal => getProduct(id ?? '', signal), (state, d) => mergeProducts(state, [d]), [id]); const navigate = useNavigate(); const [optionsOpen, setOptionsOpen] = useState(false); const [extPopup, setExtPopup] = useState(false); const [selectedFaq, setSelectedFaq] = useState<string | null>(null);
+  // 목록에서 받은 요약(옵션 없음)만 있으면 상세가 올 때까지 기다린다
+  if (!p || !p.published || (p.live && !p.options.length)) return live.loading || live.error ? <LiveStatus state={live}/> : <Empty title="상품을 찾을 수 없어요"><Link to="/" className="btn">홈으로</Link></Empty>;
+  const status = saleState(p, now), qty = stockLeft(s, p, now), saved = s.bookmarks.includes(`${s.activeUserId}:${p.id}`);
+  // TODO(api-gap): 찜(관심 상품) API가 명세에 없어 로컬 저장(mock) 유지
   const bookmark = () => mutate(state => { const key = `${state.activeUserId}:${p.id}`; state.bookmarks = saved ? state.bookmarks.filter(k => k !== key) : [...state.bookmarks, key]; });
   const [notified, setNotified] = useState(() => { try { return JSON.parse(localStorage.getItem('stockdrop:notified-products') || '[]').includes(p.id); } catch { return false; } });
   const toggleNotify = () => { setNotified((v: boolean) => { const next = !v; try { const all = JSON.parse(localStorage.getItem('stockdrop:notified-products') || '[]'); localStorage.setItem('stockdrop:notified-products', JSON.stringify(next ? [...all, p.id] : all.filter((x: string) => x !== p.id))); } catch {} return next; }); };
@@ -199,6 +210,8 @@ export function CalendarPage() {
   const s = useStore(), now = useClock();
   const [viewDate, setViewDate] = useState(() => new Date(now));
   const year = viewDate.getFullYear(), month = viewDate.getMonth();
+  const monthStart = new Date(year, month, 1).getTime(), nextMonthStart = new Date(year, month + 1, 1).getTime();
+  const live = useLive(signal => listProducts({ startsFrom: monthStart, startsTo: nextMonthStart, size: 100 }, signal), (state, r) => mergeProducts(state, r.items), [monthStart]);
   const published = s.products.filter(p => p.published);
   const firstDay = new Date(year, month, 1);
   const lastDay = new Date(year, month + 1, 0);
@@ -226,7 +239,7 @@ export function CalendarPage() {
   const selectedSales = selected ? salesOnDay(selected) : [];
   return (
     <div className="space-y-4">
-      <Header title="전체 일정" subtitle="판매 있는 날 · 오늘 · 이번 주 일정은 다음 주까지 공개돼요" back={true}/>
+      <Header title="전체 일정" subtitle="판매 있는 날 · 오늘 · 이번 주 일정은 다음 주까지 공개돼요" back={true}/><LiveStatus state={live}/>
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <button type="button" onClick={prevMonth} className="muted px-2 py-2 text-[11px]">← 이전달</button>

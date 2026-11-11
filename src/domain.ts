@@ -3,7 +3,7 @@ export const CATEGORIES: Category[] = ['의류', '패션잡화', '문구', '생�
 /** 카테고리 경로 — Figma 체계(대분류 › 중분류 › 소분류) */
 export const CATEGORY_PATHS = ['패션 › 상의 › 니트/스웨터', '패션 › 상의 › 맨투맨', '패션 › 상의 › 티셔츠', '패션 › 아우터 › 가디건', '패션 › 하의 › 팬츠', '패션 › 잡화 › 가방', '패션 › 잡화 › 모자', '패션 › 잡화 › 소품', '문구 › 노트', '문구 › 필기구', '문구 › 사무용품', '생활잡화 › 수납용품', '생활잡화 › 생활소품'];
 /** 홈 카테고리 탭(의류·패션잡화·문구·생활잡화)에 해당하는 묶음 */
-export function categoryGroup(path: string): Category | undefined { if (path.startsWith('패션 › 잡화')) return '패션잡화'; if (path.startsWith('패션')) return '의류'; if (path.startsWith('문구')) return '문구'; if (path.startsWith('생활잡화')) return '생활잡화'; }
+export function categoryGroup(path: string): Category | undefined { if ((CATEGORIES as string[]).includes(path)) return path as Category; /* 서버 카테고리 이름(예: 의류) — 추측: 체계 매핑 미확정, docs/api-gap.md */ if (path.startsWith('패션 › 잡화')) return '패션잡화'; if (path.startsWith('패션')) return '의류'; if (path.startsWith('문구')) return '문구'; if (path.startsWith('생활잡화')) return '생활잡화'; }
 export interface Extra { key: string; value: string }
 export interface Faq { id: string; question: string; answer: string; confirmed: boolean }
 export interface Option { id: string; name: string; stock: number }
@@ -17,6 +17,7 @@ export interface Product {
   /** 선착순 마감(완판) 시각 — 백엔드 요청 필드 */ soldOutAt?: number;
   /** 판매에 참여(구매 시도)한 인원 — 백엔드 요청 필드 */ participants?: number;
   /** 타 플랫폼 판매가 확인 결과 — 백엔드 요청 필드 */ reference?: ReferenceListing;
+  /** 서버(실제 API)에서 받은 상품의 재고 요약. 있으면 options[].stock은 서버의 남은 수량이고 로컬 주문·확보로 다시 빼지 않는다 */ live?: { initial: number; available: number };
 }
 export interface User { id: string; name: string; email: string; phone: string; seller: boolean; admin: boolean }
 export interface AuthData {
@@ -101,11 +102,16 @@ export function saleState(p: Product, now: number): '판매 예정' | '판매 �
   return now >= p.endsAt ? '판매 종료' : '판매 중';
 }
 export function available(s: State, p: Product, optionId: string, now: number): number {
+  if (p.live) return p.options.find(o => o.id === optionId)?.stock ?? 0;
   const initial = p.options.find(o => o.id === optionId)?.stock ?? 0;
   const sold = s.orders.filter(o => o.productId === p.id && !['cancelled', 'refunded'].includes(o.status)).reduce((sum, o) => sum + o.lines.filter(l => l.optionId === optionId).reduce((a, l) => a + l.quantity, 0), 0);
   const held = s.holds.filter(h => h.productId === p.id && (h.status === 'pending' || h.status === 'reserved' && h.expiresAt > now)).reduce((sum, h) => sum + h.lines.filter(l => l.optionId === optionId).reduce((a, l) => a + l.quantity, 0), 0);
   return Math.max(0, initial - sold - held);
 }
+/** 상품 전체 최초 수량 */
+export const stockTotal = (p: Product) => p.live?.initial ?? p.options.reduce((n, o) => n + o.stock, 0);
+/** 상품 전체 남은 수량 (서버 목록 응답처럼 옵션 없이 요약만 있으면 요약값) */
+export const stockLeft = (s: State, p: Product, now: number) => p.live && !p.options.length ? p.live.available : p.options.reduce((n, o) => n + available(s, p, o.id, now), 0);
 export function expireHolds(s: State, now: number): boolean {
   let changed = false;
   for (const h of s.holds) if (h.status === 'reserved' && h.expiresAt <= now) { h.status = 'released'; changed = true; }
