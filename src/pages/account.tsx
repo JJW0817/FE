@@ -13,7 +13,7 @@ import type { SavedAddress as ApiAddr } from './address';
 import { LogoutButton } from './auth';
 import { changePassword, restoreSession, validPassword } from '../auth';
 import { USE_MOCK } from '../config';
-import { apiGet, apiPost, apiPut, apiDelete, errorMessage, fetchMyApplication, mergeApplication, resubmitApplication, submitApplication, updateMyName, addInquiryMessage, getInquiryImageUrl, getOrderInquiry, listInquiryInbox, mergeInquiries, useLive } from '../api';
+import { apiPut, apiDelete, approveSellerApplication, decideProductReview, errorMessage, getAdminApplication, getAdminProductReviewWithImages, listAdminApplications, listAdminProductReviews, markApplication, mergeAdminApplications, mergeAdminProductList, mergeProducts, rejectSellerApplication, reviewCertificate, fetchMyApplication, mergeApplication, resubmitApplication, submitApplication, updateMyName, addInquiryMessage, getInquiryImageUrl, getOrderInquiry, listInquiryInbox, mergeInquiries, useLive } from '../api';
 import { getPdf } from '../files';
 function ProfileEditModal({ userId, name: initialName, phone: initialPhone, onClose }: { userId: string; name: string; phone: string; onClose: () => void }) {
   const [name, setName] = useState(initialName), [phone, setPhone] = useState(initialPhone), [error, setError] = useState(''), [busy, setBusy] = useState(false); const toast = useToast();
@@ -209,16 +209,10 @@ function UrlCard({ url, viewed, onView }: { url: string; viewed: boolean; onView
   );
 }
 export function AdminListPage() {
-  const s = useStore(), user = activeUser(s); const [tab, setTab] = useState<'pending' | 'approved'>('pending'); const [extra, setExtra] = useState<typeof s.applications>([]);
-  useEffect(() => {
-    if (!user.admin) return;
-    apiGet('/admin/seller-applications').then((data: any) => {
-      if (!Array.isArray(data)) return;
-      setExtra(data.filter((a: any) => !s.applications.find(x => x.id === (a.applicationId ?? a.id))).map((a: any) => ({ id: a.applicationId ?? a.id, userId: a.accountId ?? '', displayName: a.sellerDisplayName ?? '', name: a.contactName ?? '', email: a.contactEmail ?? '', phone: a.contactPhone ?? '', document: { id: a.applicationId ?? a.id, name: '사업자등록증', size: 0, uploadedAt: 0 }, bank: a.bankName ?? '', account: a.bankAccountNumber ?? a.bankAccount ?? '', shippingAddress: a.dispatchAddress?.roadAddress ?? '', returnAddress: a.returnAddress?.roadAddress ?? '', salesUrl: a.salesUrl ?? undefined, status: (a.status ?? 'pending').toLowerCase() as 'pending' | 'approved', submittedAt: a.submittedAt ? new Date(a.submittedAt).getTime() : Date.now() })));
-    }).catch(() => {});
-  }, [user.admin]);
+  const s = useStore(), user = activeUser(s); const [tab, setTab] = useState<'pending' | 'approved'>('pending');
+  const live = useLive(sig => user.admin ? listAdminApplications({}, sig) : Promise.resolve([]), mergeAdminApplications, [user.admin]);
   if (!user.admin) return <Unavailable message="운영자만 사용할 수 있습니다."/>;
-  const all = [...s.applications, ...extra];
+  const all = s.applications;
   const apps = all.filter(a => a.status === tab).sort((a, b) => a.submittedAt - b.submittedAt);
   const reviewDeadline = (sub: number) => sub + 2 * 86_400_000;
   return (
@@ -260,7 +254,8 @@ export function AdminListPage() {
           </div>
         </Link>
       ))}
-      {!apps.length && <Empty title={tab === 'pending' ? '심사 대기 중인 신청이 없어요' : '승인한 신청이 없어요'}/>}
+      <LiveStatus state={live}/>
+      {!live.loading && !live.error && !apps.length && <Empty title={tab === 'pending' ? '심사 대기 중인 신청이 없어요' : '승인한 신청이 없어요'}/>}
       <div className="mt-8 rounded-[4px] bg-[var(--soft)] p-4 space-y-1">
         <p className="text-[13px] font-bold">첨부된 사업자등록증 PDF와 판매 URL을 검토합니다.</p>
         <p className="text-[12px] text-[#7B7B7B]">신청 상세에서 PDF와 타 플랫폼 판매 페이지를 모두 열람한 뒤<br/>승인하거나 반려해 주세요.</p>
@@ -269,18 +264,10 @@ export function AdminListPage() {
   );
 }
 export function AdminDetailPage() {
-  const { id } = useParams(); const s = useStore(), user = activeUser(s); const [extra, setExtra] = useState<typeof s.applications[0] | null>(null); const app = s.applications.find(a => a.id === id) ?? extra; const [pdfViewed, setPdfViewed] = useState(false), [urlViewed, setUrlViewed] = useState(false), [confirm, setConfirm] = useState(false), [rejecting, setRejecting] = useState(false), [rejectReason, setRejectReason] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false); const toast = useToast(), navigate = useNavigate();
-  useEffect(() => {
-    if (!user.admin || !id) return;
-    apiGet(`/admin/seller-applications/${id}`).then((a: any) => {
-      if (!a) return;
-      setExtra({ id: a.applicationId ?? a.id ?? id, userId: a.accountId ?? '', displayName: a.sellerDisplayName ?? '', name: a.contactName ?? '', email: a.contactEmail ?? '', phone: a.contactPhone ?? '', document: { id: a.applicationId ?? id, name: '사업자등록증', size: 0, uploadedAt: 0 }, bank: a.bankName ?? '', account: a.bankAccountNumber ?? a.bankAccount ?? '', shippingAddress: a.dispatchAddress?.roadAddress ?? '', returnAddress: a.returnAddress?.roadAddress ?? '', salesUrl: a.salesUrl ?? undefined, status: (a.status ?? 'pending').toLowerCase() as 'pending' | 'approved', submittedAt: a.submittedAt ? new Date(a.submittedAt).getTime() : Date.now(), approvedAt: a.approvedAt ? new Date(a.approvedAt).getTime() : undefined });
-      // No PDF available from API — allow approval without PDF viewing
-      if (!s.applications.find(x => x.id === id)) { setPdfViewed(true); setUrlViewed(true); }
-    }).catch(() => {});
-  }, [id, user.admin]);
+  const { id } = useParams(); const s = useStore(), user = activeUser(s); const app = s.applications.find(a => a.id === id); const [pdfViewed, setPdfViewed] = useState(false), [urlViewed, setUrlViewed] = useState(false), [confirm, setConfirm] = useState(false), [rejecting, setRejecting] = useState(false), [rejectReason, setRejectReason] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false); const toast = useToast(), navigate = useNavigate();
+  const live = useLive(sig => user.admin && id ? getAdminApplication(id, sig) : Promise.resolve(null), (st, a) => { if (a) mergeAdminApplications(st, [a]); }, [id, user.admin]);
   if (!user.admin) return <Unavailable message="운영자만 사용할 수 있습니다."/>;
-  if (!app) return <Empty title="신청 정보를 찾을 수 없어요"/>;
+  if (!app) return live.loading || live.error ? <LiveStatus state={live}/> : <Empty title="신청 정보를 찾을 수 없어요"/>;
   const reviewDeadline = app.submittedAt + 2 * 86_400_000;
   const days = ['일','월','화','수','목','금','토'];
   const dl = new Date(reviewDeadline);
@@ -321,7 +308,7 @@ export function AdminDetailPage() {
         <div className="flex items-center gap-3">
           <FileText size={14} className="shrink-0 text-[#7B7B7B]"/>
           <span className="flex-1 text-[12px] text-[#7B7B7B]">사업자등록증.pdf · 1쪽 · 1.2MB</span>
-          <button className="text-[12px] font-bold text-[var(--ink)]" onClick={() => { setPdfViewed(true); app.document && getPdf(app.document.id).catch(() => {}); }}>열람하기</button>
+          <button className="text-[12px] font-bold text-[var(--ink)]" onClick={async () => { setError(''); try { if (USE_MOCK) { app.document && getPdf(app.document.id).catch(() => {}); } else { const url = URL.createObjectURL(await reviewCertificate(app.id)); window.open(url, '_blank', 'noopener'); } setPdfViewed(true); } catch (e) { setError(errorMessage(e)); } }}>열람하기</button>
         </div>
       </div>
       {/* URL Section */}
@@ -378,7 +365,7 @@ export function AdminDetailPage() {
             <ErrorBox message={error}/>
             <div className="flex gap-2">
               <Button outline className="w-[86px]" onClick={() => setRejecting(false)} disabled={busy}>취소</Button>
-              <Button className="flex-1" disabled={busy || !rejectReason.trim()} onClick={async () => { setBusy(true); setError(''); try { try { await apiPost(`/admin/seller-applications/${app.id}/reject`, { reason: rejectReason.trim() }); } catch {} await atomic(state => { if (!activeUser(state).admin) throw new Error('운영자만 반려할 수 있습니다.'); const item = state.applications.find(a => a.id === app.id); if (!item || item.status !== 'pending') throw new Error('이미 처리된 신청입니다.'); item.status = 'rejected'; item.rejectedAt = nowOf(state); item.reviewedAt = nowOf(state); item.rejectionItems = [{ field: '입점 심사', reason: rejectReason.trim() }]; }); toast('입점 신청을 반려했습니다.'); navigate('/admin'); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }}>{busy ? '처리 중…' : '반려하기'}</Button>
+              <Button className="flex-1" disabled={busy || !rejectReason.trim()} onClick={async () => { setBusy(true); setError(''); try { if (!USE_MOCK) { await rejectSellerApplication(app.id, rejectReason); mutate(state => markApplication(state, app.id, 'rejected', Date.now(), rejectReason.trim())); } else await atomic(state => { if (!activeUser(state).admin) throw new Error('운영자만 반려할 수 있습니다.'); const item = state.applications.find(a => a.id === app.id); if (!item || item.status !== 'pending') throw new Error('이미 처리된 신청입니다.'); item.status = 'rejected'; item.rejectedAt = nowOf(state); item.reviewedAt = nowOf(state); item.rejectionItems = [{ field: '입점 심사', reason: rejectReason.trim() }]; }); toast('입점 신청을 반려했습니다.'); navigate('/admin'); } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); } }}>{busy ? '처리 중…' : '반려하기'}</Button>
             </div>
           </div>
         </div>
@@ -397,7 +384,7 @@ export function AdminDetailPage() {
             <ErrorBox message={error}/>
             <div className="flex gap-2">
               <Button outline className="w-[86px]" onClick={() => setConfirm(false)} disabled={busy}>취소</Button>
-              <Button className="flex-1" disabled={busy} onClick={async () => { setBusy(true); try { try { await apiPost(`/admin/seller-applications/${app.id}/approve`, {}); } catch {} await atomic(state => approveApplication(state, state.activeUserId, app.id, nowOf(state))); setConfirm(false); toast('판매자로 승인했습니다.'); navigate('/admin'); } catch (e) { setError((e as Error).message); setConfirm(false); } finally { setBusy(false); } }}>{busy ? '승인 중…' : '승인하기'}</Button>
+              <Button className="flex-1" disabled={busy} onClick={async () => { setBusy(true); try { if (!USE_MOCK) { await approveSellerApplication(app.id); mutate(state => markApplication(state, app.id, 'approved', Date.now())); } else await atomic(state => approveApplication(state, state.activeUserId, app.id, nowOf(state))); setConfirm(false); toast('판매자로 승인했습니다.'); navigate('/admin'); } catch (e) { setError(errorMessage(e)); setConfirm(false); } finally { setBusy(false); } }}>{busy ? '승인 중…' : '승인하기'}</Button>
             </div>
           </div>
         </div>
@@ -407,6 +394,7 @@ export function AdminDetailPage() {
 }
 export function AdminProductListPage() {
   const s = useStore(), user = activeUser(s); const [tab, setTab] = useState<'pending' | 'approved'>('pending');
+  const live = useLive(async sig => user.admin ? (await Promise.all((['IN_REVIEW', 'REJECTED', 'APPROVED'] as const).map(st => listAdminProductReviews(st, sig)))).flat() : [], mergeAdminProductList, [user.admin]);
   if (!user.admin) return <Unavailable message="운영자만 사용할 수 있습니다."/>;
   const products = s.products.filter(p => tab === 'pending' ? !p.published : p.published);
   const pendingCount = s.products.filter(p => !p.published).length;
@@ -447,7 +435,8 @@ export function AdminProductListPage() {
           </Link>
         );
       })}
-      {!products.length && <Empty title={tab === 'pending' ? '심사 대기 중인 상품이 없어요' : '승인한 상품이 없어요'}/>}
+      <LiveStatus state={live}/>
+      {!live.loading && !live.error && !products.length && <Empty title={tab === 'pending' ? '심사 대기 중인 상품이 없어요' : '승인한 상품이 없어요'}/>}
     </div>
   );
 }
@@ -463,8 +452,9 @@ export function AdminProductDetailPage() {
   const [urlViewed, setUrlViewed] = useState(false);
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const seller = s.users.find(u => u.id === p?.sellerId);
+  const live = useLive(sig => user.admin && id ? getAdminProductReviewWithImages(id, sig) : Promise.resolve(null), (st, x) => { if (x) mergeProducts(st, [x]); }, [id, user.admin]);
   if (!user.admin) return <Unavailable message="운영자만 사용할 수 있습니다."/>;
-  if (!p) return <Empty title="상품을 찾을 수 없어요"><Link to="/admin/products" className="btn">심사 목록으로</Link></Empty>;
+  if (!p) return live.loading || live.error ? <LiveStatus state={live}/> : <Empty title="상품을 찾을 수 없어요"><Link to="/admin/products" className="btn">심사 목록으로</Link></Empty>;
   const d = new Date(p.startsAt);
   const days = ['일','월','화','수','목','금','토'];
   const openLabel = `오픈 ${d.getMonth()+1}.${d.getDate()} (${days[d.getDay()]}) ${d.getHours()}:00`;
@@ -478,10 +468,10 @@ export function AdminProductDetailPage() {
       setBusy(true); setError('');
       const reasons = REJECT_REASONS.filter(r => checkedReasons[r]).map(r => `[${r}] ${reasonTexts[r]?.trim()}`).join('\n');
       try {
-        try { await apiPost(`/admin/products/${p.id}/reject`, { reason: reasons }); } catch {}
-        mutate(state => { const item = state.products.find(x => x.id === p.id); if (item) item.rejectionReason = reasons; });
+        if (!USE_MOCK) { const r = await decideProductReview(p.id, p.version ?? 0, false, reasons); mutate(state => mergeProducts(state, [r])); }
+        else mutate(state => { const item = state.products.find(x => x.id === p.id); if (item) item.rejectionReason = reasons; });
         setReject(false); toast('반려 처리했습니다.'); navigate('/admin/products');
-      } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+      } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); }
     };
     return (
       <div className="pb-8">
@@ -625,7 +615,7 @@ export function AdminProductDetailPage() {
             <ErrorBox message={error}/>
             <div className="flex gap-2">
               <Button outline className="flex-1" onClick={() => setApproveConfirm(false)} disabled={busy}>취소</Button>
-              <Button className="flex-1" disabled={busy} onClick={async () => { setBusy(true); setError(''); try { try { await apiPost(`/admin/products/${p.id}/approve`, {}); } catch {} mutate(state => { const item = state.products.find(x => x.id === p.id); if (item) { item.published = true; delete item.rejectionReason; } }); setApproveConfirm(false); toast('상품을 승인했습니다.'); navigate('/admin/products'); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }}>{busy ? '처리 중…' : <>승인하기 <Check size={16}/></>}</Button>
+              <Button className="flex-1" disabled={busy} onClick={async () => { setBusy(true); setError(''); try { if (!USE_MOCK) { const r = await decideProductReview(p.id, p.version ?? 0, true); mutate(state => mergeProducts(state, [r])); } else mutate(state => { const item = state.products.find(x => x.id === p.id); if (item) { item.published = true; delete item.rejectionReason; } }); setApproveConfirm(false); toast('상품을 승인했습니다.'); navigate('/admin/products'); } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); } }}>{busy ? '처리 중…' : <>승인하기 <Check size={16}/></>}</Button>
             </div>
           </div>
         </div>
