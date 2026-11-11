@@ -52,7 +52,7 @@ async function analyzeReal(userId: string, token: string) {
     const r = await analyzeDraft(d, id);
     // TODO(api-gap): 일치도(confidence)·사진에서 찾은 정보(found)·대안 카테고리(alternatives)는 API에 없어 목업 표시 유지. AI 점검 질문(questions)→FAQ(suggestionId) 흐름은 FAQ 입력 화면이 없어 보류
     done(r.outcome === 'RECOMMENDED' && r.category ? { status: 'recommended', signature: token, category: '', reason: '', result: { ...mockAiAnalysis(d), category: r.category, path: r.category, alternatives: [] } } : failed);
-  } catch { done(failed); }
+  } catch (e) { done({ ...failed, reason: errorMessage(e) }); }
 }
 /** 화면을 떠나도 계속되는 AI 분석(mock은 목업) */
 const ANALYSIS_MS = 2500;
@@ -147,7 +147,7 @@ export function WizardPage() {
           images.push(u.url || URL.createObjectURL(f)); ids.push(u.id); patch({ images: [...images], imageIds: [...ids] }); // 열람 URL을 못 받아도 선택한 파일로 미리보기
         }
       }
-      if (!d.category) startAnalysis(user.id);
+      if (!d.category && d.name.trim() && !USE_MOCK) startAnalysis(user.id); else if (!d.category && USE_MOCK) startAnalysis(user.id);
     }
     catch (e) { setPhotoError(errorMessage(e)); } finally { setUploading(false); setProgress(''); }
   }
@@ -168,6 +168,7 @@ export function WizardPage() {
     if (d.ai.status === 'analyzing') navigate(`/seller/new/ai/analyzing${suffix}`);
     else if (d.ai.status === 'failed') navigate(`/seller/new/ai/failed${suffix}`);
     else if (d.ai.result) navigate(`/seller/new/ai${suffix}`);
+    else if (d.images.length && !USE_MOCK && !d.name.trim()) setPhotoError('AI 분석을 하려면 상품명을 먼저 입력해 주세요.');
     else if (d.images.length) { startAnalysis(user.id); navigate(`/seller/new/ai/analyzing${suffix}`); }
     else { const next = new URLSearchParams(params); next.set('pick', 'category'); setParams(next); }
   }
@@ -211,6 +212,7 @@ export function WizardPage() {
     <section><Label hint="· 필수">상품명</Label><input aria-label="상품명" className="field-line" value={d.name} maxLength={50} onChange={e => patch({ name: e.target.value })} placeholder="상품명을 입력해 주세요"/></section>
 
     <section><Label hint="· AI 자동 분류">카테고리</Label>
+      {!USE_MOCK && d.images.length > 0 && !d.name.trim() && !d.category && <p className="pb-1 text-[12px] text-[var(--aux)]">상품명을 먼저 입력하면 AI가 카테고리를 분석해요.</p>}
       <button type="button" onClick={openCategory} className="flex h-12 w-full items-center gap-2 border-b border-[var(--line)] text-left">
         <Sparkles size={16} className="shrink-0"/>
         <span className={`min-w-0 flex-1 truncate text-[16px] ${d.category ? '' : 'text-[var(--placeholder)]'}`}>{d.category || (d.ai.status === 'analyzing' ? '사진을 분석하고 있어요' : '카테고리를 선택해 주세요')}</span>
@@ -335,7 +337,7 @@ export function AiFailedPage() {
   return <AiFrame footer={<div className="flex gap-2"><Button outline className="w-[128px] text-[15px]!" onClick={() => navigate(`/seller/new${suffix}${suffix ? '&' : '?'}pick=category`, { replace: true })}>직접 입력하기</Button><Button className="flex-1 text-[15px]!" onClick={() => { startAnalysis(user.id); navigate(`/seller/new/ai/analyzing${suffix}`, { replace: true }); }}>다시 분석</Button></div>}>
     <Thumbs images={d.images}/>
     <span className="grid h-11 w-11 place-items-center rounded-full bg-[var(--red-soft)]"><AlertCircle size={18} className="text-[var(--action)]"/></span>
-    <div className="space-y-2"><h1 className="text-[24px] font-bold tracking-[-.7px]">사진을 분석하지 못했어요</h1><p className="text-[13px] text-[var(--aux)]">사진이 흐리거나 상품이 잘 보이지 않으면 분석이 어려워요.</p></div>
+    <div className="space-y-2"><h1 className="text-[24px] font-bold tracking-[-.7px]">사진을 분석하지 못했어요</h1><p className="text-[13px] text-[var(--aux)]">{d.ai.reason ? d.ai.reason : '사진이 흐리거나 상품이 잘 보이지 않으면 분석이 어려워요.'}</p></div>
     <div className="space-y-2 rounded-[6px] bg-[var(--infobar)] p-4"><p className="text-[13px] font-bold">이렇게 하면 더 잘 분석돼요</p><p className="whitespace-pre-line text-[12px] leading-[1.7] text-[var(--aux)]">{'· 상품 전체가 보이도록 밝은 곳에서 촬영\n· 라벨·택이 보이는 사진을 함께 등록\n· 한 사진에 상품 하나만'}</p></div>
     <div className="flex gap-2 rounded-[6px] bg-[var(--soft)] p-4"><Info size={15} className="mt-[2px] shrink-0 text-[var(--aux)]"/><p className="text-[12px] leading-[1.6] text-[var(--aux)]">AI 분석 없이 카테고리를 직접 선택해도 판매 심사를 요청할 수 있어요. 입력한 내용은 그대로 저장돼 있어요.</p></div>
   </AiFrame>;

@@ -9,6 +9,7 @@ import type { Draft, Inquiry, Product } from '../domain';
 import { optionKey } from '../domain';
 import { ApiError, api } from './client';
 import { ms } from './mappers';
+import { errorMessage } from './errors';
 import type { AiAnalysisAcceptedDto, AiAnalysisDto, ProductImageMetaDto, ProductImageUploadDto, ProductRevisionDto, ProductReviewListItemDto, ProductSalesSummaryDto, RegistrationMetadataDto, SellerProductDto, SellerProductInquiryDto, ItemsPage } from './types';
 
 const general = 'general' as const, purchase = 'purchase' as const;
@@ -196,10 +197,16 @@ export async function submitRevisionFromDraft(d: Draft, id: string): Promise<Pro
 }
 /** AI 점검(실제 모드): 현재 입력을 기본 정보로 저장 → 요청 → 폴링. 결과의 카테고리 코드는 점검 기준 이름으로 바꾼다 */
 export async function analyzeDraft(d: Draft, id: string, o?: { interval?: number; tries?: number }) {
-  const meta = await getRegistrationMetadata();
-  const p = await saveBasicInfo(id, (await getSellerProduct(id)).version ?? 0, basicInfoOf(d, meta.categories));
-  const accepted = await requestAiAnalysis(id, p.version ?? 0);
-  const r = await pollAiAnalysis(accepted.requestId, o);
+  if (!d.name.trim()) throw new Error('상품명을 먼저 입력해 주세요.');
+  // 단계 이름을 붙여 던진다(서버가 violations 없이 PRODUCT_INVALID만 주는 경우 어느 단계인지 보이게)
+  const at_ = async <T,>(stage: string, f: () => Promise<T>): Promise<T> => { try { return await f(); } catch (e) { throw new Error(`${stage}: ${errorMessage(e)}`); } };
+  const meta = await at_('등록 정보 조회 실패', getRegistrationMetadata);
+  // 매 단계의 응답 version을 다음 요청에 쓴다(낙관적 잠금)
+  let p = await at_('기본 정보 저장 실패', async () => saveBasicInfo(id, (await getSellerProduct(id)).version ?? 0, basicInfoOf(d, meta.categories)));
+  // 명세: AI 점검은 현재 이미지·기본정보·처분 사유 기준 — 처분 사유를 저장해 둔다
+  p = await at_('상세 정보 저장 실패', () => saveDetails(id, p.version ?? 0, { attributes: d.extras.filter(e => e.key.trim() && e.value.trim()).map(e => ({ name: e.key.trim(), value: e.value.trim() })), disposalReason: d.reason.trim() || DEFAULT_DISPOSAL_REASON }));
+  const accepted = await at_('AI 분석 요청 실패', () => requestAiAnalysis(id, p.version ?? 0));
+  const r = await at_('AI 분석 결과 확인 실패', () => pollAiAnalysis(accepted.requestId, o));
   // 추측(명세 없음): recommendedCategory(코드, 예 CLOTHING)의 이름(예 의류)을 등록 카테고리 이름으로 쓴다
   const category = r.recommendedCategory ? meta.categoryCriteria.find(c => c.code === r.recommendedCategory)?.name ?? r.recommendedCategory : '';
   return { outcome: r.outcome, category, questions: r.questions, categories: meta.categories };
