@@ -34,8 +34,20 @@ function patchDraft(userId: string, value: Partial<Draft>) {
     state.drafts[userId] = d;
   });
 }
-/** 수정 가능한 상품: 실제 API는 초안·반려는 항상, 승인 상품은 판매 시작 전(수정 심사). 심사 중은 불가. mock은 판매 시작 전 */
-const canEdit = (p: Product, now: number) => (p.reviewStatus ? p.reviewStatus === 'DRAFT' || p.reviewStatus === 'REJECTED' || (p.reviewStatus === 'APPROVED' && now < p.startsAt) : now < p.startsAt);
+/**
+ * 수정할 수 없는 이유(null = 수정 가능). 실제 API는 서버 status로 판단: DRAFT·REJECTED는 항상(반려 → 수정 → 재심사 요청),
+ * APPROVED는 판매 시작(startsAt, UTC epoch) 전만 수정 심사, IN_REVIEW는 불가. mock은 판매 시작 전.
+ */
+export function editBlocker(p: Pick<Product, 'reviewStatus' | 'startsAt'>, now: number): string | null {
+  switch (p.reviewStatus) {
+    case 'DRAFT': case 'REJECTED': return null;
+    case 'IN_REVIEW': return '심사 중에는 정보를 수정할 수 없어요';
+    case 'APPROVED': return now < p.startsAt ? null : '판매 시작 후에는 정보를 수정할 수 없어요';
+    case undefined: return now < p.startsAt ? null : '판매 시작 후에는 정보를 수정할 수 없어요';
+    default: return '지금은 정보를 수정할 수 없어요';
+  }
+}
+const canEdit = (p: Product, now: number) => !editBlocker(p, now);
 /** 실제 모드: 서버 초안 상품이 없으면 만든다(사진 업로드·AI 분석 전에 상품 id가 필요) */
 const creating = new Map<string, Promise<string>>();
 async function ensureServerDraft(userId: string): Promise<string> {
@@ -119,8 +131,11 @@ export function WizardPage() {
   const [error, setError] = useState(''), [uploading, setUploading] = useState(false), [progress, setProgress] = useState(''), [photoError, setPhotoError] = useState(''), [fieldErr, setFieldErr] = useState<Record<string, string>>({}), [busy, setBusy] = useState(false), [photo, setPhoto] = useState<number | null>(null), [activeColor, setActiveColor] = useState(0);
   const picking = params.get('pick') === 'category';
   if (!user.seller) return <Unavailable message="승인된 판매자만 상품을 등록할 수 있습니다."/>;
-  const editing = editId ? s.products.find(p => p.id === editId && p.sellerId === user.id) : undefined;
-  if (editId && (!editing || !canEdit(editing, now))) return live.loading || live.error ? <LiveStatus state={live}/> : <Empty title="판매 시작 후에는 정보를 수정할 수 없어요"><Link to="/seller/products" className="btn">상품 관리로</Link></Empty>;
+  // 실제 모드: 소유권은 서버가 확인한다(상품 sellerId가 계정 id와 다를 수 있어 비교하지 않는다)
+  const editing = editId ? s.products.find(p => p.id === editId && (!USE_MOCK || p.sellerId === user.id)) : undefined;
+  // 실제 모드는 서버 편집 원본(status 포함)을 받기 전엔 판단하지 않는다(목록·알림에서 온 status 없는 상품으로 잘못 막던 문제)
+  if (editId && !USE_MOCK && (live.loading || live.error || !editing?.reviewStatus)) return <LiveStatus state={live}/>;
+  if (editId && (!editing || !canEdit(editing, now))) return <Empty title={editing ? editBlocker(editing, now)! : '상품을 찾을 수 없어요'}><Link to="/seller/products" className="btn">상품 관리로</Link></Empty>;
   if (!d || !d.axes || (editId && d.editingId !== editId)) return <LiveStatus state={live}/>;
   const axes = d.axes, colors = d.colors ?? [], sizes = d.sizes ?? [], stock = d.stock ?? {};
   const setStock = (key: string, n: number) => patch({ stock: { ...stock, [key]: n } });
@@ -292,7 +307,7 @@ export function WizardPage() {
     <ErrorBox message={error}/>
     <div className="space-y-3 pt-4">
       <p className="text-center text-[12px] text-[var(--meta)]">{editId ? '수정 내용은 판매 심사 후 반영돼요 · 영업일 기준 1일 이내' : '판매 심사와 물품 검수는 영업일 기준 1일 이내에 완료돼요'}</p>
-      <Button className="w-full text-[15px]!" disabled={busy || uploading || blocked} onClick={submit}>{busy ? '요청 중…' : editId ? '수정 내용 저장' : '판매 심사 요청하기'}</Button>
+      <Button className="w-full text-[15px]!" disabled={busy || uploading || blocked} onClick={submit}>{busy ? '요청 중…' : editId ? (editing?.reviewStatus === 'REJECTED' ? '수정하고 재심사 요청' : '수정 내용 저장') : '판매 심사 요청하기'}</Button>
     </div>
 
     {photo !== null && d.images[photo] && <Modal title={`상품 사진 ${photo + 1}`} onClose={() => setPhoto(null)}><div className="space-y-3"><ProductImage src={d.images[photo]} alt="선택한 사진" className="aspect-square w-full"/>{photo > 0 && <Button className="w-full" onClick={() => void coverPhoto(photo)}>대표 사진으로 지정</Button>}<Button outline className="w-full" onClick={() => void removePhoto(photo)}>삭제</Button></div></Modal>}

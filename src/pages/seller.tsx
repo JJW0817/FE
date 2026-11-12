@@ -51,7 +51,7 @@ export function SellerProductsPage() {
   </div>;
 }
 export function SellerProductPage() {
-  const { id } = useParams(); const s = useStore(), user = activeUser(s), now = useClock(), location = useLocation(), navigate = useNavigate(), toast = useToast(); const p = s.products.find(p => p.id === id && p.sellerId === user.id);
+  const { id } = useParams(); const s = useStore(), user = activeUser(s), now = useClock(), location = useLocation(), navigate = useNavigate(), toast = useToast(); const p = s.products.find(p => p.id === id && (!USE_MOCK || p.sellerId === user.id));
   // 실제 모드: 편집 원본·이미지, 이 상품의 주문, 주문 집계, 수정 심사 이력을 서버에서 받는다(mock은 store 목업 그대로)
   const live = useLive(async signal => (id && user.seller ? { prod: await getSellerProductWithImages(id, signal), orders: await listSellerOrders(user.id, { productId: id }, signal) } : null), (st, r) => { if (!r) return; mergeProducts(st, [r.prod]); mergeOrders(st, r.orders); }, [id]);
   const sum = useApi(async signal => (USE_MOCK || !id || !user.seller ? null : getSellerOrderSummary({ productId: id }, signal)), [id]);
@@ -59,15 +59,16 @@ export function SellerProductPage() {
   if (!user.seller) return <Unavailable/>;
   if (!p) return live.loading || live.error ? <LiveStatus state={live}/> : <Unavailable/>;
   const rev = [...(revs.data ?? [])].sort((a, b) => Date.parse(b.submittedAt) - Date.parse(a.submittedAt))[0];
-  const status = saleState(p, now), fee = feeFor(s, p) /* TODO(api-gap): 정산·수수료 API 없음(목업 계산) */, published = location.pathname.includes('/published/');
+  // 실제 모드: 심사 중·반려 상품은 (알림에서 /seller/product/:id로 들어와도) 심사 결과 화면을 보여 준다
+  const status = saleState(p, now), fee = feeFor(s, p) /* TODO(api-gap): 정산·수수료 API 없음(목업 계산) */, published = location.pathname.includes('/published/') || (!USE_MOCK && (p.reviewStatus === 'IN_REVIEW' || p.reviewStatus === 'REJECTED'));
   const productOrders = s.orders.filter(o => o.productId === p.id && !['cancelled','refunded'].includes(o.status));
   const totalSold = sum.data?.confirmedQuantity ?? fee.sold;
   const totalStock = p.options.reduce((n, o) => n + o.stock, 0);
 
   // 심사 대기 / 심사 승인 / 심사 반려
   if (published) {
-    const approved = !!p.published;
-    const rejected = !p.published && !!(p as any).rejectionReason;
+    const approved = USE_MOCK ? !!p.published : p.reviewStatus === 'APPROVED';
+    const rejected = USE_MOCK ? !p.published && !!p.rejectionReason : p.reviewStatus === 'REJECTED';
     const dDay = Math.max(0, Math.ceil((p.startsAt - now) / 86_400_000));
     const steps = ['요청 완료', '판매 심사', '판매 예정', '판매 시작'];
     const filled = approved ? 3 : 1;
@@ -78,7 +79,7 @@ export function SellerProductPage() {
         { no: '01', field: '한정 판매가', reason: '쿠팡 판매가가 45,900원으로 내려갔어요. 한정 판매가는 URL 판매가보다 낮아야 해요.' },
         { no: '02', field: '판매 일정', reason: '11월 3일 (화) 21:00 판매 슬롯이 모두 찼어요. 다른 날짜나 시간을 골라 주세요.' },
       ];
-      const rejectionReasons = !USE_MOCK && p.rejectionReason ? [{ no: '01', field: '심사 의견', reason: p.rejectionReason }] : mockReasons;
+      const rejectionReasons = USE_MOCK ? mockReasons : [{ no: '01', field: '심사 의견', reason: p.rejectionReason || '반려 사유가 등록되지 않았어요.' }];
       return <div className="space-y-5">
         <div className="flex items-center justify-between pt-1">
           <h1 className="text-[18px] font-bold">심사 요청 결과</h1>
