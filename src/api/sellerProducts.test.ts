@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { api } from './client';
-import { MAX_ANALYSIS_BYTES, PRODUCT_STATE_MESSAGE, addProductFaq, analysisBlocker, categoriesForCode, categoryForCode, criteriaFor, analysisProblems, analyzeDraft, answerProductInquiry, basicInfoOf, createProductDraft, deleteProductFaq, deleteProductImage, getAiAnalysis, getProductImageUrl, getRegistrationMetadata, getSalesSummary, getSellerProduct, getSellerProductWithImages, listProductImages, listRevisions, listSellerProductInquiries, listSellerProducts, optionPayload, pollAiAnalysis, reorderProductImages, requestAiAnalysis, saveBasicInfo, saveDetails, saveOptions, savePricingShipping, saveRegistrationFaqs, saveSchedule, sellerProductFromApi, submitListing, submitReview, submitRevision, submitRevisionFromDraft, updateProductFaq, uploadProductImage } from './sellerProducts';
+import { MAX_ANALYSIS_BYTES, PRODUCT_STATE_MESSAGE, addProductFaq, analysisBlocker, listingProblems, categoriesForCode, categoryForCode, criteriaFor, analysisProblems, analyzeDraft, answerProductInquiry, basicInfoOf, createProductDraft, deleteProductFaq, deleteProductImage, getAiAnalysis, getProductImageUrl, getRegistrationMetadata, getSalesSummary, getSellerProduct, getSellerProductWithImages, listProductImages, listRevisions, listSellerProductInquiries, listSellerProducts, optionPayload, pollAiAnalysis, reorderProductImages, requestAiAnalysis, saveBasicInfo, saveDetails, saveOptions, savePricingShipping, saveRegistrationFaqs, saveSchedule, sellerProductFromApi, submitListing, submitReview, submitRevision, submitRevisionFromDraft, updateProductFaq, uploadProductImage } from './sellerProducts';
 import { blankDraft, optionKey } from '../domain';
 import type { Draft } from '../domain';
 import type { SellerProductDto } from './types';
@@ -190,5 +190,17 @@ describe('registration-metadata 카테고리', () => {
     expect(categoryForCode(meta, 'FOOD')).toBe(''); expect(categoryForCode(meta, null)).toBe('');
     expect(categoriesForCode(meta, 'CLOTHING')).toEqual(['의류', '의류 > 상의']); // '의류잡화'는 다른 분류
     expect(criteriaFor(meta, '의류 > 상의')?.code).toBe('CLOTHING'); expect(criteriaFor(meta, '의류잡화')).toBeUndefined(); expect(criteriaFor(meta, '')).toBeUndefined();
+  });
+});
+
+describe('심사 제출 전 검사', () => {
+  const now = Date.parse('2030-01-01T00:00:00Z');
+  const ok: Draft = { ...blankDraft(), name: '상품', description: '새 상품', reason: '재고 정리', images: ['x'], imageIds: ['i1'], category: '의류', originalUrl: 'coupang.com/p/1', price: 5000, shipping: 0, dispatchDays: 2, maxPerAccount: 1, startsAt: '2030-01-02T10:00', axes: { size: false, color: false }, stock: { [optionKey('', '')]: 3 } };
+  const o = { categories: ['의류'], now, dispatch: true, return: true };
+  it('모두 갖추면 통과(배송비 0 허용)', () => expect(listingProblems(ok, o)).toEqual({}));
+  it('빠진 칸마다 문구, 화면 순서대로', () => {
+    const f = listingProblems({ ...blankDraft(), imageIds: [], category: '패션', originalUrl: 'nope', price: 0, shipping: -1, dispatchDays: 0, maxPerAccount: 0, startsAt: '2029-12-31T10:00', axes: { size: false, color: false }, stock: {} }, { ...o, dispatch: false });
+    expect(Object.keys(f)).toEqual(['images', 'name', 'description', 'disposalReason', 'category', 'sourceUrl', 'price', 'options', 'startsAt', 'dispatchDays', 'shipping', 'maxPerAccount', 'addresses']);
+    expect(f.addresses).toBe('출고지를 등록해 주세요.');
   });
 });

@@ -242,6 +242,30 @@ export function analysisProblems(d: AnalysisInput, status?: Product['reviewStatu
 }
 /** 첫 번째로 빠진 조건 문구(null = 시작 가능) */
 export const analysisBlocker = (d: AnalysisInput, status?: Product['reviewStatus']) => Object.values(analysisProblems(d, status))[0] ?? null;
+const httpUrl = (v: string) => { try { const u = new URL(/^https?:\/\//.test(v) ? v : `https://${v}`); return ['http:', 'https:'].includes(u.protocol) && u.hostname.includes('.'); } catch { return false; } };
+/**
+ * 심사 제출 전 검사 — 빠진 칸별 문구(화면 순서). 빈 객체 = 제출 가능.
+ * 서버는 PRODUCT_INVALID를 violations 없이 주므로 서버 규칙을 여기서 먼저 확인한다.
+ */
+export function listingProblems(d: Draft, o: { categories: string[]; now: number; dispatch: boolean; return: boolean }): Record<string, string> {
+  const f: Record<string, string> = {};
+  if (!(d.imageIds ? d.imageIds.filter(Boolean).length : d.images.length)) f.images = '상품 사진을 1장 이상 올려 주세요.';
+  if (!d.name.trim()) f.name = '상품명을 입력해 주세요.';
+  if (!d.description.trim()) f.description = '짧은 설명을 입력해 주세요.';
+  if (!d.reason.trim()) f.disposalReason = '처분 사유를 입력해 주세요.';
+  if (!d.category || !o.categories.includes(d.category)) f.category = '카테고리를 선택해 주세요.';
+  if (!d.originalUrl.trim() || !httpUrl(d.originalUrl.trim())) f.sourceUrl = '타 플랫폼 판매 URL을 올바르게 입력해 주세요.';
+  if (!Number.isInteger(d.price) || d.price <= 0) f.price = '한정 판매가를 입력해 주세요.';
+  else if (d.reference && d.price >= d.reference.price) f.price = '등록한 URL의 판매가보다 낮아야 심사를 요청할 수 있어요.';
+  if (!optionPayload(d).variants.length) f.options = '옵션별 한정 수량을 1개 이상 입력해 주세요.';
+  const start = new Date(d.startsAt).getTime();
+  if (!Number.isFinite(start) || start <= o.now) f.startsAt = '판매 시작 시각이 지났어요. 지금보다 뒤로 바꿔 주세요.';
+  if (!Number.isInteger(d.dispatchDays) || d.dispatchDays <= 0) f.dispatchDays = '출고 기한을 선택해 주세요.';
+  if (!Number.isInteger(d.shipping) || d.shipping < 0) f.shipping = '배송비는 0원 이상으로 입력해 주세요.';
+  if (!Number.isInteger(d.maxPerAccount) || d.maxPerAccount <= 0) f.maxPerAccount = '1인 구매 한도는 1개 이상이어야 해요.';
+  if (!o.dispatch || !o.return) f.addresses = !o.dispatch && !o.return ? '출고지와 반품지를 등록해 주세요.' : !o.dispatch ? '출고지를 등록해 주세요.' : '반품지를 등록해 주세요.';
+  return f;
+}
 /** AI 점검(실제 모드): 현재 입력을 기본 정보로 저장 → 요청 → 폴링. 결과의 카테고리 코드는 점검 기준 이름으로 바꾼다 */
 export async function analyzeDraft(d: Draft, id: string, o?: { interval?: number; tries?: number }) {
   const blocked = analysisBlocker(d); if (blocked) throw new Error(blocked);

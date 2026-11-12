@@ -10,7 +10,7 @@ import { imageData } from '../files';
 import { Button, Empty, ErrorBox, Header, LiveStatus, Modal, Note, ProductImage, Unavailable, useToast } from '../components/ui';
 import { useClock } from '../hooks';
 import { USE_MOCK } from '../config';
-import { MOCK_REGISTRATION_METADATA, PRODUCT_STATE_MESSAGE, analysisProblems, analyzeDraft, categoriesForCode, criteriaFor, createProductDraft, deleteProductImage, errorMessage, fieldErrors, isApiError, getRegistrationMetadata, getSellerProductWithImages, mergeProducts, reorderProductImages, submitListing, submitRevisionFromDraft, uploadProductImage, useApi, useLive } from '../api';
+import { MOCK_REGISTRATION_METADATA, PRODUCT_STATE_MESSAGE, analysisProblems, analyzeDraft, categoriesForCode, criteriaFor, listAddressBook, listingProblems, createProductDraft, deleteProductImage, errorMessage, fieldErrors, isApiError, getRegistrationMetadata, getSellerProductWithImages, mergeProducts, reorderProductImages, submitListing, submitRevisionFromDraft, uploadProductImage, useApi, useLive } from '../api';
 
 /* ── 초안 ─────────────────────────────────────────────────────────────────────── */
 const SWATCH: Record<string, string> = { 차콜: '#3F3F3F', 오트밀: '#E6DCC6', 크림: '#F3EBDC', 네이비: '#2B3A55', 블랙: '#222222', 화이트: '#FFFFFF', 내추럴: '#E8DCC8', 그레이: '#9A9A9A', 베이지: '#E3D3B8' };
@@ -145,6 +145,8 @@ export function WizardPage() {
   }, [editId]);
   const [error, setError] = useState(''), [uploading, setUploading] = useState(false), [progress, setProgress] = useState(''), [photoError, setPhotoError] = useState(''), [fieldErr, setFieldErr] = useState<Record<string, string>>({}), [busy, setBusy] = useState(false), [photo, setPhoto] = useState<number | null>(null), [activeColor, setActiveColor] = useState(0);
   const picking = params.get('pick') === 'category', meta = useRegistrationMeta();
+  // 출고지·반품지: 실제 모드는 판매자 주소록, mock은 판매자 설정의 주소
+  const book = useApi(async signal => (USE_MOCK ? null : Promise.all([listAddressBook('DISPATCH', signal), listAddressBook('RETURN', signal)])), []);
   if (!user.seller) return <Unavailable message="승인된 판매자만 상품을 등록할 수 있습니다."/>;
   // 실제 모드: 소유권은 서버가 확인한다(상품 sellerId가 계정 id와 다를 수 있어 비교하지 않는다)
   const editing = editId ? s.products.find(p => p.id === editId && (!USE_MOCK || p.sellerId === user.id)) : undefined;
@@ -224,21 +226,30 @@ export function WizardPage() {
   }
   const closePicker = () => { const next = new URLSearchParams(params); next.delete('pick'); setParams(next, { replace: true }); };
   async function submit() {
-    setBusy(true); setError(''); setFieldErr({});
+    setError(''); setFieldErr({});
+    // 서버는 업무 규칙 오류(PRODUCT_INVALID)에 violations를 주지 않으므로 제출 전에 같은 규칙으로 먼저 막는다
+    const settings = s.sellerSettings[user.id];
+    const problems = listingProblems(d, { categories: meta.data?.categories ?? [], now, dispatch: USE_MOCK ? !!settings?.shippingAddress : !!book.data?.[0].length, return: USE_MOCK ? !!settings?.returnAddress : !!book.data?.[1].length });
+    if (Object.keys(problems).length) { showProblems(problems); setError('빠진 정보를 확인해 주세요.'); return; }
+    setBusy(true);
     try {
       if (USE_MOCK) { const product = await atomic(state => publishDraft(state, state.activeUserId, state.drafts[state.activeUserId], nowOf(state))); navigate(`/seller/published/${product.id}`, { replace: true }); return; }
       // 실제 모드: 단계별 저장(버전 이어받기) 후 심사 제출. 승인 상품은 수정 심사 제출
-      if (!d.images.length || !d.name.trim()) throw new Error('상품 사진과 상품명을 입력해 주세요.');
       const id = await ensureServerDraft(user.id);
       if (editing?.reviewStatus === 'APPROVED') { await submitRevisionFromDraft(d, id); mutate(st => { delete st.drafts[user.id]; }); toast('수정 내용을 심사 요청했어요.'); navigate('/seller/products', { replace: true }); return; }
       const product = await submitListing(d, id);
       mutate(st => { mergeProducts(st, [product]); delete st.drafts[user.id]; }); navigate(`/seller/published/${product.id}`, { replace: true });
     }
     catch (e) {
-      // 서버 violations는 해당 입력칸 아래에. violations 없이 PRODUCT_INVALID면 비어 있는 필수 칸(설명·처분 사유)을 표시한다
       const f = fieldErrors(e);
-      if (!Object.keys(f).length && isApiError(e, 'PRODUCT_INVALID')) { if (!d.description.trim()) f.description = '상품 설명을 입력해 주세요.'; if (!d.reason.trim()) f.disposalReason = '처분 사유를 입력해 주세요.'; }
-      setFieldErr(f); setError(errorMessage(e));
+      // 화면 검사를 통과했는데 PRODUCT_INVALID면 그사이 서버 값이 바뀐 것: 상품을 다시 받아 화면을 새로 그린다
+      if (!Object.keys(f).length && isApiError(e, 'PRODUCT_INVALID') && serverId) {
+        try {
+          const fresh = await getSellerProductWithImages(serverId);
+          mutate(st => { mergeProducts(st, [fresh]); const m = st.products.find(x => x.id === fresh.id)!; st.drafts[user.id] = { ...fromProduct(m), editingId: d.editingId, serverId: d.serverId, ai: d.ai }; });
+        } catch { /* 다시 받기 실패: 안내만 */ }
+        setError('그사이 정보가 바뀌었어요. 확인 후 다시 요청해 주세요');
+      } else { setFieldErr(f); setError(errorMessage(e)); }
     } finally { setBusy(false); }
   }
   const FieldError = ({ name }: { name: string }) => fieldErr[name] ? <p role="alert" className="mt-1.5 text-[12px] text-[var(--red)]">{fieldErr[name]}</p> : null;
@@ -253,7 +264,7 @@ export function WizardPage() {
     </div>}
 
     {/* 상품 사진 */}
-    <section className="space-y-2.5">
+    <section className="space-y-2.5" data-field="images">
       <Label hint="· 필수 · 최대 10장">상품 사진</Label>
       <div className="flex gap-2 overflow-x-auto">
         {d.images.length < 10 && <label className="flex h-20 w-20 shrink-0 cursor-pointer flex-col items-center justify-center gap-1 rounded-[6px] border border-[var(--border)]"><Plus size={20} strokeWidth={1.5}/><span className="text-[11px] text-[var(--meta)]">{uploading ? '처리 중' : `${d.images.length}/10`}</span><input aria-label="상품 사진 업로드" type="file" accept="image/jpeg,image/png,image/webp" multiple className="sr-only" disabled={uploading} onChange={e => { const picked = Array.from(e.target.files ?? []); e.target.value = ''; void upload(picked); }}/></label>}
@@ -277,7 +288,7 @@ export function WizardPage() {
       <FieldError name="state"/>
     </section>
 
-    <section><Label hint="· AI 추천 또는 직접 선택">카테고리</Label>
+    <section data-field="category"><Label hint="· AI 추천 또는 직접 선택">카테고리</Label>
       {!d.category && d.ai.status === 'uncertain' && d.ai.reason && <p role="status" className="pb-1 text-[12px] text-[var(--aux)]">{d.ai.reason}</p>}
       <button type="button" onClick={openCategory} className="flex h-12 w-full items-center gap-2 border-b border-[var(--line)] text-left">
         <Sparkles size={16} className="shrink-0"/>
@@ -298,21 +309,23 @@ export function WizardPage() {
       {questions.filter(q => !criteria.checks.some(c => c.code === q.checkCode)).map((q, i) => <p key={i} className="flex items-start gap-1 rounded-[6px] bg-[var(--soft)] p-3 text-[12px] text-[var(--aux)]"><Sparkles size={12} className="mt-[3px] shrink-0"/>{q.question}{q.reason && ` · ${q.reason}`}</p>)}
     </section>}
 
-    <section className="space-y-3">
+    <section className="space-y-3" data-field="sourceUrl">
       <div><Label hint="· 필수">타 플랫폼 판매 URL</Label><p className="mt-1 text-[12px] text-[var(--meta)]">쿠팡·알리 등에서 판매 중인 같은 상품의 링크</p></div>
       <label className="flex h-12 items-center gap-2 border-b border-[var(--line)]"><Link2 size={17} className="shrink-0 text-[var(--aux)]"/><input aria-label="타 플랫폼 판매 URL" className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-[var(--placeholder)]" value={d.originalUrl} placeholder="https://" onChange={e => patch({ originalUrl: e.target.value, reference: lookupReference(e.target.value) /* TODO(api-gap): 타 플랫폼 가격 조회 API 없음(목업) */ })}/></label>
       {reference && <div className="flex items-center gap-3 rounded-[6px] bg-[var(--soft)] p-3">{reference.image && <ProductImage src={reference.image} alt={reference.title} className="h-12 w-12 shrink-0"/>}<div className="min-w-0 flex-1"><p className="text-[11px] font-bold text-[var(--meta)]">{reference.platform}</p><p className="truncate text-[13px]">{reference.title}</p><p className="text-[14px] font-bold">{money(reference.price)}</p></div><span className="flex shrink-0 items-center gap-1 text-[12px] font-bold text-[var(--positive)]"><Check size={14}/>확인됨</span></div>}
       {(d.extraUrls ?? []).map((url, i) => <label key={i} className="flex h-12 items-center gap-2 border-b border-[var(--line)]"><Link2 size={17} className="shrink-0 text-[var(--aux)]"/><input aria-label={`추가 URL ${i + 1}`} className="min-w-0 flex-1 bg-transparent text-[15px] outline-none" value={url} placeholder="https://" onChange={e => patch({ extraUrls: (d.extraUrls ?? []).map((u, j) => j === i ? e.target.value : u) })}/></label>)}
       <button type="button" onClick={() => patch({ extraUrls: [...(d.extraUrls ?? []), ''] })} className="flex items-center gap-1 text-[13px] text-[var(--aux)]"><Plus size={14}/>다른 플랫폼 URL 추가</button>
+      <FieldError name="sourceUrl"/>
     </section>
 
-    <section className="space-y-2.5"><Label hint="· 필수">한정 판매가</Label>
+    <section className="space-y-2.5" data-field="price"><Label hint="· 필수">한정 판매가</Label>
       <label className="flex h-12 items-center border-b border-[var(--line)]"><input aria-label="한정 판매가" inputMode="numeric" className="min-w-0 flex-1 bg-transparent text-[16px] outline-none placeholder:text-[var(--placeholder)]" value={d.price ? d.price.toLocaleString('ko-KR') : ''} placeholder="0" onChange={e => patch({ price: Number(e.target.value.replace(/\D/g, '')) || 0 })}/><span className="text-[14px] text-[var(--aux)]">원</span></label>
       {discount > 0 && reference && <p className="flex items-center gap-2 text-[12px] text-[var(--aux)]"><span className="rounded-[3px] bg-[var(--positive-soft)] px-1.5 py-0.5 text-[11px] font-bold text-[var(--positive)]">{Math.round(discount / reference.price * 100)}% 저렴</span>{`${reference.platform} 판매가보다 ${money(discount)} 저렴해요`}</p>}
       <p className="text-[12px] text-[var(--meta)]">등록한 URL의 판매가보다 낮아야 심사를 요청할 수 있어요</p>
+      <FieldError name="price"/>
     </section>
 
-    <section className="space-y-3"><Label hint="· 필수">옵션별 한정 수량</Label>
+    <section className="space-y-3" data-field="options"><Label hint="· 필수">옵션별 한정 수량</Label>
       <div className="flex items-center gap-2"><span className="mr-1 text-[12px] text-[var(--aux)]">옵션</span>{chip(axes.size, '사이즈', () => patch({ axes: { ...axes, size: !axes.size } }))}{chip(axes.color, '색상', () => patch({ axes: { ...axes, color: !axes.color } }))}{chip(!axes.size && !axes.color, '옵션 없음', () => patch({ axes: { size: false, color: false } }))}</div>
       {axes.color && <div className="flex flex-wrap gap-2">{colors.map((c, i) => <button type="button" key={c} onClick={() => setActiveColor(i)} className={`flex h-10 items-center gap-1.5 rounded-[6px] px-3.5 ${c === color ? 'border-[1.5px] border-[var(--ink)]' : 'border border-[var(--border)]'}`}><span className="h-3.5 w-3.5 rounded-full border border-black/10" style={{ background: SWATCH[c] ?? '#DEDEDE' }}/><span className={`text-[14px] ${c === color ? 'font-bold' : 'text-[var(--aux)]'}`}>{c}</span><span className="text-[12px] text-[var(--meta)]">{colorTotal(c)}개</span></button>)}<InlineAdd label="색상" className="h-10 rounded-[6px] border border-[var(--border)] px-3.5" onAdd={v => { if (!colors.includes(v)) { patch({ colors: [...colors, v] }); setActiveColor(colors.length); } }}/></div>}
       {(axes.size || (!axes.color && !axes.size) || (axes.color && color)) && <div className="rounded-[6px] border border-[var(--line)] px-4">
@@ -323,19 +336,38 @@ export function WizardPage() {
         </> : axes.color ? qtyRow(`${color} 수량`, optionKey(color, ''), true) : qtyRow('기본 수량', optionKey('', ''), true)}
       </div>}
       <div className="flex items-center justify-between rounded-[6px] bg-[var(--soft)] px-4 py-3.5"><div><p className="text-[13px] font-bold">총 한정 수량</p>{axes.color && colors.length > 0 && <p className="mt-0.5 text-[12px] text-[var(--meta)]">{colors.map(c => `${c} ${colorTotal(c)}`).join(' · ')}</p>}</div><p className="text-[18px] font-bold">{total}개</p></div>
-      <p className="text-[12px] text-[var(--meta)]">판매가 시작되면 옵션과 수량을 바꿀 수 없어요{editing ? ` · 1인 ${d.maxPerAccount}개 구매` : ''}</p>
+      <p className="text-[12px] text-[var(--meta)]">판매가 시작되면 옵션과 수량을 바꿀 수 없어요</p>
+      <FieldError name="options"/>
     </section>
 
-    <section className="space-y-3"><Label hint="· 필수">판매 일정</Label>
+    <section className="space-y-3" data-field="startsAt"><Label hint="· 필수">판매 일정</Label>
       <div className="flex gap-4">
         <label className="relative flex h-12 min-w-0 flex-[1.6] items-center justify-between border-b border-[var(--line)]"><span className="text-[16px]">{startOk ? dateLabel(d.startsAt) : '날짜 선택'}</span><Calendar size={18} className="text-[var(--aux)]"/><input aria-label="판매 날짜" type="date" className="absolute inset-0 opacity-0" min={localDateTime(now).slice(0, 10)} max={localDateTime(now + 7 * 86_400_000).slice(0, 10)} value={startOk ? localDateTime(start.getTime()).slice(0, 10) : ''} onChange={e => setDate(e.target.value)}/></label>
         <label className="relative flex h-12 min-w-0 flex-1 items-center justify-between border-b border-[var(--line)]"><span className="text-[16px]">{startOk ? hhmm(start.getHours(), start.getMinutes()) : '시간'}</span><ChevronDown size={18} className="text-[var(--aux)]"/><select aria-label="판매 시작 시각" className="absolute inset-0 opacity-0" value={startOk ? hhmm(start.getHours(), start.getMinutes()) : ''} onChange={e => setTime(e.target.value)}>{TIME_SLOTS.map(t => <option key={t}>{t}</option>)}</select></label>
       </div>
       {startOk && <p className="flex items-center gap-2 rounded-[6px] bg-[var(--soft)] px-4 py-3 text-[13px] font-bold"><Timer size={16}/>{`${hhmm(start.getHours(), start.getMinutes())} – ${endLabel} · 3시간 동안 선착순 판매`}</p>}
+      <FieldError name="startsAt"/>
     </section>
 
-    <section className="space-y-3"><Label hint="· 필수">출고 기한</Label>
+    <section className="space-y-3" data-field="dispatchDays"><Label hint="· 필수">출고 기한</Label>
       <div className="grid grid-cols-3 gap-2">{[1, 2, 3].map(n => <button type="button" key={n} onClick={() => patch({ dispatchDays: n })} className={`h-10 rounded-[6px] text-[13px] ${d.dispatchDays === n ? 'bg-[var(--ink)] font-bold text-white' : 'border border-[var(--border)] text-[var(--aux)]'}`}>{n}영업일</button>)}</div>
+      <FieldError name="dispatchDays"/>
+    </section>
+
+    {/* 배송비·1인 구매 한도: 서버 필수 값(배송비 ≥ 0, 한도 > 0). Figma에 추가할 칸 */}
+    <section className="space-y-2.5" data-field="shipping"><Label hint="· 필수 · 무료면 0">배송비</Label>
+      <label className="flex h-12 items-center border-b border-[var(--line)]"><input aria-label="배송비" inputMode="numeric" className="min-w-0 flex-1 bg-transparent text-[16px] outline-none" value={d.shipping.toLocaleString('ko-KR')} onChange={e => patch({ shipping: Number(e.target.value.replace(/\D/g, '')) || 0 })}/><span className="text-[14px] text-[var(--aux)]">원</span></label>
+      <FieldError name="shipping"/>
+    </section>
+    <section className="space-y-2.5" data-field="maxPerAccount"><div className="flex items-center justify-between"><Label hint="· 필수">1인 구매 한도</Label><Stepper label="1인 구매 한도" value={d.maxPerAccount} onChange={n => patch({ maxPerAccount: n })}/></div>
+      <FieldError name="maxPerAccount"/>
+    </section>
+
+    <section className="space-y-2.5" data-field="addresses"><Label hint="· 필수">출고지 · 반품지</Label>
+      {(USE_MOCK ? [['출고지', s.sellerSettings[user.id]?.shippingAddress], ['반품지', s.sellerSettings[user.id]?.returnAddress]] : [['출고지', book.data?.[0].find(a => a.defaultAddress)?.address.roadAddress], ['반품지', book.data?.[1].find(a => a.defaultAddress)?.address.roadAddress]]).map(([k, v]) => <div key={k} className="flex justify-between gap-3 text-[13px]"><span className="shrink-0 text-[var(--aux)]">{k}</span><span className="text-right">{v || '등록된 주소가 없어요'}</span></div>)}
+      {!USE_MOCK && <LiveStatus state={book}/>}
+      <FieldError name="addresses"/>
+      <Link to="/seller/settings/addresses" className="text-[12px] text-[var(--aux)] underline">출고지·반품지 관리</Link>
     </section>
 
     {!editId && <section className="space-y-3">
