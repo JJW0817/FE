@@ -208,5 +208,5 @@ export async function analyzeDraft(d: Draft, id: string, o?: { interval?: number
   const r = await at_('AI 분석 결과 확인 실패', () => pollAiAnalysis(accepted.requestId, o));
   // 추측(명세 없음): recommendedCategory(코드, 예 CLOTHING)의 이름(예 의류)을 등록 카테고리 이름으로 쓴다
   const category = r.recommendedCategory ? meta.categoryCriteria.find(c => c.code === r.recommendedCategory)?.name ?? r.recommendedCategory : '';
-  return { outcome: r.outcome, category, questions: r.questions, categories: meta.categories };
+  return { outcome: r.outcome, category, questions: r.questions ?? [], categories: meta.categories };
 }

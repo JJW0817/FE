@@ -51,7 +51,10 @@ async function analyzeReal(userId: string, token: string) {
     if (!d.images.length) return done(failed);
     const r = await analyzeDraft(d, id);
     // 서버가 주는 값만 쓴다: 일치도·사진에서 찾은 정보·대안 카테고리는 명세에 없어 비운다(화면에서 숨김). TODO(api-gap): 점검 질문 → FAQ(suggestionId) 저장 흐름
-    done(r.outcome === 'RECOMMENDED' && r.category ? { status: 'recommended', signature: token, category: '', reason: '', result: { category: r.category, path: r.category, photos: d.images.length } } : failed);
+    const questions = r.questions.map(q => ({ question: q.question, reason: q.reason }));
+    if (r.outcome === 'RECOMMENDED' && r.category) done({ status: 'recommended', signature: token, category: '', reason: '', result: { category: r.category, path: r.category, photos: d.images.length, questions } });
+    // NOT_APPLICABLE·UNCLEAR 등은 실패가 아니다: 등록 화면에 직접 선택 안내만 하고 계속 진행. 실패 화면은 요청·확인 자체가 실패했을 때만
+    else done({ status: 'uncertain', signature: token, category: '', reason: r.outcome === 'NOT_APPLICABLE' ? 'AI가 이 사진으로는 카테고리를 추천하지 못했어요. 직접 선택해 주세요.' : 'AI가 카테고리를 정하지 못했어요. 직접 선택해 주세요.' });
   } catch (e) { done({ ...failed, reason: errorMessage(e) }); }
 }
 /** 화면을 떠나도 계속되는 AI 분석(mock은 목업) */
@@ -168,6 +171,7 @@ export function WizardPage() {
     if (d.ai.status === 'analyzing') navigate(`/seller/new/ai/analyzing${suffix}`);
     else if (d.ai.status === 'failed') navigate(`/seller/new/ai/failed${suffix}`);
     else if (d.ai.result) navigate(`/seller/new/ai${suffix}`);
+    else if (d.ai.status === 'uncertain' && !USE_MOCK) { const next = new URLSearchParams(params); next.set('pick', 'category'); setParams(next); }
     else if (d.images.length && !USE_MOCK && !d.name.trim()) setPhotoError('AI 분석을 하려면 상품명을 먼저 입력해 주세요.');
     else if (d.images.length) { startAnalysis(user.id); navigate(`/seller/new/ai/analyzing${suffix}`); }
     else { const next = new URLSearchParams(params); next.set('pick', 'category'); setParams(next); }
@@ -223,6 +227,7 @@ export function WizardPage() {
 
     <section><Label hint="· AI 자동 분류">카테고리</Label>
       {!USE_MOCK && d.images.length > 0 && !d.name.trim() && !d.category && <p className="pb-1 text-[12px] text-[var(--aux)]">상품명을 먼저 입력하면 AI가 카테고리를 분석해요.</p>}
+      {!USE_MOCK && !d.category && d.ai.status === 'uncertain' && d.ai.reason && <p role="status" className="pb-1 text-[12px] text-[var(--aux)]">{d.ai.reason}</p>}
       <button type="button" onClick={openCategory} className="flex h-12 w-full items-center gap-2 border-b border-[var(--line)] text-left">
         <Sparkles size={16} className="shrink-0"/>
         <span className={`min-w-0 flex-1 truncate text-[16px] ${d.category ? '' : 'text-[var(--placeholder)]'}`}>{d.category || (d.ai.status === 'analyzing' ? '사진을 분석하고 있어요' : '카테고리를 선택해 주세요')}</span>
@@ -308,8 +313,9 @@ export function AiAnalysisPage() {
   if (!user.seller) return <Unavailable message="승인된 판매자만 상품을 등록할 수 있습니다."/>;
   if (!d) return null;
   if (d.ai.status === 'analyzing') return <Navigate to={`/seller/new/ai/analyzing${suffix}`} replace/>;
+  if (d.ai.status === 'uncertain' && !USE_MOCK) return <Navigate to={`/seller/new${suffix}`} replace/>;
   if (d.ai.status === 'failed' || !d.ai.result) return <Navigate to={`/seller/new/ai/failed${suffix}`} replace/>;
-  const r = d.ai.result, chosen = pick || r.path, found = r.found ?? [], alternatives = r.alternatives ?? [];
+  const r = d.ai.result, chosen = pick || r.path, found = r.found ?? [], alternatives = r.alternatives ?? [], questions = r.questions ?? [];
   const back = () => navigate(`/seller/new${suffix}`);
   return <AiFrame footer={<div className="flex gap-2"><Button outline className="w-[128px] text-[15px]!" onClick={() => { startAnalysis(user.id); navigate(`/seller/new/ai/analyzing${suffix}`, { replace: true }); }}>다시 분석</Button><Button className="flex-1 text-[15px]!" onClick={() => { patch({ category: chosen }); back(); }}>이 카테고리로 적용</Button></div>}>
     <div className="space-y-2"><div className="relative"><ProductImage src={d.images[0]} alt="분석한 대표 사진" className="h-[240px] w-full"/><span className="absolute left-3 top-3 flex items-center gap-1 rounded-[4px] bg-black/70 px-2 py-1 text-[11px] font-bold text-white"><Sparkles size={12}/>AI 분석 완료</span></div><p className="text-[12px] text-[var(--meta)]">등록한 사진 {r.photos}장을 분석했어요</p></div>
@@ -320,6 +326,7 @@ export function AiAnalysisPage() {
     </button>
     <div className="-mx-4 h-2 bg-[var(--divider)]"/>
     {found.length > 0 && <section className="space-y-4"><h2 className="text-[16px] font-bold">사진에서 찾은 정보</h2>{found.map(([k, v]) => <div key={k} className="flex justify-between text-[13px]"><span className="text-[var(--aux)]">{k}</span><span>{v}</span></div>)}</section>}
+    {questions.length > 0 && <section className="space-y-3"><h2 className="text-[16px] font-bold">AI 점검 질문</h2>{questions.map((q, i) => <div key={i} className="space-y-1 rounded-[6px] border border-[var(--line)] p-3.5"><p className="text-[14px] font-bold">{q.question}</p>{q.reason && <p className="text-[12px] text-[var(--aux)]">{q.reason}</p>}</div>)}</section>}
     {alternatives.length > 0 && <section className="pt-2"><h2 className="mb-2 text-[16px] font-bold">다른 추천 카테고리</h2>{alternatives.map(([path, pct]) => <label key={path} className="flex h-12 cursor-pointer items-center gap-3 border-b border-[var(--line)]"><input type="radio" name="ai-category" className="peer sr-only" checked={chosen === path} onChange={() => setPick(path)}/><span className={`grid h-5 w-5 place-items-center rounded-full border-[1.5px] ${chosen === path ? 'border-[var(--ink)]' : 'border-[var(--border)]'}`}>{chosen === path && <span className="h-2.5 w-2.5 rounded-full bg-[var(--ink)]"/>}</span><span className="flex-1 text-[14px]">{path}</span><span className="text-[13px] text-[var(--meta)]">{pct}%</span></label>)}</section>}
     <div className="flex gap-2 rounded-[6px] bg-[var(--soft)] p-4"><Info size={15} className="mt-[2px] shrink-0 text-[var(--aux)]"/><p className="text-[12px] leading-[1.5] text-[var(--aux)]">AI 분석 결과는 판매 심사에서 한 번 더 확인해요.<br/>카테고리가 다르면 다른 추천 중에서 골라주세요.</p></div>
   </AiFrame>;
@@ -327,7 +334,7 @@ export function AiAnalysisPage() {
 
 export function AiAnalyzingPage() {
   const { user, d, suffix } = useDraft(); const navigate = useNavigate();
-  useEffect(() => { if (d && d.ai.status !== 'analyzing') navigate(`/seller/new/ai${d.ai.status === 'failed' ? '/failed' : ''}${suffix}`, { replace: true }); }, [d?.ai.status]);
+  useEffect(() => { if (d && d.ai.status !== 'analyzing') navigate(d.ai.status === 'uncertain' && !USE_MOCK ? `/seller/new${suffix}` : `/seller/new/ai${d.ai.status === 'failed' ? '/failed' : ''}${suffix}`, { replace: true }); }, [d?.ai.status]);
   if (!user.seller) return <Unavailable message="승인된 판매자만 상품을 등록할 수 있습니다."/>;
   if (!d) return null;
   return <AiFrame footer={<Button outline className="w-full text-[15px]!" onClick={() => navigate(`/seller/new${suffix}`)}>기다리지 않고 등록 계속하기</Button>}>
