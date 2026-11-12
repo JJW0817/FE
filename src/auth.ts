@@ -12,6 +12,8 @@ export const validPassword = (value: string) => value.length >= 8 && value.lengt
 export function signedIn(s: State) { return !!s.auth?.userId && s.auth.userId === s.activeUserId && s.users.some(u => u.id === s.auth!.userId); }
 export function safeNext(value: string | null | undefined) { return value && /^\/(?!\/)/.test(value) && !/[\\\r\n]/.test(value) && !/^\/(login|signup|welcome|onboarding|reset-password)(\/|\?|$)/.test(value) ? value : '/'; }
 export const loginHref = (next: string) => `/login?next=${encodeURIComponent(safeNext(next))}`;
+/** 화면 문구로 바꾸되 code·violations는 남긴다(입력칸별 오류 표시용) */
+const friendly = (e: unknown) => e instanceof ApiError ? new ApiError(errorMessage(e), e.status, e.code, e.traceId, e.violations) : new Error(errorMessage(e));
 function ensure(s: State) { return s.auth ??= initialAuth(); }
 export function selectProfile(s: State, id: string) { const user = s.users.find(u => u.id === id); if (!user) throw new Error('계정을 찾을 수 없습니다.'); const a = ensure(s); a.userId = id; a.onboarded = true; s.activeUserId = id; s.mode = user.admin ? 'admin' : 'buyer'; }
 /** 데모 로그인 — 서버 없이 목업 계정으로 로그인 (mock 모드일 때만) */
@@ -58,7 +60,7 @@ async function doSendCode(emailValue: string, purpose: 'signup' | 'reset') {
   if (old && now - old.sentAt < 60_000) throw new Error('인증번호는 60초 후 다시 요청할 수 있습니다.');
   const path = purpose === 'signup' ? '/v1/auth/email-verifications' : '/v1/auth/password-resets';
   let data: ChallengeDto;
-  try { data = await api.post<ChallengeDto>(path, { email }, { auth: false }); } catch (e) { throw e instanceof ApiError ? new ApiError(errorMessage(e), e.status, e.code, e.traceId, e.violations) : new Error(errorMessage(e)); }
+  try { data = await api.post<ChallengeDto>(path, { email }, { auth: false }); } catch (e) { throw friendly(e); }
   const expiresAt = parseServerTime(data.expiresAt), resendAvailableAt = parseServerTime(data.resendAvailableAt);
   await atomic(s => { ensure(s).challenges[key] = { email, purpose, code: '', challengeId: data.challengeId, sentAt: resendAvailableAt - 60_000, expiresAt, attempts: 0, verified: false }; });
 }
@@ -83,7 +85,7 @@ export async function login(emailValue: string, password: string): Promise<strin
   }
   if (USE_MOCK) throw new Error('이메일 또는 비밀번호를 확인해 주세요.');
   let data: LoginDto;
-  try { data = await api.post<LoginDto>('/v1/auth/login', { email, password }, { csrf: true, auth: false }); } catch (e) { throw new Error(errorMessage(e)); }
+  try { data = await api.post<LoginDto>('/v1/auth/login', { email, password }, { csrf: true, auth: false }); } catch (e) { throw friendly(e); }
   api.setAccessToken(data.accessToken);
   const flags = rolesToFlags(data.roles);
   await atomic(s => {
@@ -104,7 +106,7 @@ export async function signup(input: { email: string; password: string; name: str
   const c = getState().auth?.challenges[key];
   if (!c?.verified || !c.token) throw new Error('이메일 인증을 다시 진행해 주세요.');
   // 가입 API는 토큰을 발급하지 않으므로 가입 뒤 이어서 로그인한다. 전화번호는 가입 API에 없다(docs/api-gap.md)
-  try { await api.post('/v1/auth/signup', { email, password: input.password, name: input.name.trim(), verificationToken: c.token, marketingConsent: input.marketing }, { auth: false }); } catch (e) { throw new Error(errorMessage(e)); }
+  try { await api.post('/v1/auth/signup', { email, password: input.password, name: input.name.trim(), verificationToken: c.token, marketingConsent: input.marketing }, { auth: false }); } catch (e) { throw friendly(e); }
   await login(email, input.password);
   await atomic(s => {
     const user = s.users.find(u => normalizeEmail(u.email) === email);
@@ -123,13 +125,13 @@ export async function restoreSession(): Promise<boolean> {
 }
 export async function changePassword(currentPassword: string, newPassword: string) {
   if (!validPassword(newPassword)) throw new Error('비밀번호는 영문·숫자·특수문자를 포함한 8~64자로 입력해 주세요.');
-  try { await api.put('/v1/accounts/me/password', { currentPassword, newPassword }); } catch (e) { throw new Error(errorMessage(e)); }
+  try { await api.put('/v1/accounts/me/password', { currentPassword, newPassword }); } catch (e) { throw friendly(e); }
 }
 export async function resetPassword(emailValue: string, password: string) {
   if (!validPassword(password)) throw new Error('영문·숫자·특수문자를 포함한 8~64자로 입력해 주세요.');
   const email = normalizeEmail(emailValue), key = `reset:${email}`;
   const c = getState().auth?.challenges[key];
   if (!c?.verified || !c.token) throw new Error('이메일 인증을 다시 진행해 주세요.');
-  try { await api.post('/v1/auth/password-resets/complete', { email, resetToken: c.token, newPassword: password }, { auth: false }); } catch (e) { throw new Error(errorMessage(e)); }
+  try { await api.post('/v1/auth/password-resets/complete', { email, resetToken: c.token, newPassword: password }, { auth: false }); } catch (e) { throw friendly(e); }
   mutate(s => { delete s.auth?.challenges[key]; delete s.auth?.loginFailures?.[email]; const user = s.users.find(u => normalizeEmail(u.email) === email); if (user && s.auth?.userId === user.id) { api.setAccessToken(null); endSession(s); } });
 }
