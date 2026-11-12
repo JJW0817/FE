@@ -239,8 +239,11 @@ export function WizardPage() {
       if (USE_MOCK) { const product = await atomic(state => publishDraft(state, state.activeUserId, state.drafts[state.activeUserId], nowOf(state))); navigate(`/seller/published/${product.id}`, { replace: true }); return; }
       // 실제 모드: 단계별 저장(버전 이어받기) 후 심사 제출. 승인 상품은 수정 심사 제출
       const id = await ensureServerDraft(user.id);
-      if (editing?.reviewStatus === 'APPROVED') { await submitRevisionFromDraft(d, id); mutate(st => { delete st.drafts[user.id]; }); toast('수정 내용을 심사 요청했어요.'); navigate('/seller/products', { replace: true }); return; }
-      const product = await submitListing(d, id);
+      // 주소록에서 지워진 주소 id는 보내지 않는다(생략하면 서버가 기본 주소를 쓴다)
+      const valid = (v: string | undefined, list?: { id: string }[]) => (v && list?.some(a => a.id === v) ? v : undefined);
+      const dd = { ...d, dispatchAddressId: valid(d.dispatchAddressId, book.data?.[0]), returnAddressId: valid(d.returnAddressId, book.data?.[1]) };
+      if (editing?.reviewStatus === 'APPROVED') { await submitRevisionFromDraft(dd, id); mutate(st => { delete st.drafts[user.id]; }); toast('수정 내용을 심사 요청했어요.'); navigate('/seller/products', { replace: true }); return; }
+      const product = await submitListing(dd, id);
       mutate(st => { mergeProducts(st, [product]); delete st.drafts[user.id]; }); navigate(`/seller/published/${product.id}`, { replace: true });
     }
     catch (e) {
@@ -373,7 +376,11 @@ export function WizardPage() {
     </section>
 
     <section className="space-y-2.5" data-field="addresses"><Label hint="· 필수">출고지 · 반품지</Label>
-      {(USE_MOCK ? [['출고지', s.sellerSettings[user.id]?.shippingAddress], ['반품지', s.sellerSettings[user.id]?.returnAddress]] : [['출고지', book.data?.[0].find(a => a.defaultAddress)?.address.roadAddress], ['반품지', book.data?.[1].find(a => a.defaultAddress)?.address.roadAddress]]).map(([k, v]) => <div key={k} className="flex justify-between gap-3 text-[13px]"><span className="shrink-0 text-[var(--aux)]">{k}</span><span className="text-right">{v || '등록된 주소가 없어요'}</span></div>)}
+      {USE_MOCK ? ([['출고지', s.sellerSettings[user.id]?.shippingAddress], ['반품지', s.sellerSettings[user.id]?.returnAddress]] as const).map(([k, v]) => <div key={k} className="flex justify-between gap-3 text-[13px]"><span className="shrink-0 text-[var(--aux)]">{k}</span><span className="text-right">{v || '등록된 주소가 없어요'}</span></div>)
+        : book.data && ([['출고지', 'dispatchAddressId', book.data[0]], ['반품지', 'returnAddressId', book.data[1]]] as const).map(([k, key, list]) => <label key={k} className="flex items-center gap-3 text-[13px]"><span className="w-12 shrink-0 text-[var(--aux)]">{k}</span>
+          {/* 선택하지 않으면 서버가 기본 주소를 쓴다 */}
+          {list.length ? <select aria-label={k} className="field-line min-w-0 flex-1" value={d[key] && list.some(a => a.id === d[key]) ? d[key] : list.find(a => a.defaultAddress)?.id ?? ''} onChange={e => patch({ [key]: e.target.value })}>{list.map(a => <option key={a.id} value={a.id}>{a.label}{a.defaultAddress ? ' (기본)' : ''} · {a.address.roadAddress}</option>)}</select> : <span>등록된 주소가 없어요</span>}
+        </label>)}
       {!USE_MOCK && <LiveStatus state={book}/>}
       <FieldError name="addresses"/>
       <Link to="/seller/settings/addresses" className="text-[12px] text-[var(--aux)] underline">출고지·반품지 관리</Link>

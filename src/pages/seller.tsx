@@ -9,6 +9,7 @@ import { endSession } from '../auth';
 import { dateTime, kstShort, kstSlot, useClock } from '../hooks';
 import { Badge, Button, CopyButton, copyText, Toggle, Empty, ErrorBox, Field, Header, InfoRow, LiveStatus, MenuRow, Modal, Note, ORDER_LABELS, ProductImage, ProductSummary, Unavailable, useToast } from '../components/ui';
 import { PdfField } from '../components/PdfField';
+import { AddressBookFormPage, AddressBookPage } from './sellerAddresses';
 import { answerOrderInquiry, listSellerOrderInquiries, answerProductInquiry, deleteSellerLogo, deliverOrder, errorMessage, getSalesSummary, getSellerOrder, getSellerOrderInquiry, getSellerOrderSummary, getSellerProduct, getSellerProductWithImages, listRevisions, listSellerOrderInquiryInbox, listSellerOrders, listSellerProductInquiries, listSellerProducts, mergeInquiries, mergeOrders, mergeProducts, shipOrder, useLive, fetchSellerLogo, fetchSellerMe, fetchSellerStore, fetchWithdrawalEligibility, updateSellerAddresses, updateSellerBank, updateSellerContact, updateSellerStore, uploadSellerLogo, useApi, withdrawAccount } from '../api';
 import { api } from '../api';
 import { USE_MOCK } from '../config';
@@ -519,6 +520,11 @@ export function SellerSettingsPage() {
   async function removeLogo() { setError(''); try { await deleteSellerLogo(); store.reload(); toast('로고를 삭제했습니다.'); } catch (e) { setError(errorMessage(e)); } }
 
   if (!user.seller) return <Unavailable/>;
+  // 실제 모드: 출고지·반품지는 판매자 주소록 API로 조회·추가·수정·삭제·기본 지정(mock은 아래 Figma 목업 화면)
+  if (!USE_MOCK && section === 'addresses') return <AddressBookPage/>;
+  if (!USE_MOCK && (section === 'ship-edit' || section === 'returns')) return <AddressBookFormPage fallback={section === 'returns' ? 'RETURN' : 'DISPATCH'}/>;
+  // TODO(api-gap): 반품 택배사·집하 시간·반품/교환 배송비 저장 API 없음
+  if (!USE_MOCK && section === 'shipping') return <><Header title="택배사 · 배송비 변경"/><Note>아직 서버에 저장할 수 없는 설정이에요. 상품별 배송비는 상품 등록 화면에서 입력해 주세요.</Note></>;
 
   const change = (key: keyof SellerSettings, value: string) => setForm({ ...form, [key]: value });
   const inputField = (key: 'displayName' | 'bank' | 'account' | 'holder' | 'shippingPostal' | 'shippingAddress' | 'returnPostal' | 'returnAddress', label: string, extra?: { hint?: string; required?: boolean }) =>

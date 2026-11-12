@@ -65,6 +65,7 @@ export interface Draft {
   /** 단일 화면 등록(Figma 판매 상품 등록): 옵션 축, 색상·사이즈, 조합별 수량, 추가 URL, 타 플랫폼 확인 결과 */
   /** 실제 API: 서버에 만든 초안 상품 id·서버 이미지 id(images와 같은 순서) */ serverId?: string; imageIds?: string[];
   /** 사진 바이트 수(images와 같은 순서) — AI 분석 30MB 한도 확인용 */ imageSizes?: number[];
+  /** 실제 API: 판매자 주소록에서 고른 출고지·반품지 id(없으면 서버가 기본 주소를 쓴다) */ dispatchAddressId?: string; returnAddressId?: string;
   axes?: { size: boolean; color: boolean }; colors?: string[]; sizes?: string[]; stock?: Record<string, number>; extraUrls?: string[]; reference?: ReferenceListing;
 }
 export interface ReferenceListing { platform: string; title: string; price: number; image?: string }

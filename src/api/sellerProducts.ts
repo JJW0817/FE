@@ -209,7 +209,7 @@ export async function submitListing(d: Draft, id: string): Promise<Product> {
   const o = optionPayload(d);
   if (!o.variants.length) throw new Error('옵션별 한정 수량을 입력해 주세요.');
   p = await saveOptions(id, v(), o);
-  p = await savePricingShipping(id, v(), { price: d.price, shippingFee: d.shipping, dispatchBusinessDays: d.dispatchDays, perAccountLimit: d.maxPerAccount });
+  p = await savePricingShipping(id, v(), { price: d.price, shippingFee: d.shipping, dispatchBusinessDays: d.dispatchDays, perAccountLimit: d.maxPerAccount, dispatchAddressId: d.dispatchAddressId, returnAddressId: d.returnAddressId });
   p = await saveSchedule(id, v(), startIso(d));
   if (d.faqs.length) p = await saveRegistrationFaqs(id, v(), d.faqs.filter(f => f.question.trim() && f.answer.trim()).map(f => ({ id: f.id.startsWith('faq-') ? undefined : f.id, question: f.question, answer: f.answer })));
   return submitReview(id, v());
@@ -218,7 +218,7 @@ export async function submitListing(d: Draft, id: string): Promise<Product> {
 export async function submitRevisionFromDraft(d: Draft, id: string): Promise<ProductRevisionDto> {
   const p = await getSellerProduct(id), ids = (d.imageIds ?? []).filter(Boolean);
   if (!ids.length) throw new Error('상품 사진을 확인해 주세요.');
-  return submitRevision(id, p.version ?? 0, { name: d.name.trim(), description: d.description.trim(), imageIds: ids, representativeId: ids[0], shippingFee: d.shipping, dispatchBusinessDays: d.dispatchDays, startsAt: startIso(d) });
+  return submitRevision(id, p.version ?? 0, { name: d.name.trim(), description: d.description.trim(), imageIds: ids, representativeId: ids[0], shippingFee: d.shipping, dispatchBusinessDays: d.dispatchDays, startsAt: startIso(d), dispatchAddressId: d.dispatchAddressId, returnAddressId: d.returnAddressId });
 }
 /** AI 분석 요청 사진 전체 용량 한도(백엔드 규칙) */
 export const MAX_ANALYSIS_BYTES = 30 * 1024 * 1024;
