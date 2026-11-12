@@ -491,10 +491,6 @@ export function SellerSettingsPage() {
   const [form, setForm] = useState<SellerSettings>(original ?? { displayName: user.name, bank: '', account: '', holder: user.name, shippingAddress: '', returnAddress: '', notifications: {} });
   const [phone, setPhone] = useState(user.phone), [email, setEmail] = useState(user.email), [error, setError] = useState(''), [busy, setBusy] = useState(false);
   const app = s.applications.find(a => a.userId === user.id && a.status === 'approved');
-  const [shipCarrier, setShipCarrier] = useState('CJ대한통운');
-  const [shipPickup, setShipPickup] = useState('평일 16:00');
-  const [returnFee, setReturnFee] = useState('3000');
-  const [exchangeFee, setExchangeFee] = useState('6000');
   const [addrTab, setAddrTab] = useState<'ship' | 'return'>('ship');
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [sameAsShip, setSameAsShip] = useState(false), [defaultReturn, setDefaultReturn] = useState(false);
@@ -524,7 +520,6 @@ export function SellerSettingsPage() {
   if (!USE_MOCK && section === 'addresses') return <AddressBookPage/>;
   if (!USE_MOCK && (section === 'ship-edit' || section === 'returns')) return <AddressBookFormPage fallback={section === 'returns' ? 'RETURN' : 'DISPATCH'}/>;
   // TODO(api-gap): 반품 택배사·집하 시간·반품/교환 배송비 저장 API 없음
-  if (!USE_MOCK && section === 'shipping') return <><Header title="택배사 · 배송비 변경"/><Note>아직 서버에 저장할 수 없는 설정이에요. 상품별 배송비는 상품 등록 화면에서 입력해 주세요.</Note></>;
 
   const change = (key: keyof SellerSettings, value: string) => setForm({ ...form, [key]: value });
   const inputField = (key: 'displayName' | 'bank' | 'account' | 'holder' | 'shippingPostal' | 'shippingAddress' | 'returnPostal' | 'returnAddress', label: string, extra?: { hint?: string; required?: boolean }) =>
@@ -681,10 +676,6 @@ export function SellerSettingsPage() {
           <div><p className="text-[14px]">반품지를 기본 출고지와 동일하게</p><p className="muted text-[12px]">성수 물류창고로 반품을 받아요</p></div>
           <Toggle label="반품지를 기본 출고지와 동일하게" checked={!form.returnAddress || form.returnAddress === form.shippingAddress} onChange={on => change('returnAddress', on ? form.shippingAddress ?? '' : '파주 보관센터')}/>
         </div>
-        <InfoRow label="반품 택배사" value="CJ대한통운"/>
-        <InfoRow label="반품 배송비 (편도)" value="3,000원"/>
-        <InfoRow label="교환 배송비 (왕복)" value="6,000원"/>
-        <Link to="/seller/settings/shipping" className="btn btn-outline block w-full text-center text-[12px]!">택배사 · 배송비 변경</Link>
       </div>}
       {deleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center" style={{background:'rgba(0,0,0,0.45)'}} onClick={e => e.target === e.currentTarget && setDeleteConfirm(false)}>
@@ -772,19 +763,6 @@ export function SellerSettingsPage() {
       </div>
       <ErrorBox message={error}/>
       <Button type="submit" className="w-full" disabled={busy}>{busy ? '저장 중…' : '저장하기'}</Button>
-    </form>
-  );
-
-  // ── 배송 설정 변경 ──────────────────────────────────────────
-  if (section === 'shipping') return (
-    <form className="space-y-5" onSubmit={async e => { e.preventDefault(); toast('배송 설정을 저장했습니다.'); }}>
-      <Header title="택배사 · 배송비 변경"/>
-      <Field label="반품 택배사" required><select aria-label="반품 택배사" value={shipCarrier} onChange={e => setShipCarrier(e.target.value)} className="field rounded-[6px] border px-4 text-[15px]">{['CJ대한통운', '한진택배', '롯데택배', '우체국택배'].map(c => <option key={c}>{c}</option>)}</select></Field>
-      <Field label="택배 집하 시간" required><select aria-label="택배 집하 시간" value={shipPickup} onChange={e => setShipPickup(e.target.value)} className="field rounded-[6px] border px-4 text-[15px]">{['평일 14:00', '평일 15:00', '평일 16:00', '평일 17:00'].map(t => <option key={t}>{t}</option>)}</select></Field>
-      <Field label="반품 배송비 (편도)" required><input aria-label="반품 배송비" type="number" inputMode="numeric" min={0} step={500} value={returnFee} onChange={e => setReturnFee(e.target.value)} className="field-line"/></Field>
-      <Field label="교환 배송비 (왕복)" required><input aria-label="교환 배송비" type="number" inputMode="numeric" min={0} step={500} value={exchangeFee} onChange={e => setExchangeFee(e.target.value)} className="field-line"/></Field>
-      <div className="space-y-1 rounded-[6px] bg-[var(--canvas)] p-4"><p className="text-[13px] font-bold">변경 내용은 새로 등록하는 드롭부터 적용돼요</p><p className="muted text-[12px]">이미 등록된 상품은 등록 시점의 배송 설정을 유지해요.</p></div>
-      <Button type="submit" className="w-full">저장하기</Button>
     </form>
   );
 

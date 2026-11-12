@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from './client';
-import { MAX_ANALYSIS_BYTES, PRODUCT_STATE_MESSAGE, addProductFaq, analysisBlocker, listingProblems, categoriesForCode, categoryForCode, criteriaFor, analysisProblems, analyzeDraft, answerProductInquiry, basicInfoOf, createProductDraft, deleteProductFaq, deleteProductImage, getAiAnalysis, getProductImageUrl, getRegistrationMetadata, getSalesSummary, getSellerProduct, getSellerProductWithImages, listProductImages, listRevisions, listSellerProductInquiries, listSellerProducts, optionPayload, pollAiAnalysis, reorderProductImages, requestAiAnalysis, saveBasicInfo, saveDetails, saveOptions, savePricingShipping, saveRegistrationFaqs, saveSchedule, sellerProductFromApi, submitListing, submitReview, submitRevision, submitRevisionFromDraft, updateProductFaq, uploadProductImage } from './sellerProducts';
+import { ATTRIBUTE_NAMES, MOCK_REGISTRATION_METADATA, MAX_ANALYSIS_BYTES, attributeName, attributeProblem, composeShippingNotice, PRODUCT_STATE_MESSAGE, addProductFaq, analysisBlocker, listingProblems, categoriesForCode, categoryForCode, criteriaFor, analysisProblems, analyzeDraft, answerProductInquiry, basicInfoOf, createProductDraft, deleteProductFaq, deleteProductImage, getAiAnalysis, getProductImageUrl, getRegistrationMetadata, getSalesSummary, getSellerProduct, getSellerProductWithImages, listProductImages, listRevisions, listSellerProductInquiries, listSellerProducts, optionPayload, pollAiAnalysis, reorderProductImages, requestAiAnalysis, saveBasicInfo, saveDetails, saveOptions, savePricingShipping, saveRegistrationFaqs, saveSchedule, sellerProductFromApi, submitListing, submitReview, submitRevision, submitRevisionFromDraft, updateProductFaq, uploadProductImage } from './sellerProducts';
 import { blankDraft, optionKey } from '../domain';
 import type { Draft } from '../domain';
 import type { SellerProductDto } from './types';
@@ -183,13 +183,33 @@ describe('AI 분석 시작 조건', () => {
 });
 
 describe('registration-metadata 카테고리', () => {
-  const meta = { categories: ['의류', '의류 > 상의', '의류잡화', '문구 > 노트'], categoryCriteria: [{ code: 'CLOTHING', name: '의류', checks: [{ code: 'CLOTHING_MEASUREMENTS', question: '실측' }] }, { code: 'STATIONERY', name: '문구', checks: [] }] };
-  it('추천 코드 → 기본 카테고리(같은 이름 우선) · 같은 분류 목록 · 점검 기준', () => {
-    expect(categoryForCode(meta, 'CLOTHING')).toBe('의류');
-    expect(categoryForCode(meta, 'STATIONERY')).toBe('문구 > 노트');
-    expect(categoryForCode(meta, 'FOOD')).toBe(''); expect(categoryForCode(meta, null)).toBe('');
-    expect(categoriesForCode(meta, 'CLOTHING')).toEqual(['의류', '의류 > 상의']); // '의류잡화'는 다른 분류
-    expect(criteriaFor(meta, '의류 > 상의')?.code).toBe('CLOTHING'); expect(criteriaFor(meta, '의류잡화')).toBeUndefined(); expect(criteriaFor(meta, '')).toBeUndefined();
+  const meta = { categories: ['의류 A', '의류 B', '문구 A'], categoryCriteria: [
+    { code: 'CLOTHING_A_01', name: '의류 A', checks: [{ code: 'CLOTHING_A_01__CLOTHING_MATERIAL', question: '소재는?' }] },
+    { code: 'CLOTHING_B_02', name: '의류 B', checks: [] }, { code: 'STATIONERY_A_01', name: '문구 A', checks: [] }] };
+  it('추천 code → 이름 · 같은 대분류(code 접두사) 목록 · 이름이 같은 점검 기준', () => {
+    expect(categoryForCode(meta, 'CLOTHING_B_02')).toBe('의류 B'); expect(categoryForCode(meta, 'FOOD_01')).toBe(''); expect(categoryForCode(meta, null)).toBe('');
+    expect(categoriesForCode(meta, 'CLOTHING_B_02')).toEqual(['의류 A', '의류 B']);
+    expect(criteriaFor(meta, '의류 A')?.code).toBe('CLOTHING_A_01'); expect(criteriaFor(meta, '의류')).toBeUndefined(); expect(criteriaFor(meta, '')).toBeUndefined();
+  });
+  it('mock 메타데이터는 categories와 같은 순서·개수', () => {
+    expect(MOCK_REGISTRATION_METADATA.categoryCriteria.map(c => c.name)).toEqual(MOCK_REGISTRATION_METADATA.categories);
+  });
+});
+
+describe('attributes 항목명', () => {
+  it('check.code의 __ 뒤 key를 고정 표시명으로 바꾸고 모르는 key는 기타 정보', () => {
+    expect(attributeName('CLOTHING_TSHIRT_01__CLOTHING_MATERIAL')).toBe('소재');
+    expect(attributeName('CLOTHING_MEASUREMENTS')).toBe('실측 사이즈'); // __ 없으면 code 전체
+    expect(Object.keys(ATTRIBUTE_NAMES)).toHaveLength(16);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(attributeName('X__UNKNOWN_KEY')).toBe('기타 정보'); warn.mockRestore();
+  });
+  it('name ≤200 · value ≤4000', () => {
+    expect(attributeProblem('소재', 'a'.repeat(4000))).toBeNull(); expect(attributeProblem('소재', 'a'.repeat(4001))).toMatch(/4,000자/); expect(attributeProblem('n'.repeat(201), 'v')).toMatch(/200자/);
+  });
+  it('배송 안내 글 조합', () => {
+    expect(composeShippingNotice('CJ대한통운', '3000', '6000')).toBe('CJ대한통운 / 반품 배송비 3,000원 / 교환 배송비 6,000원');
+    expect(composeShippingNotice('', '', '6000')).toBe('교환 배송비 6,000원'); expect(composeShippingNotice('', '', '')).toBe('');
   });
 });
 

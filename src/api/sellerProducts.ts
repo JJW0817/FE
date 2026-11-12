@@ -27,7 +27,7 @@ export function sellerProductFromApi(d: SellerProductDto): Product {
     published: d.status === 'APPROVED', options: d.options.map(o => ({ id: o.id, name: o.label, stock: o.initialQuantity })),
     dimensions: d.optionDimensions.map(x => ({ name: x.name, values: x.values.join(', ') })), extras: d.attributes.map(a => ({ key: a.name, value: a.value })), reason: d.disposalReason ?? '',
     faqs: d.faqs.map(f => ({ id: f.id, question: f.question, answer: f.answer, confirmed: true })),
-    rejectionReason: d.status === 'REJECTED' ? (d.reviewReason ?? '') : undefined, version: d.version, reviewStatus: d.status,
+    shippingNotice: d.shippingNotice ?? '', rejectionReason: d.status === 'REJECTED' ? (d.reviewReason ?? '') : undefined, version: d.version, reviewStatus: d.status,
   };
 }
 /** 관리 목록 항목 → Product. 목록에는 가격·옵션·이미지가 없다(TODO(api-gap): 목록 카드의 가격·수량은 상세를 열어야 채워짐) */
@@ -53,27 +53,61 @@ export async function listSellerProducts(sellerId: string, q: SellerProductQuery
 export const createProductDraft = async () => sellerProductFromApi(await api.post<SellerProductDto>(P, undefined, { service: purchase }));
 /** GET /v1/seller/products/registration-metadata — 카테고리 이름 목록과 AI 점검 기준 */
 export const getRegistrationMetadata = (signal?: AbortSignal) => api.get<RegistrationMetadataDto>(`${P}/registration-metadata`, { service: purchase, signal });
-/** mock 모드 등록 메타데이터(서버와 같은 모양) */
-export const MOCK_REGISTRATION_METADATA: RegistrationMetadataDto = { categories: CATEGORY_PATHS, categoryCriteria: [
-  { code: 'CLOTHING', name: '패션', checks: [{ code: 'CLOTHING_MATERIAL', question: '소재' }, { code: 'CLOTHING_MEASUREMENTS', question: '실측 사이즈' }, { code: 'CLOTHING_CARE', question: '세탁·관리 방법' }] },
-  { code: 'STATIONERY', name: '문구', checks: [{ code: 'STATIONERY_SPEC', question: '규격·크기' }, { code: 'STATIONERY_QUANTITY', question: '구성 수량' }] },
-  { code: 'LIVING', name: '생활잡화', checks: [{ code: 'LIVING_SIZE', question: '크기' }, { code: 'LIVING_MATERIAL', question: '재질' }, { code: 'LIVING_CAUTION', question: '사용 시 주의' }] },
-] };
-export type Criteria = RegistrationMetadataDto['categoryCriteria'][number];
-// shortcut: 등록 카테고리(255개 이름)와 점검 기준(대분류 4개)의 연결 필드가 명세에 없어 이름 접두어로 잇는다(예 "의류" ⊃ "의류 > 상의"). 백엔드가 연결 필드를 주면 교체
-const under = (category: string, name: string) => category === name || (category.startsWith(name) && /^[\s›>/·|-]/.test(category.slice(name.length)));
-/** 카테고리에 해당하는 점검 기준(없으면 undefined) */
-export const criteriaFor = (meta: RegistrationMetadataDto, category: string) => category ? meta.categoryCriteria.find(c => under(category, c.name)) : undefined;
-/** AI 추천 코드(예 CLOTHING)에 속한 등록 카테고리들 */
-export function categoriesForCode(meta: RegistrationMetadataDto, code: string): string[] {
-  const c = meta.categoryCriteria.find(x => x.code === code);
-  return c ? meta.categories.filter(name => under(name, c.name)) : [];
+/** 대분류 code 접두사 → 대분류 이름(점검 기준 code 접두사로 판단. FASHION_ACCESSORIES_는 CLOTHING_과 겹치지 않는다) */
+export const MAJOR_PREFIXES = [['CLOTHING_', '의류'], ['FASHION_ACCESSORIES_', '패션잡화'], ['STATIONERY_', '문구'], ['HOUSEHOLD_', '생활잡화']] as const;
+export const majorOf = (code: string) => MAJOR_PREFIXES.find(([p]) => code.startsWith(p))?.[0];
+/**
+ * 점검 항목 key → 구매자 상품 상세에 보일 짧은 표시명(대분류별 4개, 총 16개). key = check.code에서 `__` 뒤 문자열(없으면 code 전체).
+ * 질문 문장·checkCode는 구매자에게 그대로 보이므로 항목명으로 쓰지 않는다.
+ * shortcut: key 이름은 백엔드 확정 전 가정(CLOTHING_MATERIAL·CLOTHING_MEASUREMENTS만 확인). 실제 key가 다르면 아래 표만 고친다
+ */
+export const ATTRIBUTE_NAMES: Record<string, string> = {
+  CLOTHING_MATERIAL: '소재', CLOTHING_MEASUREMENTS: '실측 사이즈', CLOTHING_CARE: '세탁·관리 방법', CLOTHING_CONDITION: '상품 상태',
+  FASHION_ACCESSORIES_MATERIAL: '소재', FASHION_ACCESSORIES_SIZE: '크기', FASHION_ACCESSORIES_CARE: '관리 방법', FASHION_ACCESSORIES_CONDITION: '상품 상태',
+  STATIONERY_SPEC: '규격', STATIONERY_QUANTITY: '구성 수량', STATIONERY_MATERIAL: '재질', STATIONERY_CONDITION: '상품 상태',
+  HOUSEHOLD_SIZE: '크기', HOUSEHOLD_MATERIAL: '재질', HOUSEHOLD_CAUTION: '사용 시 주의', HOUSEHOLD_CONDITION: '상품 상태',
+};
+export const OTHER_ATTRIBUTE_NAME = '기타 정보';
+export const checkKey = (code: string) => code.includes('__') ? code.slice(code.lastIndexOf('__') + 2) : code;
+/** 점검 항목 → attributes 항목명. 표에 없는 key는 '기타 정보'(질문 문장은 쓰지 않는다) + 개발용 경고 */
+export function attributeName(code: string): string {
+  const name = ATTRIBUTE_NAMES[checkKey(code)];
+  if (!name && import.meta.env.DEV) console.warn(`[registration-metadata] 표시명 매핑에 없는 점검 항목: ${code}`);
+  return name ?? OTHER_ATTRIBUTE_NAME;
 }
-/** AI 추천 코드 → 기본 선택할 등록 카테고리 이름(점검 기준 이름과 같은 카테고리, 없으면 그 아래 첫 카테고리, 없으면 '') */
-export function categoryForCode(meta: RegistrationMetadataDto, code: string | null): string {
-  if (!code) return '';
-  const name = meta.categoryCriteria.find(x => x.code === code)?.name, list = categoriesForCode(meta, code);
-  return list.find(x => x === name) ?? list[0] ?? '';
+export const ATTRIBUTE_NAME_MAX = 200, ATTRIBUTE_VALUE_MAX = 4000;
+/** attributes 저장 전 검사 — name ≤200, value ≤4000 */
+export function attributeProblem(name: string, value: string): string | null {
+  if (name.length > ATTRIBUTE_NAME_MAX) return `항목명은 ${ATTRIBUTE_NAME_MAX}자 이하여야 해요.`;
+  if (value.length > ATTRIBUTE_VALUE_MAX) return `${name} 내용은 ${ATTRIBUTE_VALUE_MAX.toLocaleString('ko-KR')}자 이하여야 해요.`;
+  return null;
+}
+/** 상품 배송 안내문(shippingNotice) 최대 길이 */
+export const SHIPPING_NOTICE_MAX = 4000;
+/** 택배사·반품 배송비·교환 배송비 → "CJ대한통운 / 반품 배송비 3,000원 / 교환 배송비 6,000원"(빈 칸은 뺀다) */
+export const composeShippingNotice = (carrier: string, returnFee: string, exchangeFee: string) => {
+  const won = (v: string) => Number(v).toLocaleString('ko-KR');
+  return [carrier.trim(), returnFee.trim() && `반품 배송비 ${won(returnFee)}원`, exchangeFee.trim() && `교환 배송비 ${won(exchangeFee)}원`].filter(Boolean).join(' / ');
+};
+const mockMajor = (path: string) => path.startsWith('패션 › 잡화') ? 'FASHION_ACCESSORIES_' : path.startsWith('패션') ? 'CLOTHING_' : path.startsWith('문구') ? 'STATIONERY_' : 'HOUSEHOLD_';
+/** mock 모드 등록 메타데이터(서버와 같은 모양: categoryCriteria는 categories와 같은 순서·개수) */
+export const MOCK_REGISTRATION_METADATA: RegistrationMetadataDto = { categories: CATEGORY_PATHS, categoryCriteria: CATEGORY_PATHS.map((name, i) => {
+  const major = mockMajor(name), code = `${major}${String(i + 1).padStart(2, '0')}`;
+  return { code, name, checks: Object.keys(ATTRIBUTE_NAMES).filter(k => k.startsWith(major)).map(k => ({ code: `${code}__${k}`, question: `${ATTRIBUTE_NAMES[k]}을(를) 알려 주세요` })) };
+}) };
+export type Criteria = RegistrationMetadataDto['categoryCriteria'][number];
+/** 카테고리 이름이 같은 점검 기준(없으면 undefined) */
+export const criteriaFor = (meta: RegistrationMetadataDto, category: string) => category ? meta.categoryCriteria.find(c => c.name === category) : undefined;
+/** AI 추천 code(categoryCriteria code)가 속한 대분류의 카테고리 이름들(code 접두사로 판단) */
+export function categoriesForCode(meta: RegistrationMetadataDto, code: string): string[] {
+  const major = majorOf(code);
+  return major ? meta.categoryCriteria.filter(c => c.code.startsWith(major)).map(c => c.name) : [];
+}
+/** AI 추천 code → 등록 카테고리 이름(code로 categoryCriteria를 찾아 name, 없으면 '') */
+export const categoryForCode = (meta: RegistrationMetadataDto, code: string | null) => (code && meta.categoryCriteria.find(x => x.code === code)?.name) || '';
+/** 개발용: categoryCriteria가 대분류 4개만 오면 카테고리별 기준(255개)이 아니라는 경고 */
+export function warnCriteria(meta: RegistrationMetadataDto) {
+  if (import.meta.env.DEV && meta.categoryCriteria.length !== meta.categories.length) console.warn(`[registration-metadata] categoryCriteria ${meta.categoryCriteria.length}개 ≠ categories ${meta.categories.length}개`);
 }
 /** GET /v1/seller/products/sales-summary — 판매·재고 집계(매출·정산 없음) */
 export const getSalesSummary = (month?: string, signal?: AbortSignal) => api.get<ProductSalesSummaryDto>(`${P}/sales-summary`, { service: purchase, signal, query: { month } });
@@ -209,7 +243,7 @@ export async function submitListing(d: Draft, id: string): Promise<Product> {
   const o = optionPayload(d);
   if (!o.variants.length) throw new Error('옵션별 한정 수량을 입력해 주세요.');
   p = await saveOptions(id, v(), o);
-  p = await savePricingShipping(id, v(), { price: d.price, shippingFee: d.shipping, dispatchBusinessDays: d.dispatchDays, perAccountLimit: d.maxPerAccount, dispatchAddressId: d.dispatchAddressId, returnAddressId: d.returnAddressId });
+  p = await savePricingShipping(id, v(), { price: d.price, shippingFee: d.shipping, dispatchBusinessDays: d.dispatchDays, perAccountLimit: d.maxPerAccount, shippingNotice: d.shippingNotice?.trim() || undefined, dispatchAddressId: d.dispatchAddressId, returnAddressId: d.returnAddressId });
   p = await saveSchedule(id, v(), startIso(d));
   if (d.faqs.length) p = await saveRegistrationFaqs(id, v(), d.faqs.filter(f => f.question.trim() && f.answer.trim()).map(f => ({ id: f.id.startsWith('faq-') ? undefined : f.id, question: f.question, answer: f.answer })));
   return submitReview(id, v());
@@ -218,7 +252,7 @@ export async function submitListing(d: Draft, id: string): Promise<Product> {
 export async function submitRevisionFromDraft(d: Draft, id: string): Promise<ProductRevisionDto> {
   const p = await getSellerProduct(id), ids = (d.imageIds ?? []).filter(Boolean);
   if (!ids.length) throw new Error('상품 사진을 확인해 주세요.');
-  return submitRevision(id, p.version ?? 0, { name: d.name.trim(), description: d.description.trim(), imageIds: ids, representativeId: ids[0], shippingFee: d.shipping, dispatchBusinessDays: d.dispatchDays, startsAt: startIso(d), dispatchAddressId: d.dispatchAddressId, returnAddressId: d.returnAddressId });
+  return submitRevision(id, p.version ?? 0, { name: d.name.trim(), description: d.description.trim(), imageIds: ids, representativeId: ids[0], shippingFee: d.shipping, dispatchBusinessDays: d.dispatchDays, shippingNotice: d.shippingNotice?.trim() || undefined, startsAt: startIso(d), dispatchAddressId: d.dispatchAddressId, returnAddressId: d.returnAddressId });
 }
 /** AI 분석 요청 사진 전체 용량 한도(백엔드 규칙) */
 export const MAX_ANALYSIS_BYTES = 30 * 1024 * 1024;
@@ -254,6 +288,7 @@ export function listingProblems(d: Draft, o: { categories: string[]; now: number
   if (!d.description.trim()) f.description = '짧은 설명을 입력해 주세요.';
   if (!d.reason.trim()) f.disposalReason = '처분 사유를 입력해 주세요.';
   if (!d.category || !o.categories.includes(d.category)) f.category = '카테고리를 선택해 주세요.';
+  const badAttr = d.extras.map(e => attributeProblem(e.key.trim(), e.value.trim())).find(Boolean); if (badAttr) f.attributes = badAttr;
   if (!d.originalUrl.trim() || !httpUrl(d.originalUrl.trim())) f.sourceUrl = '타 플랫폼 판매 URL을 올바르게 입력해 주세요.';
   if (!Number.isInteger(d.price) || d.price <= 0) f.price = '한정 판매가를 입력해 주세요.';
   else if (d.reference && d.price >= d.reference.price) f.price = '등록한 URL의 판매가보다 낮아야 심사를 요청할 수 있어요.';
@@ -262,6 +297,7 @@ export function listingProblems(d: Draft, o: { categories: string[]; now: number
   if (!Number.isFinite(start) || start <= o.now) f.startsAt = '판매 시작 시각이 지났어요. 지금보다 뒤로 바꿔 주세요.';
   if (!Number.isInteger(d.dispatchDays) || d.dispatchDays <= 0) f.dispatchDays = '출고 기한을 선택해 주세요.';
   if (!Number.isInteger(d.shipping) || d.shipping < 0) f.shipping = '배송비는 0원 이상으로 입력해 주세요.';
+  if ((d.shippingNotice ?? '').length > SHIPPING_NOTICE_MAX) f.shippingNotice = `배송 안내는 ${SHIPPING_NOTICE_MAX.toLocaleString('ko-KR')}자 이하여야 해요.`;
   if (!Number.isInteger(d.maxPerAccount) || d.maxPerAccount <= 0) f.maxPerAccount = '1인 구매 한도는 1개 이상이어야 해요.';
   if (!o.dispatch || !o.return) f.addresses = !o.dispatch && !o.return ? '출고지와 반품지를 등록해 주세요.' : !o.dispatch ? '출고지를 등록해 주세요.' : '반품지를 등록해 주세요.';
   return f;

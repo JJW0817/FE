@@ -13,6 +13,7 @@ export interface Product {
   images: string[]; originalUrl: string; price: number; shipping: number; maxPerAccount: number;
   dispatchDays: number; startsAt: number; endsAt: number; published: boolean; options: Option[];
   dimensions: Dimension[]; extras: Extra[]; reason: string; faqs: Faq[]; rejectionReason?: string;
+  /** 택배사·반품/교환 배송비 안내문(서버 shippingNotice, ≤4000자) */ shippingNotice?: string;
   /** 판매 시작 알림 신청 인원 — 백엔드 요청 필드 (docs/backend-api-requests.md) */ notifySubscribers?: number;
   /** 선착순 마감(완판) 시각 — 백엔드 요청 필드 */ soldOutAt?: number;
   /** 판매에 참여(구매 시도)한 인원 — 백엔드 요청 필드 */ participants?: number;
@@ -61,6 +62,7 @@ export interface Draft {
   category: string; originalUrl: string; extras: Extra[]; reason: string; dimensions: Dimension[];
   noOptions: boolean; options: Option[]; price: number; shipping: number; dispatchDays: number;
   maxPerAccount: number; startsAt: string; faqs: Faq[];
+  /** 택배사·반품 배송비·교환 배송비 입력(숫자는 문자열, 빈 값 = 미입력)과 이 값으로 만든 shippingNotice(판매자가 직접 고칠 수 있다) */ carrier?: string; returnFee?: string; exchangeFee?: string; shippingNotice?: string;
   ai: { status: AiStatus; signature: string; category: string; reason: string; result?: AiAnalysis };
   /** 단일 화면 등록(Figma 판매 상품 등록): 옵션 축, 색상·사이즈, 조합별 수량, 추가 URL, 타 플랫폼 확인 결과 */
   /** 실제 API: 서버에 만든 초안 상품 id·서버 이미지 id(images와 같은 순서) */ serverId?: string; imageIds?: string[];
@@ -192,7 +194,7 @@ export function publishDraft(s: State, userId: string, d: Draft, now: number): P
   validateListing(d, now);
   const existing = d.editingId ? s.products.find(p => p.id === d.editingId && p.sellerId === userId) : undefined;
   if (d.editingId && (!existing || now >= existing.startsAt)) throw new DomainError('판매 시작 후에는 핵심 상품 정보를 변경할 수 없습니다.');
-  const p: Product = { id: existing?.id ?? uid('product-'), sellerId: userId, name: d.name.trim(), brand: s.sellerSettings[userId]?.displayName || d.brand.trim() || '나의 스토어', category: d.category, description: d.description.trim(), images: [...d.images], originalUrl: d.originalUrl.trim(), price: d.price, shipping: d.shipping, maxPerAccount: d.maxPerAccount, dispatchDays: d.dispatchDays, startsAt: new Date(d.startsAt).getTime(), endsAt: new Date(d.startsAt).getTime() + 10_800_000, published: false, options: structuredClone(d.options), dimensions: structuredClone(d.dimensions), extras: d.extras.filter(e => e.key.trim() && e.value.trim()).map(e => ({ ...e })), reason: d.reason.trim(), faqs: structuredClone(d.faqs) };
+  const p: Product = { id: existing?.id ?? uid('product-'), sellerId: userId, name: d.name.trim(), brand: s.sellerSettings[userId]?.displayName || d.brand.trim() || '나의 스토어', category: d.category, description: d.description.trim(), images: [...d.images], originalUrl: d.originalUrl.trim(), price: d.price, shipping: d.shipping, maxPerAccount: d.maxPerAccount, dispatchDays: d.dispatchDays, startsAt: new Date(d.startsAt).getTime(), endsAt: new Date(d.startsAt).getTime() + 10_800_000, published: false, options: structuredClone(d.options), dimensions: structuredClone(d.dimensions), extras: d.extras.filter(e => e.key.trim() && e.value.trim()).map(e => ({ ...e })), reason: d.reason.trim(), faqs: structuredClone(d.faqs), shippingNotice: d.shippingNotice?.trim() || undefined };
   if (existing) s.products[s.products.indexOf(existing)] = p; else s.products.unshift(p);
   delete s.drafts[userId]; return p;
 }
@@ -254,5 +256,5 @@ export function lookupReference(url: string): ReferenceListing | undefined {
 }
 /** AI 상품 분석 목업 — 서버 결과와 같은 모양(코드 + 점검 질문) */
 export function mockAiAnalysis(d: Draft): AiAnalysis {
-  return { code: 'CLOTHING', category: '패션 › 상의 › 니트/스웨터', photos: d.images.length, questions: [{ checkCode: 'CLOTHING_MEASUREMENTS', question: '실측 사이즈(총장·가슴 단면)를 알려 주세요', reason: '사진만으로는 사이즈를 확인할 수 없어요' }] };
+  return { code: 'CLOTHING_01', category: '패션 › 상의 › 니트/스웨터', photos: d.images.length, questions: [{ checkCode: 'CLOTHING_01__CLOTHING_MEASUREMENTS', question: '실측 사이즈(총장·가슴 단면)를 알려 주세요', reason: '사진만으로는 사이즈를 확인할 수 없어요' }] };
 }

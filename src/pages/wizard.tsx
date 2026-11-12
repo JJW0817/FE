@@ -10,7 +10,7 @@ import { imageData } from '../files';
 import { Button, Empty, ErrorBox, Header, LiveStatus, Modal, Note, ProductImage, Unavailable, useToast } from '../components/ui';
 import { useClock } from '../hooks';
 import { USE_MOCK } from '../config';
-import { MOCK_REGISTRATION_METADATA, PRODUCT_STATE_MESSAGE, analysisProblems, analyzeDraft, categoriesForCode, criteriaFor, listAddressBook, listingProblems, createProductDraft, deleteProductImage, errorMessage, fieldErrors, isApiError, getRegistrationMetadata, getSellerProductWithImages, mergeProducts, reorderProductImages, submitListing, submitRevisionFromDraft, uploadProductImage, useApi, useLive } from '../api';
+import { MOCK_REGISTRATION_METADATA, PRODUCT_STATE_MESSAGE, SHIPPING_NOTICE_MAX, ATTRIBUTE_VALUE_MAX, attributeName, composeShippingNotice, warnCriteria, analysisProblems, analyzeDraft, categoriesForCode, criteriaFor, listAddressBook, listingProblems, createProductDraft, deleteProductImage, errorMessage, fieldErrors, isApiError, getRegistrationMetadata, getSellerProductWithImages, mergeProducts, reorderProductImages, submitListing, submitRevisionFromDraft, uploadProductImage, useApi, useLive } from '../api';
 
 /* ── 초안 ─────────────────────────────────────────────────────────────────────── */
 const SWATCH: Record<string, string> = { 차콜: '#3F3F3F', 오트밀: '#E6DCC6', 크림: '#F3EBDC', 네이비: '#2B3A55', 블랙: '#222222', 화이트: '#FFFFFF', 내추럴: '#E8DCC8', 그레이: '#9A9A9A', 베이지: '#E3D3B8' };
@@ -23,7 +23,7 @@ function fromProduct(p: Product): Draft {
   const colors = split(color?.values), sizes = size ? split(size.values) : !color && !basic ? p.options.map(o => o.name) : [];
   const stock: Record<string, number> = {};
   for (const o of p.options) { const parts = o.name.split(' / '); const c = axes.color ? parts[0] : '', s = axes.color && axes.size ? parts[1] : axes.size ? o.name : ''; stock[optionKey(basic ? '' : c, basic ? '' : s)] = o.stock; }
-  return { ...blankDraft(), editingId: p.id, name: p.name, brand: p.brand, description: p.description, images: [...p.images], imageIds: p.imageIds && [...p.imageIds], imageSizes: p.imageSizes && [...p.imageSizes], category: p.category, originalUrl: p.originalUrl, extras: structuredClone(p.extras), reason: p.reason, dimensions: structuredClone(p.dimensions), noOptions: basic, options: structuredClone(p.options), price: p.price, shipping: p.shipping, dispatchDays: p.dispatchDays, maxPerAccount: p.maxPerAccount, startsAt: p.startsAt ? localDateTime(p.startsAt) : blankDraft().startsAt, faqs: structuredClone(p.faqs), axes, colors, sizes, stock, reference: p.reference ?? lookupReference(p.originalUrl) };
+  return { ...blankDraft(), editingId: p.id, name: p.name, brand: p.brand, description: p.description, images: [...p.images], imageIds: p.imageIds && [...p.imageIds], imageSizes: p.imageSizes && [...p.imageSizes], category: p.category, originalUrl: p.originalUrl, extras: structuredClone(p.extras), reason: p.reason, dimensions: structuredClone(p.dimensions), noOptions: basic, options: structuredClone(p.options), price: p.price, shipping: p.shipping, shippingNotice: p.shippingNotice ?? '', dispatchDays: p.dispatchDays, maxPerAccount: p.maxPerAccount, startsAt: p.startsAt ? localDateTime(p.startsAt) : blankDraft().startsAt, faqs: structuredClone(p.faqs), axes, colors, sizes, stock, reference: p.reference ?? lookupReference(p.originalUrl) };
 }
 function freshDraft(now: number): Draft { const start = new Date(now + 3_600_000); start.setMinutes(0, 0, 0); return { ...blankDraft(now), startsAt: localDateTime(start.getTime()), axes: { size: true, color: true }, colors: [], sizes: [], stock: {} }; }
 /** 초안 변경 — options·dimensions를 항상 축·수량에서 다시 계산 */
@@ -61,7 +61,7 @@ async function ensureServerDraft(userId: string): Promise<string> {
 }
 /** 등록 메타데이터(허용 카테고리·점검 기준). 한 번 받아 두고 같이 쓴다. mock은 같은 모양의 목업 */
 let metaCache: Promise<RegistrationMetadataDto> | undefined;
-const loadMeta = () => (metaCache ??= (USE_MOCK ? Promise.resolve(MOCK_REGISTRATION_METADATA) : getRegistrationMetadata()).catch(e => { metaCache = undefined; throw e; }));
+const loadMeta = () => (metaCache ??= (USE_MOCK ? Promise.resolve(MOCK_REGISTRATION_METADATA) : getRegistrationMetadata().then(m => { warnCriteria(m); return m; })).catch(e => { metaCache = undefined; throw e; }));
 export const useRegistrationMeta = () => useApi(() => loadMeta(), []);
 
 export const AI_MESSAGES = {
@@ -158,7 +158,7 @@ export function WizardPage() {
   const axes = d.axes, colors = d.colors ?? [], sizes = d.sizes ?? [], stock = d.stock ?? {};
   const rejected = editing?.reviewStatus === 'REJECTED', startPassed = rejected && !(new Date(d.startsAt).getTime() > now);
   const setStock = (key: string, n: number) => patch({ stock: { ...stock, [key]: n } });
-  // shortcut: 점검 기준 항목은 attributes의 name을 check.question으로 저장한다(명세에 항목명 규칙 없음). 백엔드가 이름 규칙을 주면 교체
+  // 점검 항목 입력은 attributes로 저장한다. 항목명은 질문 문장이 아니라 고정 표시명(구매자 상품 상세에 그대로 보인다)
   const setExtra = (key: string, value: string) => patch({ extras: d.extras.some(e => e.key === key) ? d.extras.map(e => e.key === key ? { ...e, value } : e) : [...d.extras.filter(e => e.key.trim()), { key, value }] });
   const criteria = meta.data ? criteriaFor(meta.data, d.category) : undefined, questions = d.ai.result?.questions ?? [];
   const color = colors[Math.min(activeColor, colors.length - 1)] ?? '';
@@ -241,7 +241,8 @@ export function WizardPage() {
       const id = await ensureServerDraft(user.id);
       // 주소록에서 지워진 주소 id는 보내지 않는다(생략하면 서버가 기본 주소를 쓴다)
       const valid = (v: string | undefined, list?: { id: string }[]) => (v && list?.some(a => a.id === v) ? v : undefined);
-      const dd = { ...d, dispatchAddressId: valid(d.dispatchAddressId, book.data?.[0]), returnAddressId: valid(d.returnAddressId, book.data?.[1]) };
+      const keep = criteria && new Set(criteria.checks.map(c => attributeName(c.code))); // 다른 카테고리 때 입력한 항목은 보내지 않는다
+      const dd = { ...d, extras: keep ? d.extras.filter(e => keep.has(e.key)) : d.extras, dispatchAddressId: valid(d.dispatchAddressId, book.data?.[0]), returnAddressId: valid(d.returnAddressId, book.data?.[1]) };
       if (editing?.reviewStatus === 'APPROVED') { await submitRevisionFromDraft(dd, id); mutate(st => { delete st.drafts[user.id]; }); toast('수정 내용을 심사 요청했어요.'); navigate('/seller/products', { replace: true }); return; }
       const product = await submitListing(dd, id);
       mutate(st => { mergeProducts(st, [product]); delete st.drafts[user.id]; }); navigate(`/seller/published/${product.id}`, { replace: true });
@@ -311,11 +312,11 @@ export function WizardPage() {
 
     {/* 카테고리별 점검 기준(registration-metadata categoryCriteria) → 입력칸. 값은 2단계 attributes(항목명+값)로 저장. AI 질문은 checkCode가 같은 칸 옆에 */}
     {criteria && <section className="space-y-4" data-field="attributes">
-      <div><Label hint="· 심사 때 확인해요">{criteria.name} 상품 정보</Label><p className="mt-1 text-[12px] text-[var(--meta)]">카테고리마다 확인하는 항목이 달라요</p></div>
-      {criteria.checks.map(c => { const q = questions.find(x => x.checkCode === c.code); return <div key={c.code}>
-        <p className="text-[13px]">{c.question}</p>
+      <div><Label hint="· 심사 때 확인해요">카테고리별 상품 정보</Label><p className="mt-1 text-[12px] text-[var(--meta)]">카테고리마다 확인하는 항목이 달라요</p></div>
+      {criteria.checks.map(c => { const q = questions.find(x => x.checkCode === c.code), name = attributeName(c.code); return <div key={c.code}>
+        <p className="text-[13px]">{name}</p>
         {q && <p className="mt-1 flex items-start gap-1 text-[12px] text-[var(--aux)]"><Sparkles size={12} className="mt-[3px] shrink-0"/><span>{q.question}{q.reason && <span className="text-[var(--meta)]"> · {q.reason}</span>}</span></p>}
-        <input aria-label={c.question} className="field-line" value={d.extras.find(e => e.key === c.question)?.value ?? ''} maxLength={1000} onChange={e => setExtra(c.question, e.target.value)}/>
+        <input aria-label={name} className="field-line" value={d.extras.find(e => e.key === name)?.value ?? ''} maxLength={ATTRIBUTE_VALUE_MAX} onChange={e => setExtra(name, e.target.value)}/>
       </div>; })}
       {questions.filter(q => !criteria.checks.some(c => c.code === q.checkCode)).map((q, i) => <p key={i} className="flex items-start gap-1 rounded-[6px] bg-[var(--soft)] p-3 text-[12px] text-[var(--aux)]"><Sparkles size={12} className="mt-[3px] shrink-0"/>{q.question}{q.reason && ` · ${q.reason}`}</p>)}
     </section>}
@@ -370,6 +371,21 @@ export function WizardPage() {
     <section className="space-y-2.5" data-field="shipping"><Label hint="· 필수 · 무료면 0">배송비</Label>
       <label className="flex h-12 items-center border-b border-[var(--line)]"><input aria-label="배송비" inputMode="numeric" className="min-w-0 flex-1 bg-transparent text-[16px] outline-none" value={d.shipping.toLocaleString('ko-KR')} onChange={e => patch({ shipping: Number(e.target.value.replace(/\D/g, '')) || 0 })}/><span className="text-[14px] text-[var(--aux)]">원</span></label>
       <FieldError name="shipping"/>
+    </section>
+    {/* 택배사·반품/교환 배송비: 판매자 설정 API가 없어 상품의 shippingNotice 글로 저장한다. 칸을 고치면 아래 글이 다시 만들어지고, 글은 직접 고칠 수 있다 */}
+    <section className="space-y-3" data-field="shippingNotice"><div><Label hint="· 구매자에게 안내돼요">택배사 · 반품·교환 배송비</Label></div>
+      {(() => {
+        const set = (v: Partial<Pick<Draft, 'carrier' | 'returnFee' | 'exchangeFee'>>) => { const n = { carrier: d.carrier ?? '', returnFee: d.returnFee ?? '', exchangeFee: d.exchangeFee ?? '', ...v }; patch({ ...n, shippingNotice: composeShippingNotice(n.carrier, n.returnFee, n.exchangeFee) }); };
+        const digits = (v: string) => v.replace(/\D/g, '');
+        return <>
+          <label className="block text-[13px]">택배사<select aria-label="택배사" className="field-line" value={d.carrier ?? ''} onChange={e => set({ carrier: e.target.value })}><option value="">선택 안 함</option>{['CJ대한통운', '한진택배', '롯데택배', '우체국택배'].map(c => <option key={c}>{c}</option>)}</select></label>
+          <label className="block text-[13px]">반품 배송비<span className="flex items-center border-b border-[var(--line)]"><input aria-label="반품 배송비" inputMode="numeric" className="min-w-0 flex-1 bg-transparent py-3 text-[16px] outline-none" value={d.returnFee ? Number(d.returnFee).toLocaleString('ko-KR') : ''} placeholder="3,000" onChange={e => set({ returnFee: digits(e.target.value) })}/><span className="text-[14px] text-[var(--aux)]">원</span></span></label>
+          <label className="block text-[13px]">교환 배송비<span className="flex items-center border-b border-[var(--line)]"><input aria-label="교환 배송비" inputMode="numeric" className="min-w-0 flex-1 bg-transparent py-3 text-[16px] outline-none" value={d.exchangeFee ? Number(d.exchangeFee).toLocaleString('ko-KR') : ''} placeholder="6,000" onChange={e => set({ exchangeFee: digits(e.target.value) })}/><span className="text-[14px] text-[var(--aux)]">원</span></span></label>
+        </>;
+      })()}
+      <label className="block text-[13px]">배송 안내 글<textarea aria-label="배송 안내" rows={3} className="mt-1 w-full rounded-[6px] border border-[var(--border)] p-3 text-[14px] outline-none" value={d.shippingNotice ?? ''} onChange={e => patch({ shippingNotice: e.target.value })}/></label>
+      <p className={`text-right text-[12px] ${(d.shippingNotice ?? '').length > SHIPPING_NOTICE_MAX ? 'text-[var(--danger,#d32f2f)]' : 'text-[var(--meta)]'}`}>{(d.shippingNotice ?? '').length.toLocaleString('ko-KR')} / {SHIPPING_NOTICE_MAX.toLocaleString('ko-KR')}자</p>
+      <FieldError name="shippingNotice"/>
     </section>
     <section className="space-y-2.5" data-field="maxPerAccount"><div className="flex items-center justify-between"><Label hint="· 필수">1인 구매 한도</Label><Stepper label="1인 구매 한도" value={d.maxPerAccount} onChange={n => patch({ maxPerAccount: n })}/></div>
       <FieldError name="maxPerAccount"/>
