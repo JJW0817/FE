@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertCircle, Calendar, Check, ChevronDown, ChevronRight, Hash, Image as ImageIcon, Info, Link2, Minus, Package, Plus, ShieldCheck, Sparkles, Timer } from 'lucide-react';
-import { activeUser, blankDraft, CATEGORY_PATHS, listingDimensions, listingOptions, localDateTime, lookupReference, mockAiAnalysis, money, nowOf, optionKey, publishDraft, unsupportedInput } from '../domain';
+import { activeUser, blankDraft, listingDimensions, listingOptions, localDateTime, lookupReference, mockAiAnalysis, money, nowOf, optionKey, publishDraft, unsupportedInput } from '../domain';
 import type { AiQuestion, Draft, Product } from '../domain';
 import type { RegistrationMetadataDto } from '../api/types';
 import { atomic, getState, mutate, useStore } from '../store';
@@ -10,7 +10,7 @@ import { imageData } from '../files';
 import { Button, Empty, ErrorBox, Header, LiveStatus, Modal, Note, ProductImage, Unavailable, useToast } from '../components/ui';
 import { useClock } from '../hooks';
 import { USE_MOCK } from '../config';
-import { MOCK_REGISTRATION_METADATA, PRODUCT_STATE_MESSAGE, analysisProblems, analyzeDraft, categoriesForCode, createProductDraft, deleteProductImage, errorMessage, fieldErrors, isApiError, getRegistrationMetadata, getSellerProductWithImages, mergeProducts, reorderProductImages, submitListing, submitRevisionFromDraft, uploadProductImage, useApi, useLive } from '../api';
+import { MOCK_REGISTRATION_METADATA, PRODUCT_STATE_MESSAGE, analysisProblems, analyzeDraft, categoriesForCode, criteriaFor, createProductDraft, deleteProductImage, errorMessage, fieldErrors, isApiError, getRegistrationMetadata, getSellerProductWithImages, mergeProducts, reorderProductImages, submitListing, submitRevisionFromDraft, uploadProductImage, useApi, useLive } from '../api';
 
 /* ── 초안 ─────────────────────────────────────────────────────────────────────── */
 const SWATCH: Record<string, string> = { 차콜: '#3F3F3F', 오트밀: '#E6DCC6', 크림: '#F3EBDC', 네이비: '#2B3A55', 블랙: '#222222', 화이트: '#FFFFFF', 내추럴: '#E8DCC8', 그레이: '#9A9A9A', 베이지: '#E3D3B8' };
@@ -144,7 +144,7 @@ export function WizardPage() {
     if (canEdit(m, nowOf(st))) st.drafts[user.id] = fromProduct(m);
   }, [editId]);
   const [error, setError] = useState(''), [uploading, setUploading] = useState(false), [progress, setProgress] = useState(''), [photoError, setPhotoError] = useState(''), [fieldErr, setFieldErr] = useState<Record<string, string>>({}), [busy, setBusy] = useState(false), [photo, setPhoto] = useState<number | null>(null), [activeColor, setActiveColor] = useState(0);
-  const picking = params.get('pick') === 'category';
+  const picking = params.get('pick') === 'category', meta = useRegistrationMeta();
   if (!user.seller) return <Unavailable message="승인된 판매자만 상품을 등록할 수 있습니다."/>;
   // 실제 모드: 소유권은 서버가 확인한다(상품 sellerId가 계정 id와 다를 수 있어 비교하지 않는다)
   const editing = editId ? s.products.find(p => p.id === editId && (!USE_MOCK || p.sellerId === user.id)) : undefined;
@@ -154,6 +154,9 @@ export function WizardPage() {
   if (!d || !d.axes || (editId && d.editingId !== editId)) return <LiveStatus state={live}/>;
   const axes = d.axes, colors = d.colors ?? [], sizes = d.sizes ?? [], stock = d.stock ?? {};
   const setStock = (key: string, n: number) => patch({ stock: { ...stock, [key]: n } });
+  // shortcut: 점검 기준 항목은 attributes의 name을 check.question으로 저장한다(명세에 항목명 규칙 없음). 백엔드가 이름 규칙을 주면 교체
+  const setExtra = (key: string, value: string) => patch({ extras: d.extras.some(e => e.key === key) ? d.extras.map(e => e.key === key ? { ...e, value } : e) : [...d.extras.filter(e => e.key.trim()), { key, value }] });
+  const criteria = meta.data ? criteriaFor(meta.data, d.category) : undefined, questions = d.ai.result?.questions ?? [];
   const color = colors[Math.min(activeColor, colors.length - 1)] ?? '';
   const colorTotal = (c: string) => axes.size ? sizes.reduce((n, sz) => n + (stock[optionKey(c, sz)] ?? 0), 0) : stock[optionKey(c, '')] ?? 0;
   const total = d.options.reduce((n, o) => n + o.stock, 0);
@@ -281,7 +284,19 @@ export function WizardPage() {
         <span className={`min-w-0 flex-1 truncate text-[16px] ${d.category ? '' : 'text-[var(--placeholder)]'}`}>{d.category || (d.ai.status === 'analyzing' ? '사진을 분석하고 있어요' : '카테고리를 선택해 주세요')}</span>
         {(d.category || d.ai.result || d.ai.status === 'analyzing' || d.ai.status === 'failed') && <span className="flex shrink-0 items-center text-[13px] text-[var(--aux)]">분석 결과<ChevronRight size={16}/></span>}
       </button>
+      <FieldError name="category"/>
     </section>
+
+    {/* 카테고리별 점검 기준(registration-metadata categoryCriteria) → 입력칸. 값은 2단계 attributes(항목명+값)로 저장. AI 질문은 checkCode가 같은 칸 옆에 */}
+    {criteria && <section className="space-y-4" data-field="attributes">
+      <div><Label hint="· 심사 때 확인해요">{criteria.name} 상품 정보</Label><p className="mt-1 text-[12px] text-[var(--meta)]">카테고리마다 확인하는 항목이 달라요</p></div>
+      {criteria.checks.map(c => { const q = questions.find(x => x.checkCode === c.code); return <div key={c.code}>
+        <p className="text-[13px]">{c.question}</p>
+        {q && <p className="mt-1 flex items-start gap-1 text-[12px] text-[var(--aux)]"><Sparkles size={12} className="mt-[3px] shrink-0"/><span>{q.question}{q.reason && <span className="text-[var(--meta)]"> · {q.reason}</span>}</span></p>}
+        <input aria-label={c.question} className="field-line" value={d.extras.find(e => e.key === c.question)?.value ?? ''} maxLength={1000} onChange={e => setExtra(c.question, e.target.value)}/>
+      </div>; })}
+      {questions.filter(q => !criteria.checks.some(c => c.code === q.checkCode)).map((q, i) => <p key={i} className="flex items-start gap-1 rounded-[6px] bg-[var(--soft)] p-3 text-[12px] text-[var(--aux)]"><Sparkles size={12} className="mt-[3px] shrink-0"/>{q.question}{q.reason && ` · ${q.reason}`}</p>)}
+    </section>}
 
     <section className="space-y-3">
       <div><Label hint="· 필수">타 플랫폼 판매 URL</Label><p className="mt-1 text-[12px] text-[var(--meta)]">쿠팡·알리 등에서 판매 중인 같은 상품의 링크</p></div>
@@ -343,11 +358,16 @@ export function WizardPage() {
   </div>;
 }
 function CategoryPicker({ value, onClose, onSave }: { value: string; onClose: () => void; onSave: (v: string) => void }) {
-  const [pick, setPick] = useState(value);
-  // 실제 모드: 서버 등록 카테고리 이름(registration-metadata)에서 고른다. 추측(명세 없음): Figma 경로 체계와 매핑되지 않아 서버 이름을 그대로 쓴다 — TODO(api-gap)
-  const meta = useApi(async signal => (USE_MOCK ? null : getRegistrationMetadata(signal)), []);
-  const list = meta.data?.categories ?? CATEGORY_PATHS;
-  return <Modal title="카테고리 선택" onClose={onClose}><div className="space-y-1">{!USE_MOCK && <LiveStatus state={meta}/>}{list.map(path => <label key={path} className="divider flex items-center gap-3 py-3 text-[13px]"><input type="radio" name="category" value={path} checked={pick === path} onChange={() => setPick(path)}/>{path}</label>)}<Note>지원 목록에서만 선택할 수 있습니다. 등록 대상이 아닌 상품은 다른 카테고리로 우회 등록할 수 없습니다.</Note><Button className="mt-4 w-full" disabled={!pick} onClick={() => onSave(pick)}>카테고리 저장</Button></div></Modal>;
+  const [pick, setPick] = useState(value), [q, setQ] = useState('');
+  // 허용 카테고리는 서버 registration-metadata의 categories(이름)에서만 고른다. mock도 같은 모양의 목업
+  const meta = useRegistrationMeta();
+  const list = (meta.data?.categories ?? []).filter(c => c.includes(q.trim()));
+  return <Modal title="카테고리 선택" onClose={onClose}><div className="space-y-1">
+    <input aria-label="카테고리 검색" className="field-line" value={q} onChange={e => setQ(e.target.value)} placeholder="카테고리 이름으로 찾기"/>
+    <LiveStatus state={meta}/>
+    <div className="max-h-[50dvh] overflow-y-auto">{list.map(path => <label key={path} className="divider flex items-center gap-3 py-3 text-[13px]"><input type="radio" name="category" value={path} checked={pick === path} onChange={() => setPick(path)}/>{path}</label>)}</div>
+    {meta.data && !list.length && <p className="py-3 text-[13px] text-[var(--meta)]">찾는 카테고리가 없어요</p>}
+    <Note>지원 목록에서만 선택할 수 있습니다. 등록 대상이 아닌 상품은 다른 카테고리로 우회 등록할 수 없습니다.</Note><Button className="mt-4 w-full" disabled={!pick} onClick={() => onSave(pick)}>카테고리 저장</Button></div></Modal>;
 }
 
 /* ── AI 상품 분석 (결과 / 분석 중 / 실패와 재시도) ─────────────────────────────────── */
