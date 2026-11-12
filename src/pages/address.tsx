@@ -95,6 +95,7 @@ export function AddressFormPage() {
 }
 
 /* ── 주소 검색 — Figma "주소 검색", "주소 검색 결과 없음". Daum 우편번호를 화면 안에 embed ─── */
+// 카카오 우편번호 스크립트(t1.kakaocdn.net)도 전역 이름은 daum.Postcode 그대로다
 declare global { interface Window { daum?: { Postcode: new (options: Record<string, unknown>) => { embed: (el: HTMLElement, options?: Record<string, unknown>) => void } } } }
 const TIPS: [string, string, string][] = [['도로명 + 건물번호', '와우산로 94', '테헤란로 152'], ['동·읍·면 + 지번', '서교동 338-1', '역삼동 737'], ['건물명·아파트명', '강남파이낸스센터', '판교 푸르지오']];
 export function AddressSearchPage() {
