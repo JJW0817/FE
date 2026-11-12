@@ -8,3 +8,6 @@ playwright-report/
 .env.local
 .claude/
 .vercel
+
+# 개발용으로 저장한 실제 서버 응답
+docs/registration-metadata.json

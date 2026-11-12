@@ -52,7 +52,12 @@ export async function listSellerProducts(sellerId: string, q: SellerProductQuery
 /** POST /v1/seller/products — 등록 초안 생성(201, 본문 없음) */
 export const createProductDraft = async () => sellerProductFromApi(await api.post<SellerProductDto>(P, undefined, { service: purchase }));
 /** GET /v1/seller/products/registration-metadata — 카테고리 이름 목록과 AI 점검 기준 */
-export const getRegistrationMetadata = (signal?: AbortSignal) => api.get<RegistrationMetadataDto>(`${P}/registration-metadata`, { service: purchase, signal });
+export async function getRegistrationMetadata(signal?: AbortSignal) {
+  const meta = await api.get<RegistrationMetadataDto>(`${P}/registration-metadata`, { service: purchase, signal });
+  // 개발 서버 전용(DEV가 false인 빌드에서는 통째로 제거된다): 받은 응답을 docs/registration-metadata.json 으로 저장
+  if (import.meta.env.DEV) void fetch('/__dev/registration-metadata', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(meta) }).catch(() => {});
+  return meta;
+}
 /** 대분류 code 접두사 → 대분류 이름(점검 기준 code 접두사로 판단. FASHION_ACCESSORIES_는 CLOTHING_과 겹치지 않는다) */
 export const MAJOR_PREFIXES = [['CLOTHING_', '의류'], ['FASHION_ACCESSORIES_', '패션잡화'], ['STATIONERY_', '문구'], ['HOUSEHOLD_', '생활잡화']] as const;
 export const majorOf = (code: string) => MAJOR_PREFIXES.find(([p]) => code.startsWith(p))?.[0];
