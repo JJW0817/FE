@@ -5,7 +5,7 @@ import { ArrowLeft, Building2, CalendarCheck, Check, Store, UserRound, CheckCirc
 import { activeUser, approveApplication, money, nowOf, saleState, uid } from '../domain';
 import type { Address, Application, DocumentFile } from '../domain';
 import { atomic, mutate, useStore } from '../store';
-import { dateTime } from '../hooks';
+import { dateTime, kstShort } from '../hooks';
 import { Badge, Button, Chip, ConfirmLeave, Empty, ErrorBox, Field, Header, InfoRow, LiveStatus, MenuRow, Modal, Note, ProductImage, Unavailable, useToast } from '../components/ui';
 import { PdfField } from '../components/PdfField';
 import { deleteAddress, listAddresses, setDefaultAddress, takeAddressPick, toAddress } from './address';
@@ -307,7 +307,7 @@ export function AdminDetailPage() {
         {/* File row */}
         <div className="flex items-center gap-3">
           <FileText size={14} className="shrink-0 text-[#7B7B7B]"/>
-          <span className="flex-1 text-[12px] text-[#7B7B7B]">사업자등록증.pdf · 1쪽 · 1.2MB</span>
+          <span className="flex-1 text-[12px] text-[#7B7B7B]">{USE_MOCK ? '사업자등록증.pdf · 1쪽 · 1.2MB' : '사업자등록증.pdf'}</span>
           <button className="text-[12px] font-bold text-[var(--ink)]" onClick={async () => { setError(''); const tab = USE_MOCK ? null : window.open('', '_blank'); /* 클릭 직후 탭을 열어 모바일 사파리 팝업 차단을 피한다 */ try { if (USE_MOCK) { app.document && getPdf(app.document.id).catch(() => {}); } else { const pdf = await reviewCertificate(app.id); const url = URL.createObjectURL(pdf.type ? pdf : new Blob([pdf], { type: 'application/pdf' })); if (tab) tab.location.href = url; else window.open(url, '_blank'); } setPdfViewed(true); } catch (e) { tab?.close(); setError(e instanceof ApiError ? `${e.code}: ${e.message}` : errorMessage(e)); } }}>열람하기</button>
         </div>
       </div>
@@ -648,9 +648,9 @@ export function SupportPage() {
             <div className="flex items-start gap-3">
               <div className="h-14 w-14 shrink-0 rounded-[4px] bg-[var(--soft)]"/>
               <div className="min-w-0 flex-1 space-y-0.5">
-                <p className="text-[11px] font-bold text-[var(--muted)]">배송 중 · 10.25 도착 예정</p>
-                <p className="text-[14px]">LOWFIELD · {recentOrder.product.name}</p>
-                <p className="text-[12px] text-[#949494]">10.24 결제 · {money(recentOrder.total)}</p>
+                {USE_MOCK && <p className="text-[11px] font-bold text-[var(--muted)]">배송 중 · 10.25 도착 예정</p>}
+                <p className="text-[14px]">{USE_MOCK ? 'LOWFIELD' : recentOrder.product.brand}{(USE_MOCK || recentOrder.product.brand) ? ' · ' : ''}{recentOrder.product.name}</p>
+                <p className="text-[12px] text-[#949494]">{USE_MOCK ? '10.24' : kstShort(recentOrder.createdAt).split(' ')[0]} 결제 · {money(recentOrder.total)}</p>
               </div>
             </div>
             <Link to={`/orders/${recentOrder.id}/inquiry`} className="flex w-full items-center justify-center gap-2 rounded-[6px] bg-[var(--soft)] py-2.5 text-[13px] font-bold">

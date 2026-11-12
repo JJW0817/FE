@@ -6,7 +6,7 @@ import { activeUser, feeFor, markDelivered, money, nowOf, saleState, uid } from 
 import type { Order, SellerSettings } from '../domain';
 import { atomic, mutate, useStore } from '../store';
 import { endSession } from '../auth';
-import { dateTime, useClock } from '../hooks';
+import { dateTime, kstShort, kstSlot, useClock } from '../hooks';
 import { Badge, Button, CopyButton, copyText, Toggle, Empty, ErrorBox, Field, Header, InfoRow, LiveStatus, MenuRow, Modal, Note, ORDER_LABELS, ProductImage, ProductSummary, Unavailable, useToast } from '../components/ui';
 import { PdfField } from '../components/PdfField';
 import { answerOrderInquiry, listSellerOrderInquiries, answerProductInquiry, deleteSellerLogo, deliverOrder, errorMessage, getSalesSummary, getSellerOrder, getSellerOrderInquiry, getSellerOrderSummary, getSellerProductWithImages, listRevisions, listSellerOrderInquiryInbox, listSellerOrders, listSellerProductInquiries, listSellerProducts, mergeInquiries, mergeOrders, mergeProducts, shipOrder, useLive, fetchSellerLogo, fetchSellerMe, fetchSellerStore, fetchWithdrawalEligibility, updateSellerAddresses, updateSellerBank, updateSellerContact, updateSellerStore, uploadSellerLogo, useApi, withdrawAccount } from '../api';
@@ -123,15 +123,15 @@ export function SellerProductPage() {
       <div className="space-y-1">
         <h2 className="text-[22px] font-bold">{approved ? '축하해요!' : '판매 심사를'}</h2>
         <h2 className="text-[22px] font-bold">{approved ? '판매가 승인됐어요' : '요청했어요'}</h2>
-        <p className="mt-2 text-[13px] text-[#7B7B7B]">{approved ? `11월 3일 (화) 21:00부터 3시간 동안 판매가 열려요.` : '영업일 기준 1일 안에 결과를 알림으로 알려드려요.'}</p>
+        <p className="mt-2 text-[13px] text-[#7B7B7B]">{approved ? (USE_MOCK ? `11월 3일 (화) 21:00부터 3시간 동안 판매가 열려요.` : p.startsAt ? `${kstSlot(p.startsAt)}부터 3시간 동안 판매가 열려요.` : '판매 일정에 맞춰 열려요.') : '영업일 기준 1일 안에 결과를 알림으로 알려드려요.'}</p>
         {approved && <p className="text-[13px] text-[#7B7B7B]">판매 30분 전에 알림으로 한 번 더 알려드릴게요.</p>}
         {!approved && <p className="text-[13px] text-[#7B7B7B]">승인되면 판매 일정에 맞춰 자동으로 오픈돼요.</p>}
       </div>
       <div className="flex justify-around border-t border-b border-[var(--line)] py-5">
-        {([approved ? [`D-${dDay}`, '판매 시작까지'] : ['11.3 21:00', '판매 시작'], ['50개', '한정 수량'], [money(p.price), '한정 판매가']] as [string, string][]).map(([val, lbl]) => <div key={lbl} className="text-center"><p className="text-[16px] font-bold">{val}</p><p className="muted mt-1 text-[11px]">{lbl}</p></div>)}
+        {(USE_MOCK ? [approved ? [`D-${dDay}`, '판매 시작까지'] : ['11.3 21:00', '판매 시작'], ['50개', '한정 수량'], [money(p.price), '한정 판매가']] : [approved ? [`D-${dDay}`, '판매 시작까지'] : [p.startsAt ? kstShort(p.startsAt) : '-', '판매 시작'], [`${totalStock}개`, '한정 수량'], [money(p.price), '한정 판매가']] as [string, string][]).map(([val, lbl]) => <div key={lbl} className="text-center"><p className="text-[16px] font-bold">{val}</p><p className="muted mt-1 text-[11px]">{lbl}</p></div>)}
       </div>
       <div>
-        <div className="mb-3 flex items-center justify-between"><h2 className="text-[16px] font-bold">진행 현황</h2><span className="text-[12px] font-bold text-[#7B7B7B]">{approved ? `11월 3일 (화) 21:00 오픈` : `10월 26일 (월) 결과 안내`}</span></div>
+        <div className="mb-3 flex items-center justify-between"><h2 className="text-[16px] font-bold">진행 현황</h2><span className="text-[12px] font-bold text-[#7B7B7B]">{USE_MOCK ? (approved ? `11월 3일 (화) 21:00 오픈` : `10월 26일 (월) 결과 안내`) : approved && p.startsAt ? `${kstSlot(p.startsAt)} 오픈` : ''}</span></div>
         <div className="rounded-[6px] bg-[var(--soft)] px-6 py-5">
           <div className="flex items-start justify-between">
             {steps.map((step, i) => {
@@ -192,7 +192,7 @@ export function SellerProductPage() {
         </div>
       </div>
       <div className="grid grid-cols-3 gap-2">
-        {([['결제 완료', `${totalSold}건`], ['결제 진행 중', '3명'], ['알림 신청', `${alarmCount}명`]] as [string,string][]).map(([lbl,val]) => <div key={lbl} className="rounded-[6px] border border-[var(--line)] p-3"><p className="muted text-[11px]">{lbl}</p><p className="font-number mt-2 text-[16px] font-bold">{val}</p></div>)}
+        {([['결제 완료', `${totalSold}건`], ...(USE_MOCK ? [['결제 진행 중', '3명']] : []), ['알림 신청', `${alarmCount}명`]] as [string,string][]).map(([lbl,val]) => <div key={lbl} className="rounded-[6px] border border-[var(--line)] p-3"><p className="muted text-[11px]">{lbl}</p><p className="font-number mt-2 text-[16px] font-bold">{val}</p></div>)}
       </div>
       <section>
         <div className="mb-3 flex items-center justify-between"><h2 className="text-[15px] font-bold">실시간 주문</h2><Link to={`/seller/orders?product=${p.id}`} className="muted text-[12px]">전체 {totalSold}건 ›</Link></div>
@@ -229,8 +229,8 @@ export function SellerProductPage() {
         </div>
       </div>
       <div className="rounded-[8px] bg-[var(--soft)] p-5">
-        <p className="text-[20px] font-bold">{totalSold >= totalStock ? `2시간 14분 만에 완판됐어요` : `${totalSold}개가 판매됐어요`}</p>
-        <p className="muted mt-1 text-[12px]">오픈 후 23:14에 마지막 수량이 판매됐어요</p>
+        <p className="text-[20px] font-bold">{totalSold >= totalStock ? (USE_MOCK ? `2시간 14분 만에 완판됐어요` : '완판됐어요') : `${totalSold}개가 판매됐어요`}</p>
+        {USE_MOCK && <p className="muted mt-1 text-[12px]">오픈 후 23:14에 마지막 수량이 판매됐어요</p>}
         <div className="my-4 h-px bg-[#DEDEDE]"/>
         <div className="flex items-baseline justify-between">
           <div><span className="font-number text-[32px] font-bold">{totalSold}</span><span className="ml-2 text-[14px] font-bold text-[#7B7B7B]">/ {totalStock}개 판매</span></div>
@@ -353,7 +353,7 @@ export function SellerOrderPage() {
     </div>
     <section className="divider space-y-2 pb-4"><h2 className="text-[15px] font-bold">주문 및 결제 정보</h2><InfoRow label="상품금액" value={money(o.total - o.shipping)}/><InfoRow label="고정 배송비" value={money(o.shipping)}/><InfoRow label="최종 결제금액" value={<span className="font-bold">{money(o.total)}</span>}/></section>
     <section className="divider space-y-2 pb-4"><h2 className="text-[15px] font-bold">배송지</h2><p className="text-[12px]">{o.address.name} · {o.address.phone}</p><p className="muted text-[12px] leading-relaxed">{o.address.address} {o.address.detail}<br/>{o.address.request}</p></section>
-    <section className="divider space-y-2 pb-4"><h2 className="text-[15px] font-bold">배송 처리</h2><InfoRow label="출고지" value={s.sellerSettings[user.id]?.shippingAddress || '성수 물류창고'}/><InfoRow label="택배사" value={o.carrier || <span className="text-[var(--muted)]">미등록</span>}/><InfoRow label="운송장 번호" value={o.tracking ? <span className="inline-flex items-center gap-1">{o.tracking}<CopyButton value={o.tracking}/></span> : <span className="text-[var(--muted)]">미등록</span>}/></section>
+    <section className="divider space-y-2 pb-4"><h2 className="text-[15px] font-bold">배송 처리</h2><InfoRow label="출고지" value={s.sellerSettings[user.id]?.shippingAddress || (USE_MOCK ? '성수 물류창고' : '-')}/><InfoRow label="택배사" value={o.carrier || <span className="text-[var(--muted)]">미등록</span>}/><InfoRow label="운송장 번호" value={o.tracking ? <span className="inline-flex items-center gap-1">{o.tracking}<CopyButton value={o.tracking}/></span> : <span className="text-[var(--muted)]">미등록</span>}/></section>
     <Note>송장을 등록하면 구매자에게 배송 중으로 안내돼요. 판매자의 수동 배송완료 처리는 구매확정이나 정산 송금을 의미하지 않습니다.</Note>
     {orderInquiries.length > 0 && <Link to={`/seller/inquiries/${orderInquiries[0].id}`} className="flex items-center gap-3 rounded-[4px] border border-[var(--line)] p-4"><div className="flex-1 space-y-1"><p className="text-[13px] font-bold">이 주문의 문의</p><p className="muted text-[12px]">{orderInquiries[0].kind} 문의 {orderInquiries.length}건</p></div>{orderInquiries.some(q => !q.answer) && <span className="rounded-[3px] bg-[var(--red-soft)] px-2 py-0.5 text-[11px] font-bold text-[var(--red)]">미답변 {orderInquiries.filter(q => !q.answer).length}</span>}<ChevronRight size={16} className="muted"/></Link>}
     <section className="divider space-y-3 py-3"><h2 className="text-[15px] font-bold">배송 진행 내역</h2>{o.processedAt && <InfoRow label={dateTime(o.processedAt)} value="배송완료 · 판매자 수동 등록"/>}{o.shippedAt && <InfoRow label={dateTime(o.shippedAt)} value="운송장 등록 · 배송 중"/>}<InfoRow label={dateTime(o.createdAt)} value="결제 완료"/></section>
@@ -563,17 +563,17 @@ export function SellerSettingsPage() {
       <h2 className="text-[13px] font-bold text-[var(--muted)]">현재 정산 계좌</h2>
       <section className="rounded-[8px] bg-[var(--canvas)] p-5">
         <div>
-          <div className="flex items-center justify-between"><p className="muted text-[13px]">{form.bank || 'KB국민은행'}</p><span className="flex items-center gap-1 rounded-[3px] bg-[var(--surface)] px-2 py-0.5 text-[10px] font-bold text-[var(--green)]"><Check size={11}/>인증 완료</span></div>
-          <p className="font-number text-[22px] font-bold mt-1">123456-04-***024</p>
-          <p className="muted text-[11px] mt-1">예금주 로엠필드(김서윤) · 2026.05.08 등록</p>
+          <div className="flex items-center justify-between"><p className="muted text-[13px]">{USE_MOCK ? form.bank || 'KB국민은행' : me.data?.settings.bank || '-'}</p>{USE_MOCK && <span className="flex items-center gap-1 rounded-[3px] bg-[var(--surface)] px-2 py-0.5 text-[10px] font-bold text-[var(--green)]"><Check size={11}/>인증 완료</span>}</div>
+          <p className="font-number text-[22px] font-bold mt-1">{USE_MOCK ? '123456-04-***024' : me.data?.settings.account || '-'}</p>
+          {USE_MOCK ? <p className="muted text-[11px] mt-1">예금주 로엠필드(김서윤) · 2026.05.08 등록</p> : me.data?.settings.holder ? <p className="muted text-[11px] mt-1">예금주 {me.data.settings.holder}</p> : null}
         </div>
       </section>
-      <div className="space-y-2">
+      {USE_MOCK && <div className="space-y-2">
         <InfoRow label="정산 주기" value="구매 확정 후 D+7 영업일"/>
         <InfoRow label="다음 정산 예정일" value="2026.11.11 (수)"/>
         <InfoRow label="정산 예정 금액" value={<span className="font-bold">1,284,000원</span>}/>
         <button type="button" className="flex items-center pt-1 text-[13px] font-bold">정산 내역 보기<ChevronRight size={15}/></button>
-      </div>
+      </div>}
       <div className="-mx-4 h-px bg-[var(--line)]"/>
       <h2 className="text-[13px] font-bold text-[var(--muted)]">계좌 변경</h2>
       <Field label="은행" required><select aria-label="은행" value={form.bank || ''} onChange={e => change('bank', e.target.value)} className="field-line"><option value="">은행을 선택해 주세요</option>{['KB국민은행','신한은행','우리은행','하나은행','IBK기업은행','NH농협은행','카카오뱅크','토스뱅크'].map(b => <option key={b}>{b}</option>)}</select></Field>
@@ -593,16 +593,16 @@ export function SellerSettingsPage() {
       <div className="mb-4 flex border-b border-[var(--line)]">
         {(['ship', 'return'] as const).map((t, i) => (
           <button key={t} onClick={() => setAddrTab(t)} className={`flex-1 border-b-2 py-3 text-[13px] font-bold ${addrTab === t ? 'border-[var(--ink)]' : 'border-transparent muted'}`}>
-            {t === 'ship' ? '출고지 2' : '반품지 1'}
+            {USE_MOCK ? (t === 'ship' ? '출고지 2' : '반품지 1') : t === 'ship' ? '출고지' : '반품지'}
           </button>
         ))}
       </div>
       {addrTab === 'ship' && (
         <div className="space-y-3">
-          {[
+          {(USE_MOCK ? [
             { name: '성수 물류창고', isDefault: true, address: '서울 성동구 성수이로 118, 3층 (04782)', person: '김서윤 · 010-2481-****' },
             { name: '파주 보관센터', isDefault: false, address: '경기 파주시 문발로 242, B동 (10881)', person: '박도현 · 031-944-****' },
-          ].map(loc => (
+          ] : form.shippingAddress ? [{ name: '기본 출고지', isDefault: true, address: form.shippingAddress, person: [user.name, phone].filter(Boolean).join(' · ') }] : []).map(loc => (
             <div key={loc.name} className="rounded-[8px] border border-[var(--line)] p-4 space-y-2">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -631,21 +631,21 @@ export function SellerSettingsPage() {
           <div className="rounded-[8px] border border-[var(--line)] p-4 space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <p className="text-[14px] font-bold">성수 물류창고</p>
-                <span className="rounded-full bg-[var(--green-soft)] px-2 py-0.5 text-[10px] font-bold text-[var(--green)]">출고지와 동일</span>
+                <p className="text-[14px] font-bold">{USE_MOCK ? '성수 물류창고' : '기본 반품지'}</p>
+                {(USE_MOCK || (!!form.returnAddress && form.returnAddress === form.shippingAddress)) && <span className="rounded-full bg-[var(--green-soft)] px-2 py-0.5 text-[10px] font-bold text-[var(--green)]">출고지와 동일</span>}
               </div>
               <div className="flex gap-2">
                 <Link to="/seller/settings/returns" className="text-[12px] font-bold">수정</Link>
                 <button className="text-[12px] text-[var(--red)]">삭제</button>
               </div>
             </div>
-            <p className="muted text-[12px]">서울 성동구 성수이로 118, 3층 (04782)</p>
-            <p className="muted text-[12px]">김서윤 · 010-2481-****</p>
+            <p className="muted text-[12px]">{USE_MOCK ? '서울 성동구 성수이로 118, 3층 (04782)' : form.returnAddress || '-'}</p>
+            <p className="muted text-[12px]">{USE_MOCK ? '김서윤 · 010-2481-****' : [user.name, phone].filter(Boolean).join(' · ')}</p>
           </div>
           <Link to="/seller/settings/returns" className="btn btn-outline block w-full text-center">반품지 추가</Link>
         </div>
       )}
-      <div className="mt-6 rounded-[8px] bg-[var(--canvas)] p-4 space-y-3">
+      {USE_MOCK && <div className="mt-6 rounded-[8px] bg-[var(--canvas)] p-4 space-y-3">
         <div className="flex items-center justify-between">
           <p className="text-[14px] font-bold">반품 · 교환 설정</p>
         </div>
@@ -657,7 +657,7 @@ export function SellerSettingsPage() {
         <InfoRow label="반품 배송비 (편도)" value="3,000원"/>
         <InfoRow label="교환 배송비 (왕복)" value="6,000원"/>
         <Link to="/seller/settings/shipping" className="btn btn-outline block w-full text-center text-[12px]!">택배사 · 배송비 변경</Link>
-      </div>
+      </div>}
       {deleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center" style={{background:'rgba(0,0,0,0.45)'}} onClick={e => e.target === e.currentTarget && setDeleteConfirm(false)}>
           <div className="mx-4 w-full max-w-[318px] rounded-[8px] bg-[var(--surface)] p-5 space-y-4">
@@ -681,17 +681,17 @@ export function SellerSettingsPage() {
   if (section === 'ship-edit') return (
     <form className="space-y-5" onSubmit={handleSubmit}>
       <Header title="출고지 수정"/>
-      <Field label="출고지명"><input aria-label="출고지명" className="field" defaultValue="성수 물류창고"/></Field>
+      <Field label="출고지명"><input aria-label="출고지명" className="field" defaultValue={USE_MOCK ? '성수 물류창고' : '기본 출고지'}/></Field>
       <Field label="출고 담당자" required><input aria-label="출고 담당자" className="field" value={user.name} readOnly/></Field>
       <Field label="연락처" required><input aria-label="연락처" className="field" value={phone} onChange={e => setPhone(e.target.value)} type="tel"/></Field>
       <Field label="주소" required>
         <div className="space-y-2">
           <div className="flex gap-2">
-            <input aria-label="우편번호" className="field flex-1" defaultValue="04782" readOnly/>
+            <input aria-label="우편번호" className="field flex-1" defaultValue={USE_MOCK ? '04782' : form.shippingPostal ?? ''} readOnly/>
             <button type="button" className="btn btn-outline shrink-0 text-[12px]!">주소 검색</button>
           </div>
-          <input aria-label="도로명 주소" className="field" defaultValue="서울특별시 성동구 성수이로 118"/>
-          <input aria-label="상세 주소" className="field" defaultValue="3층 물류팀"/>
+          <input aria-label="도로명 주소" className="field" defaultValue={USE_MOCK ? '서울특별시 성동구 성수이로 118' : form.shippingAddress}/>
+          <input aria-label="상세 주소" className="field" defaultValue={USE_MOCK ? '3층 물류팀' : form.shippingDetail ?? ''}/>
         </div>
       </Field>
       <Field label="택배 집하 시간">
@@ -718,11 +718,11 @@ export function SellerSettingsPage() {
       <div className="flex items-center gap-3 rounded-[8px] bg-[var(--canvas)] p-3">
         <div className="flex-1">
           <p className="text-[13px] font-bold">반품지를 기본 출고지와 동일하게</p>
-          <p className="muted text-[11px]">성수 물류창고 주소를 그대로 불러와요</p>
+          <p className="muted text-[11px]">{USE_MOCK ? '성수 물류창고' : '기본 출고지'} 주소를 그대로 불러와요</p>
         </div>
         <Toggle label="반품지를 기본 출고지와 동일하게" checked={sameAsShip} onChange={on => { setSameAsShip(on); if (on) setForm(f => ({ ...f, returnAddress: f.shippingAddress, returnPostal: f.shippingPostal })); }}/>
       </div>
-      <Field label="반품지명" required><input aria-label="반품지명" className="field" value={form.returnAddress ? '파주 보관센터' : ''} onChange={() => {}} placeholder="파주 보관센터"/></Field>
+      <Field label="반품지명" required><input aria-label="반품지명" className="field" value={form.returnAddress ? (USE_MOCK ? '파주 보관센터' : '기본 반품지') : ''} onChange={() => {}} placeholder={USE_MOCK ? '파주 보관센터' : '반품지명'}/></Field>
       <Field label="반품 담당자" required><input aria-label="반품 담당자" className="field" value={user.name} readOnly/></Field>
       <Field label="연락처" required hint="반품 · 교환 관련 연락에 사용돼요."><input aria-label="연락처" className="field" value={phone} onChange={e => setPhone(e.target.value)} type="tel"/></Field>
       <Field label="주소" required>
@@ -805,7 +805,7 @@ export function SellerSettingsPage() {
       <div className="divider flex items-center justify-between py-4">
         <span className="text-[15px]">비밀번호 변경</span>
         <div className="flex items-center gap-2">
-          <span className="muted text-[12px]">마지막 변경 2026.08.12</span>
+          {USE_MOCK && <span className="muted text-[12px]">마지막 변경 2026.08.12</span>}
           <ChevronRight size={16} className="muted"/>
         </div>
       </div>
