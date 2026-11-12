@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { api } from './client';
-import { MAX_ANALYSIS_BYTES, PRODUCT_STATE_MESSAGE, addProductFaq, analysisBlocker, analysisProblems, analyzeDraft, answerProductInquiry, basicInfoOf, createProductDraft, deleteProductFaq, deleteProductImage, getAiAnalysis, getProductImageUrl, getRegistrationMetadata, getSalesSummary, getSellerProduct, getSellerProductWithImages, listProductImages, listRevisions, listSellerProductInquiries, listSellerProducts, optionPayload, pollAiAnalysis, reorderProductImages, requestAiAnalysis, saveBasicInfo, saveDetails, saveOptions, savePricingShipping, saveRegistrationFaqs, saveSchedule, sellerProductFromApi, submitListing, submitReview, submitRevision, submitRevisionFromDraft, updateProductFaq, uploadProductImage } from './sellerProducts';
+import { MAX_ANALYSIS_BYTES, PRODUCT_STATE_MESSAGE, addProductFaq, analysisBlocker, categoriesForCode, categoryForCode, criteriaFor, analysisProblems, analyzeDraft, answerProductInquiry, basicInfoOf, createProductDraft, deleteProductFaq, deleteProductImage, getAiAnalysis, getProductImageUrl, getRegistrationMetadata, getSalesSummary, getSellerProduct, getSellerProductWithImages, listProductImages, listRevisions, listSellerProductInquiries, listSellerProducts, optionPayload, pollAiAnalysis, reorderProductImages, requestAiAnalysis, saveBasicInfo, saveDetails, saveOptions, savePricingShipping, saveRegistrationFaqs, saveSchedule, sellerProductFromApi, submitListing, submitReview, submitRevision, submitRevisionFromDraft, updateProductFaq, uploadProductImage } from './sellerProducts';
 import { blankDraft, optionKey } from '../domain';
 import type { Draft } from '../domain';
 import type { SellerProductDto } from './types';
@@ -179,5 +179,16 @@ describe('AI 분석 시작 조건', () => {
     expect(analysisProblems({ ...ok, name: ' ', description: '', reason: '' })).toEqual({ name: expect.any(String), description: expect.any(String), disposalReason: expect.any(String) });
     expect(analysisProblems(ok, 'IN_REVIEW').state).toBe(PRODUCT_STATE_MESSAGE);
     expect(analysisProblems(ok, 'APPROVED')).toHaveProperty('state');
+  });
+});
+
+describe('registration-metadata 카테고리', () => {
+  const meta = { categories: ['의류', '의류 > 상의', '의류잡화', '문구 > 노트'], categoryCriteria: [{ code: 'CLOTHING', name: '의류', checks: [{ code: 'CLOTHING_MEASUREMENTS', question: '실측' }] }, { code: 'STATIONERY', name: '문구', checks: [] }] };
+  it('추천 코드 → 기본 카테고리(같은 이름 우선) · 같은 분류 목록 · 점검 기준', () => {
+    expect(categoryForCode(meta, 'CLOTHING')).toBe('의류');
+    expect(categoryForCode(meta, 'STATIONERY')).toBe('문구 > 노트');
+    expect(categoryForCode(meta, 'FOOD')).toBe(''); expect(categoryForCode(meta, null)).toBe('');
+    expect(categoriesForCode(meta, 'CLOTHING')).toEqual(['의류', '의류 > 상의']); // '의류잡화'는 다른 분류
+    expect(criteriaFor(meta, '의류 > 상의')?.code).toBe('CLOTHING'); expect(criteriaFor(meta, '의류잡화')).toBeUndefined(); expect(criteriaFor(meta, '')).toBeUndefined();
   });
 });

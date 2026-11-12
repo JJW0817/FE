@@ -6,7 +6,7 @@
  * 실제 모드 전용: mock 모드는 화면이 기존 로컬 동작(publishDraft 등)을 그대로 쓴다.
  */
 import type { Draft, Inquiry, Product } from '../domain';
-import { optionKey } from '../domain';
+import { CATEGORY_PATHS, optionKey } from '../domain';
 import { ApiError, api } from './client';
 import { ms } from './mappers';
 import { errorMessage } from './errors';
@@ -53,6 +53,28 @@ export async function listSellerProducts(sellerId: string, q: SellerProductQuery
 export const createProductDraft = async () => sellerProductFromApi(await api.post<SellerProductDto>(P, undefined, { service: purchase }));
 /** GET /v1/seller/products/registration-metadata — 카테고리 이름 목록과 AI 점검 기준 */
 export const getRegistrationMetadata = (signal?: AbortSignal) => api.get<RegistrationMetadataDto>(`${P}/registration-metadata`, { service: purchase, signal });
+/** mock 모드 등록 메타데이터(서버와 같은 모양) */
+export const MOCK_REGISTRATION_METADATA: RegistrationMetadataDto = { categories: CATEGORY_PATHS, categoryCriteria: [
+  { code: 'CLOTHING', name: '패션', checks: [{ code: 'CLOTHING_MATERIAL', question: '소재' }, { code: 'CLOTHING_MEASUREMENTS', question: '실측 사이즈' }, { code: 'CLOTHING_CARE', question: '세탁·관리 방법' }] },
+  { code: 'STATIONERY', name: '문구', checks: [{ code: 'STATIONERY_SPEC', question: '규격·크기' }, { code: 'STATIONERY_QUANTITY', question: '구성 수량' }] },
+  { code: 'LIVING', name: '생활잡화', checks: [{ code: 'LIVING_SIZE', question: '크기' }, { code: 'LIVING_MATERIAL', question: '재질' }, { code: 'LIVING_CAUTION', question: '사용 시 주의' }] },
+] };
+export type Criteria = RegistrationMetadataDto['categoryCriteria'][number];
+// shortcut: 등록 카테고리(255개 이름)와 점검 기준(대분류 4개)의 연결 필드가 명세에 없어 이름 접두어로 잇는다(예 "의류" ⊃ "의류 > 상의"). 백엔드가 연결 필드를 주면 교체
+const under = (category: string, name: string) => category === name || (category.startsWith(name) && /^[\s›>/·|-]/.test(category.slice(name.length)));
+/** 카테고리에 해당하는 점검 기준(없으면 undefined) */
+export const criteriaFor = (meta: RegistrationMetadataDto, category: string) => category ? meta.categoryCriteria.find(c => under(category, c.name)) : undefined;
+/** AI 추천 코드(예 CLOTHING)에 속한 등록 카테고리들 */
+export function categoriesForCode(meta: RegistrationMetadataDto, code: string): string[] {
+  const c = meta.categoryCriteria.find(x => x.code === code);
+  return c ? meta.categories.filter(name => under(name, c.name)) : [];
+}
+/** AI 추천 코드 → 기본 선택할 등록 카테고리 이름(점검 기준 이름과 같은 카테고리, 없으면 그 아래 첫 카테고리, 없으면 '') */
+export function categoryForCode(meta: RegistrationMetadataDto, code: string | null): string {
+  if (!code) return '';
+  const name = meta.categoryCriteria.find(x => x.code === code)?.name, list = categoriesForCode(meta, code);
+  return list.find(x => x === name) ?? list[0] ?? '';
+}
 /** GET /v1/seller/products/sales-summary — 판매·재고 집계(매출·정산 없음) */
 export const getSalesSummary = (month?: string, signal?: AbortSignal) => api.get<ProductSalesSummaryDto>(`${P}/sales-summary`, { service: purchase, signal, query: { month } });
 /** GET /v1/seller/products/{id} — 편집 원본(version 포함). 이미지는 getSellerProductWithImages */
@@ -234,7 +256,6 @@ export async function analyzeDraft(d: Draft, id: string, o?: { interval?: number
   if (!sameDetails(details, p)) p = await at_('상세 정보 저장 실패', () => saveDetails(id, p.version ?? 0, details));
   const accepted = await at_('AI 분석 요청 실패', () => requestAiAnalysis(id, p.version ?? 0));
   const r = await at_('AI 분석 결과 확인 실패', () => pollAiAnalysis(accepted.requestId, o));
-  // 추측(명세 없음): recommendedCategory(코드, 예 CLOTHING)의 이름(예 의류)을 등록 카테고리 이름으로 쓴다
-  const category = r.recommendedCategory ? meta.categoryCriteria.find(c => c.code === r.recommendedCategory)?.name ?? r.recommendedCategory : '';
-  return { outcome: r.outcome, category, questions: r.questions ?? [], categories: meta.categories };
+  // 추천 코드(예 CLOTHING)는 registration-metadata로 등록 카테고리 이름으로 바꾼다(목록에 없으면 '' → 직접 선택)
+  return { outcome: r.outcome, code: r.recommendedCategory ?? '', category: categoryForCode(meta, r.recommendedCategory), questions: (r.questions ?? []).map(q => ({ checkCode: q.checkCode, question: q.question, reason: q.reason })), categories: meta.categories };
 }

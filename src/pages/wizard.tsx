@@ -3,13 +3,14 @@ import type { ReactNode } from 'react';
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertCircle, Calendar, Check, ChevronDown, ChevronRight, Hash, Image as ImageIcon, Info, Link2, Minus, Package, Plus, ShieldCheck, Sparkles, Timer } from 'lucide-react';
 import { activeUser, blankDraft, CATEGORY_PATHS, listingDimensions, listingOptions, localDateTime, lookupReference, mockAiAnalysis, money, nowOf, optionKey, publishDraft, unsupportedInput } from '../domain';
-import type { Draft, Product } from '../domain';
+import type { AiQuestion, Draft, Product } from '../domain';
+import type { RegistrationMetadataDto } from '../api/types';
 import { atomic, getState, mutate, useStore } from '../store';
 import { imageData } from '../files';
 import { Button, Empty, ErrorBox, Header, LiveStatus, Modal, Note, ProductImage, Unavailable, useToast } from '../components/ui';
 import { useClock } from '../hooks';
 import { USE_MOCK } from '../config';
-import { PRODUCT_STATE_MESSAGE, analysisProblems, analyzeDraft, createProductDraft, deleteProductImage, errorMessage, fieldErrors, isApiError, getRegistrationMetadata, getSellerProductWithImages, mergeProducts, reorderProductImages, submitListing, submitRevisionFromDraft, uploadProductImage, useApi, useLive } from '../api';
+import { MOCK_REGISTRATION_METADATA, PRODUCT_STATE_MESSAGE, analysisProblems, analyzeDraft, categoriesForCode, createProductDraft, deleteProductImage, errorMessage, fieldErrors, isApiError, getRegistrationMetadata, getSellerProductWithImages, mergeProducts, reorderProductImages, submitListing, submitRevisionFromDraft, uploadProductImage, useApi, useLive } from '../api';
 
 /* ── 초안 ─────────────────────────────────────────────────────────────────────── */
 const SWATCH: Record<string, string> = { 차콜: '#3F3F3F', 오트밀: '#E6DCC6', 크림: '#F3EBDC', 네이비: '#2B3A55', 블랙: '#222222', 화이트: '#FFFFFF', 내추럴: '#E8DCC8', 그레이: '#9A9A9A', 베이지: '#E3D3B8' };
@@ -58,18 +59,30 @@ async function ensureServerDraft(userId: string): Promise<string> {
   const p = createProductDraft().then(x => { patchDraft(userId, { serverId: x.id }); return x.id; }).finally(() => creating.delete(userId));
   creating.set(userId, p); return p;
 }
+/** 등록 메타데이터(허용 카테고리·점검 기준). 한 번 받아 두고 같이 쓴다. mock은 같은 모양의 목업 */
+let metaCache: Promise<RegistrationMetadataDto> | undefined;
+const loadMeta = () => (metaCache ??= (USE_MOCK ? Promise.resolve(MOCK_REGISTRATION_METADATA) : getRegistrationMetadata()).catch(e => { metaCache = undefined; throw e; }));
+export const useRegistrationMeta = () => useApi(() => loadMeta(), []);
+
+export const AI_MESSAGES = {
+  NOT_APPLICABLE: '판매 가능한 분류(의류·패션잡화·문구·생활잡화)에 속하지 않는 상품으로 보여요. 사진을 바꾸거나 카테고리를 직접 선택해 주세요',
+  UNCLEAR: '사진이 선명하지 않아 판단하지 못했어요. 상품이 잘 보이는 사진으로 바꿔 주세요',
+  NO_CATEGORY: 'AI가 추천한 분류를 등록 카테고리에서 찾지 못했어요. 카테고리를 직접 선택해 주세요',
+};
+/** 분석 결과(outcome) → 초안 AI 상태. NOT_APPLICABLE·UNCLEAR는 실패가 아니라 안내(등록 화면 카테고리 칸 위에 표시) */
+export function aiStateOf(token: string, r: { outcome: string; code: string; category: string; questions: AiQuestion[] }, photos: number): Draft['ai'] {
+  const base = { signature: token, category: '', reason: '' };
+  if (r.outcome === 'RECOMMENDED' && r.category) return { ...base, status: 'recommended', result: { code: r.code, category: r.category, photos, questions: r.questions } };
+  return { ...base, status: 'uncertain', reason: r.outcome === 'NOT_APPLICABLE' ? AI_MESSAGES.NOT_APPLICABLE : r.outcome === 'UNCLEAR' ? AI_MESSAGES.UNCLEAR : AI_MESSAGES.NO_CATEGORY };
+}
 /** 실제 모드 AI 분석: 서버에 기본 정보 저장 → 분석 요청 → 폴링. 결과가 오면(화면을 떠났어도) 초안에 반영 */
 async function analyzeReal(userId: string, token: string) {
   const done = (ai: Draft['ai']) => { const d = getState().drafts[userId]; if (d && d.ai.status === 'analyzing' && d.ai.signature === token) patchDraft(userId, { ai }); };
   const failed: Draft['ai'] = { status: 'failed', signature: token, category: '', reason: '' };
   try {
     const id = await ensureServerDraft(userId), d = getState().drafts[userId];
-    const r = await analyzeDraft(d, id);
-    // 서버가 주는 값만 쓴다: 일치도·사진에서 찾은 정보·대안 카테고리는 명세에 없어 비운다(화면에서 숨김). TODO(api-gap): 점검 질문 → FAQ(suggestionId) 저장 흐름
-    const questions = r.questions.map(q => ({ question: q.question, reason: q.reason }));
-    if (r.outcome === 'RECOMMENDED' && r.category) done({ status: 'recommended', signature: token, category: '', reason: '', result: { category: r.category, path: r.category, photos: d.images.length, questions } });
-    // NOT_APPLICABLE·UNCLEAR 등은 실패가 아니다: 등록 화면에 직접 선택 안내만 하고 계속 진행. 실패 화면은 요청·확인 자체가 실패했을 때만
-    else done({ status: 'uncertain', signature: token, category: '', reason: r.outcome === 'NOT_APPLICABLE' ? 'AI가 이 사진으로는 카테고리를 추천하지 못했어요. 직접 선택해 주세요.' : 'AI가 카테고리를 정하지 못했어요. 직접 선택해 주세요.' });
+    // TODO(api-gap): 점검 질문 → FAQ(suggestionId) 저장 흐름
+    done(aiStateOf(token, await analyzeDraft(d, id), d.images.length));
   } catch (e) { done({ ...failed, reason: isApiError(e, 'PRODUCT_STATE') ? PRODUCT_STATE_MESSAGE : errorMessage(e) }); }
 }
 /** 화면을 떠나도 계속되는 AI 분석(mock은 목업) */
@@ -83,8 +96,10 @@ function startAnalysis(userId: string) {
   setTimeout(() => {
     const state = getState(), d = state.drafts[userId];
     if (!d || d.ai.status !== 'analyzing' || d.ai.signature !== token) return;
-    const failed = state.aiOutcome === 'failed' || state.aiOutcome === 'uncertain' || !d.images.length;
-    patchDraft(userId, { ai: failed ? { status: 'failed', signature: token, category: '', reason: '' } : { status: 'recommended', signature: token, category: '', reason: '', result: mockAiAnalysis(d) } });
+    // 미리보기 도구의 AI 결과 선택: uncertain = UNCLEAR, unsupported = NOT_APPLICABLE, failed = 요청 실패
+    if (state.aiOutcome === 'failed' || !d.images.length) { patchDraft(userId, { ai: { status: 'failed', signature: token, category: '', reason: '' } }); return; }
+    const r = mockAiAnalysis(d), outcome = state.aiOutcome === 'uncertain' ? 'UNCLEAR' : state.aiOutcome === 'unsupported' ? 'NOT_APPLICABLE' : 'RECOMMENDED';
+    patchDraft(userId, { ai: aiStateOf(token, { ...r, outcome }, d.images.length) });
   }, ANALYSIS_MS);
 }
 function useDraft() {
@@ -342,32 +357,31 @@ function AiFrame({ children, footer }: { children: ReactNode; footer: ReactNode 
 function Thumbs({ images }: { images: string[] }) { return <div className="flex gap-2">{(images.length ? images.slice(0, 4) : ['', '']).map((src, i) => <div key={i} className="h-[72px] w-[72px] rounded-[4px] bg-[var(--soft)]" aria-hidden={!src}/>)}</div>; }
 
 export function AiAnalysisPage() {
-  const { user, d, suffix, patch } = useDraft(); const navigate = useNavigate(); const [pick, setPick] = useState<string>('');
+  const { user, d, suffix, patch } = useDraft(); const navigate = useNavigate(); const [pick, setPick] = useState<string>(''); const meta = useRegistrationMeta();
   if (!user.seller) return <Unavailable message="승인된 판매자만 상품을 등록할 수 있습니다."/>;
   if (!d) return null;
   if (d.ai.status === 'analyzing') return <Navigate to={`/seller/new/ai/analyzing${suffix}`} replace/>;
-  if (d.ai.status === 'uncertain' && !USE_MOCK) return <Navigate to={`/seller/new${suffix}`} replace/>;
+  if (d.ai.status === 'uncertain') return <Navigate to={`/seller/new${suffix}`} replace/>;
   if (d.ai.status === 'failed' || !d.ai.result) return <Navigate to={`/seller/new/ai/failed${suffix}`} replace/>;
-  const r = d.ai.result, chosen = pick || r.path, found = r.found ?? [], alternatives = r.alternatives ?? [], questions = r.questions ?? [];
+  const r = d.ai.result, chosen = pick || r.category;
+  // 추천 코드에 속한 등록 카테고리 중에서 바꿀 수 있다(추천값이 기본 선택). 다른 분류는 직접 선택으로
+  const list = meta.data ? categoriesForCode(meta.data, r.code) : [r.category];
   const back = () => navigate(`/seller/new${suffix}`);
   return <AiFrame footer={<div className="flex gap-2"><Button outline className="w-[128px] text-[15px]!" onClick={() => { startAnalysis(user.id); navigate(`/seller/new/ai/analyzing${suffix}`, { replace: true }); }}>다시 분석</Button><Button className="flex-1 text-[15px]!" onClick={() => { patch({ category: chosen }); back(); }}>이 카테고리로 적용</Button></div>}>
     <div className="space-y-2"><div className="relative"><ProductImage src={d.images[0]} alt="분석한 대표 사진" className="h-[240px] w-full"/><span className="absolute left-3 top-3 flex items-center gap-1 rounded-[4px] bg-black/70 px-2 py-1 text-[11px] font-bold text-white"><Sparkles size={12}/>AI 분석 완료</span></div><p className="text-[12px] text-[var(--meta)]">등록한 사진 {r.photos}장을 분석했어요</p></div>
-    <button type="button" onClick={() => setPick(r.path)} className="block w-full space-y-2 text-left">
-      <p className="text-[12px] font-bold text-[var(--meta)]">AI 추천 카테고리</p>
-      <div className="flex items-end justify-between"><div><p className="text-[22px] font-bold">{r.category}</p><p className="mt-1 text-[13px] text-[var(--aux)]">{r.path}</p></div>{r.confidence !== undefined && <div className="text-right"><p className="text-[16px] font-bold">{r.confidence}%</p><p className="text-[11px] text-[var(--meta)]">일치도</p></div>}</div>
-      {r.confidence !== undefined && <div className="h-1 w-full rounded-full bg-[var(--line)]"><div className="h-1 rounded-full bg-[var(--positive)]" style={{ width: `${r.confidence}%` }}/></div>}
-    </button>
-    <div className="-mx-4 h-2 bg-[var(--divider)]"/>
-    {found.length > 0 && <section className="space-y-4"><h2 className="text-[16px] font-bold">사진에서 찾은 정보</h2>{found.map(([k, v]) => <div key={k} className="flex justify-between text-[13px]"><span className="text-[var(--aux)]">{k}</span><span>{v}</span></div>)}</section>}
-    {questions.length > 0 && <section className="space-y-3"><h2 className="text-[16px] font-bold">AI 점검 질문</h2>{questions.map((q, i) => <div key={i} className="space-y-1 rounded-[6px] border border-[var(--line)] p-3.5"><p className="text-[14px] font-bold">{q.question}</p>{q.reason && <p className="text-[12px] text-[var(--aux)]">{q.reason}</p>}</div>)}</section>}
-    {alternatives.length > 0 && <section className="pt-2"><h2 className="mb-2 text-[16px] font-bold">다른 추천 카테고리</h2>{alternatives.map(([path, pct]) => <label key={path} className="flex h-12 cursor-pointer items-center gap-3 border-b border-[var(--line)]"><input type="radio" name="ai-category" className="peer sr-only" checked={chosen === path} onChange={() => setPick(path)}/><span className={`grid h-5 w-5 place-items-center rounded-full border-[1.5px] ${chosen === path ? 'border-[var(--ink)]' : 'border-[var(--border)]'}`}>{chosen === path && <span className="h-2.5 w-2.5 rounded-full bg-[var(--ink)]"/>}</span><span className="flex-1 text-[14px]">{path}</span><span className="text-[13px] text-[var(--meta)]">{pct}%</span></label>)}</section>}
-    <div className="flex gap-2 rounded-[6px] bg-[var(--soft)] p-4"><Info size={15} className="mt-[2px] shrink-0 text-[var(--aux)]"/><p className="text-[12px] leading-[1.5] text-[var(--aux)]">AI 분석 결과는 판매 심사에서 한 번 더 확인해요.<br/>카테고리가 다르면 다른 추천 중에서 골라주세요.</p></div>
+    <div className="space-y-1"><p className="text-[12px] font-bold text-[var(--meta)]">AI 추천 카테고리</p><p className="text-[22px] font-bold">{r.category}</p></div>
+    <section><h2 className="mb-1 text-[14px] font-bold">카테고리 선택</h2><LiveStatus state={meta}/>
+      {list.map(path => <label key={path} className="flex h-12 cursor-pointer items-center gap-3 border-b border-[var(--line)]"><input type="radio" name="ai-category" className="peer sr-only" checked={chosen === path} onChange={() => setPick(path)}/><span className={`grid h-5 w-5 place-items-center rounded-full border-[1.5px] ${chosen === path ? 'border-[var(--ink)]' : 'border-[var(--border)]'}`}>{chosen === path && <span className="h-2.5 w-2.5 rounded-full bg-[var(--ink)]"/>}</span><span className="flex-1 text-[14px]">{path}</span>{path === r.category && <span className="text-[11px] font-bold text-[var(--positive)]">AI 추천</span>}</label>)}
+      <button type="button" onClick={() => navigate(`/seller/new${suffix}${suffix ? '&' : '?'}pick=category`)} className="mt-3 flex items-center text-[13px] text-[var(--aux)]">다른 카테고리 직접 선택<ChevronRight size={15}/></button>
+    </section>
+    {r.questions.length > 0 && <><div className="-mx-4 h-2 bg-[var(--divider)]"/><section className="space-y-3"><h2 className="text-[16px] font-bold">AI 점검 질문</h2><p className="text-[12px] text-[var(--aux)]">카테고리를 적용하면 등록 화면의 해당 입력칸 옆에도 보여요</p>{r.questions.map((q, i) => <div key={i} className="space-y-1 rounded-[6px] border border-[var(--line)] p-3.5"><p className="text-[14px] font-bold">{q.question}</p>{q.reason && <p className="text-[12px] text-[var(--aux)]">{q.reason}</p>}</div>)}</section></>}
+    <div className="flex gap-2 rounded-[6px] bg-[var(--soft)] p-4"><Info size={15} className="mt-[2px] shrink-0 text-[var(--aux)]"/><p className="text-[12px] leading-[1.5] text-[var(--aux)]">AI 분석 결과는 판매 심사에서 한 번 더 확인해요.<br/>카테고리가 다르면 목록에서 바꿔 주세요.</p></div>
   </AiFrame>;
 }
 
 export function AiAnalyzingPage() {
   const { user, d, suffix } = useDraft(); const navigate = useNavigate();
-  useEffect(() => { if (d && d.ai.status !== 'analyzing') navigate(d.ai.status === 'uncertain' && !USE_MOCK ? `/seller/new${suffix}` : `/seller/new/ai${d.ai.status === 'failed' ? '/failed' : ''}${suffix}`, { replace: true }); }, [d?.ai.status]);
+  useEffect(() => { if (d && d.ai.status !== 'analyzing') navigate(d.ai.status === 'uncertain' ? `/seller/new${suffix}` : `/seller/new/ai${d.ai.status === 'failed' ? '/failed' : ''}${suffix}`, { replace: true }); }, [d?.ai.status]);
   if (!user.seller) return <Unavailable message="승인된 판매자만 상품을 등록할 수 있습니다."/>;
   if (!d) return null;
   return <AiFrame footer={<Button outline className="w-full text-[15px]!" onClick={() => navigate(`/seller/new${suffix}`)}>기다리지 않고 등록 계속하기</Button>}>
@@ -375,7 +389,7 @@ export function AiAnalyzingPage() {
     <span className="grid h-11 w-11 place-items-center rounded-full bg-[var(--soft)]"><Sparkles size={18}/></span>
     <div className="space-y-3"><h1 className="text-[24px] font-bold leading-[1.45] tracking-[-.7px]">등록한 사진 {d.images.length}장을<br/>분석하고 있어요</h1><p className="text-[13px] text-[var(--aux)]">보통 10초 안에 끝나요.</p></div>
     <div className="h-1 w-full overflow-hidden rounded-full bg-[var(--line)]"><div className="h-1 w-[60%] rounded-full bg-[var(--ink)]"/></div>
-    <div className="space-y-3.5">{([['카테고리', 60], ['색상', 38], ['소재', 49], ['핏', 33]] as const).map(([label, w]) => <div key={label} className="flex items-center justify-between"><span className="text-[12px] text-[var(--muted)]">{label}</span><span className="h-3 rounded-[2px] bg-[var(--soft)]" style={{ width: `${w}%` }}/></div>)}</div>
+    <div className="space-y-3.5">{([['카테고리', 60], ['점검 질문', 44]] as const).map(([label, w]) => <div key={label} className="flex items-center justify-between"><span className="text-[12px] text-[var(--muted)]">{label}</span><span className="h-3 rounded-[2px] bg-[var(--soft)]" style={{ width: `${w}%` }}/></div>)}</div>
     <div className="flex gap-2 rounded-[6px] bg-[var(--soft)] p-4"><Info size={15} className="mt-[2px] shrink-0 text-[var(--aux)]"/><p className="text-[12px] leading-[1.6] text-[var(--aux)]">분석을 기다리지 않아도 돼요. 상품 등록은 계속 진행할 수 있고, 결과는 확인한 뒤에만 반영돼요.</p></div>
   </AiFrame>;
 }

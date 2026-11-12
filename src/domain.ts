@@ -68,8 +68,10 @@ export interface Draft {
   axes?: { size: boolean; color: boolean }; colors?: string[]; sizes?: string[]; stock?: Record<string, number>; extraUrls?: string[]; reference?: ReferenceListing;
 }
 export interface ReferenceListing { platform: string; title: string; price: number; image?: string }
-/** AI 분석 결과. 실제 모드는 서버가 주는 값만 채운다(일치도·찾은 정보·대안은 명세에 없어 비어 있으면 화면에서 숨긴다) */
-export interface AiAnalysis { category: string; path: string; confidence?: number; photos: number; found?: [string, string][]; alternatives?: [string, number][]; questions?: { question: string; reason: string }[] }
+/** AI 분석 결과(RECOMMENDED). 서버는 outcome·추천 카테고리 코드·점검 질문만 준다 — 신뢰도·대안·속성은 없다 */
+export interface AiAnalysis { /** 점검 기준 코드(예 CLOTHING) */ code: string; /** 기본 선택할 등록 카테고리 이름 */ category: string; photos: number; questions: AiQuestion[] }
+/** AI 점검 질문. checkCode는 registration-metadata 점검 기준 항목 코드 */
+export interface AiQuestion { checkCode?: string; question: string; reason: string }
 /** 사업자 정보 — 사업자등록증 기준. 값이 없으면 화면에서 해당 행을 숨긴다 */
 export interface BusinessInfo { name?: string; representative?: string; registrationNumber?: string; businessType?: string; openedAt?: string; address?: string }
 export interface SellerSettings { business?: BusinessInfo; displayName: string; bank: string; account: string; holder: string; shippingAddress: string; returnAddress: string; shippingPostal?: string; returnPostal?: string; shippingDetail?: string; returnDetail?: string; notifications: Record<string, boolean> }
@@ -249,7 +251,7 @@ export function lookupReference(url: string): ReferenceListing | undefined {
   const key = url.trim().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/$/, '');
   return REFERENCE_MOCK[key];
 }
-/** AI 상품 분석 — API 연동 전 목업 (Figma 예시 값) */
+/** AI 상품 분석 목업 — 서버 결과와 같은 모양(코드 + 점검 질문) */
 export function mockAiAnalysis(d: Draft): AiAnalysis {
-  return { category: '니트/스웨터', path: '패션 › 상의 › 니트/스웨터', confidence: 96, photos: d.images.length, found: [['색상', '차콜 그레이'], ['소재', '울 블렌드 (추정)'], ['핏', '오버핏 · 라운드넥'], ['시즌', '가을 · 겨울']], alternatives: [['패션 › 아우터 › 가디건', 12], ['패션 › 상의 › 맨투맨', 4]] };
+  return { code: 'CLOTHING', category: '패션 › 상의 › 니트/스웨터', photos: d.images.length, questions: [{ checkCode: 'CLOTHING_MEASUREMENTS', question: '실측 사이즈(총장·가슴 단면)를 알려 주세요', reason: '사진만으로는 사이즈를 확인할 수 없어요' }] };
 }
