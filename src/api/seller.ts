@@ -115,7 +115,7 @@ export function requestCertificateReview(pdf: Blob, fileName = 'business-registr
 /** GET /sellers/me/review-status (BUYER JWT) — 화면 없음 */
 export const fetchReviewStatus = (signal?: AbortSignal) => api.get<{ salesRestricted: boolean; application: SellerApplicationDto; correction: CorrectionRequestDto | null }>(`${ME}/review-status`, { service: account, signal });
 
-/* ── 주소록 (화면 없음: 현재 화면은 출고·반품 한 쌍만 편집 — TODO(api-gap)) ── */
+/* ── 주소록 (실제 모드 화면: pages/sellerAddresses.tsx. 호환용 PUT /addresses는 mock 화면에서만 쓴다) ── */
 export type AddressType = 'DISPATCH' | 'RETURN';
 export type AddressBookBody = Pick<SellerAddressBookDto, 'label' | 'contactName' | 'contactPhone' | 'address'>;
 const book = (t: AddressType) => `${ME}/address-book/${t}`;

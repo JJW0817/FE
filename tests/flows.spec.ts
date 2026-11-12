@@ -29,7 +29,7 @@ test('재고 확보·새로고침·결제·판매자 출고·배송완료가 같
 
 test('결제 결과 확인 중에는 5분이 지나도 재고가 반환되지 않고 승인 후 한 번만 확정', async ({ page }) => {
   await payment(page, 'pending'); await reserveBag(page); await agreeAndPay(page); await expect(page.getByRole('button', { name: '결제 결과 다시 확인' })).toBeVisible();
-  await fiveMinutesLater(page); await page.waitForTimeout(1200); expect((await state(page)).holds[0].status).toBe('pending');
+  await fiveMinutesLater(page); await expect(page.getByRole('button', { name: '결제 결과 다시 확인' })).toBeVisible(); expect((await state(page)).holds[0].status).toBe('pending');
   await payment(page, 'success'); await page.getByRole('button', { name: '결제 결과 다시 확인' }).click(); await expect(page.getByRole('heading', { name: '축하해요!' })).toBeVisible(); expect((await state(page)).orders.filter((o: any) => o.productId === 'ecobag' && o.userId === 'buyer' && o.status === 'paid')).toHaveLength(1);
 });
 

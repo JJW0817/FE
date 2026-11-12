@@ -1,8 +1,10 @@
 import { test, expect } from '@playwright/test';
 import path from 'node:path';
+import { blockExternal } from './session';
 
 // 판매자 계정으로 기본 목업을 연 상태에서 시작한다
 test.beforeEach(async ({ page }) => {
+  await blockExternal(page);
   await page.goto('/#/');
   await page.evaluate(() => {
     const s = JSON.parse(localStorage.getItem('stockdrop:v1')!);
@@ -29,6 +31,7 @@ test('판매 상품 등록 단일 화면 → AI 분석 적용 → 판매 심사 
   await page.getByRole('button', { name: 'AI로 카테고리 분석하기' }).click();
   await expect(page.getByRole('heading', { name: 'AI 상품 분석' })).toBeVisible();
   await page.getByRole('button', { name: '이 카테고리로 적용' }).click();
+  await expect(page.getByRole('heading', { name: 'AI 상품 분석' })).toBeHidden(); // 결과 화면이 사라진 뒤 폼의 카테고리를 확인
   await expect(page.getByText('패션 › 상의 › 니트/스웨터')).toBeVisible();
 
   await page.getByLabel('타 플랫폼 판매 URL').fill('coupang.com/vp/products/7348215906');
