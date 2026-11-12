@@ -1,4 +1,4 @@
-import { Component, useEffect } from 'react';
+import { Component, useEffect, useState } from 'react';
 import type { ErrorInfo, ReactNode } from 'react';
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { BottomNav, Button, Note, ProductImage, ToastProvider } from './components/ui';
@@ -16,7 +16,9 @@ const PreviewTools = () => null;
 function ExternalProductPage() { const { id } = useParams(); const [params] = useSearchParams(); const s = useStore(); const p = s.products.find(p => p.id === id) ?? (id === 'draft' && s.drafts[s.activeUserId] ? { ...s.drafts[s.activeUserId], id: 'draft' } : undefined); return <div className="mx-auto min-h-screen max-w-[640px] bg-[var(--surface)] p-6"><p className="muted mb-8 border-b border-[var(--line)] pb-4 text-[11px]">외부 판매처 열기 동작을 위한 로컬 목업 페이지 · 실제 판매처와 연결되지 않습니다.</p>{p ? <div className="space-y-5"><h1 className="text-[22px] font-bold">{p.brand}</h1><ProductImage src={p.images[0]} alt={p.name} className="mx-auto aspect-square w-full max-w-[390px]"/><h2 className="text-[24px]">{p.name}</h2><p className="text-[13px] leading-relaxed">{p.description}</p>{p.extras.map(e => <p key={e.key} className="muted text-[12px]">{e.key} · {e.value}</p>)}<Note title="기존 판매 상품 URL"><p className="break-all">{params.get('url') || p.originalUrl}</p>외부 판매처의 가격과 판매조건은 직접 확인해 주세요.</Note><Link className="btn w-full" to={p.id === 'draft' ? '/seller/new' : `/product/${p.id}`}>STOCKDROP 상품으로 돌아가기</Link></div> : <><p>상품 주소를 확인해 주세요.</p><Link to="/" className="btn mt-6">STOCKDROP으로</Link></>}</div>; }
 function AppContent() {
   const location = useLocation(); const navigate = useNavigate(); const s = useStore(); const external = location.pathname.startsWith('/external/'); const admin = location.pathname.startsWith('/admin'); const seller = location.pathname.startsWith('/seller'); const authRoute = /^\/(onboarding|welcome|login|signup|reset-password|legal|categories|notifications\/settings)(\/|$)/.test(location.pathname); const protectedRoute = /^\/(orders|my|apply|checkout|seller|admin|notifications|addresses|inquiries|faq)(\/|$)/.test(location.pathname); const hideNav = authRoute || admin || location.pathname.startsWith('/apply') || location.pathname.startsWith('/checkout') || (location.pathname.startsWith('/seller/') && location.pathname !== '/seller/my') || location.pathname === '/inquiries/compose' || location.pathname.startsWith('/addresses') || location.pathname === '/address-search' || location.pathname.endsWith('/inquiry');
-  useEffect(() => { if (signedIn(s) && !s.auth?.demo && !getAccessToken()) restoreSession(); }, []);
+  // 새로고침 직후엔 Access JWT가 없다. 화면이 요청을 보내기 전에 재발급을 한 번 끝내 401 → 재발급 → 재시도 지연을 없앤다
+  const [restoring, setRestoring] = useState(() => !USE_MOCK && signedIn(s) && !s.auth?.demo && !getAccessToken());
+  useEffect(() => { if (restoring) restoreSession().finally(() => setRestoring(false)); }, []);
   // 푸시 클릭은 /?notificationId=UUID로 들어온다(명세) → 로그인 확인 → 알림 상세로 이동 대상을 찾는다. 토큰이 없으면 client가 401 뒤 재발급한다
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get('notificationId');
@@ -29,6 +31,7 @@ function AppContent() {
   useEffect(() => { window.scrollTo(0, 0); }, [location.pathname]);
   // 판매자 화면에 들어오면 판매자 모드로 — 판매 일정·주문 탭으로 이동해도 판매자 하단 메뉴를 유지한다
   useEffect(() => { if (seller && s.mode !== 'seller' && s.users.find(u => u.id === s.activeUserId)?.seller) mutate(state => { state.mode = 'seller'; }); }, [seller]);
+  if (restoring) return <div role="status" aria-live="polite" className="mx-auto grid min-h-[100dvh] max-w-[390px] place-items-center bg-[var(--surface)] text-[13px] text-[var(--muted)]">로그인 정보를 확인하고 있어요…</div>;
   if (!s.auth?.onboarded && location.pathname === '/') return <><PreviewTools/><Navigate to="/onboarding" replace/></>;
   if (s.auth?.onboarded && !signedIn(s) && location.pathname === '/' && sessionStorage.getItem('stockdrop:guest-session') !== '1') return <><PreviewTools/><Navigate to="/welcome?next=%2F" replace/></>;
   if (protectedRoute && !signedIn(s)) return <><PreviewTools/><Navigate to={loginHref(location.pathname + location.search)} replace/></>;
