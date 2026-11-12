@@ -131,6 +131,7 @@ function InlineAdd({ label, onAdd, className = '' }: { label: string; onAdd: (v:
 }
 const dateLabel = (v: string) => { const t = new Date(v); return Number.isFinite(t.getTime()) ? `${t.getMonth() + 1}월 ${t.getDate()}일 (${WEEK[t.getDay()]})` : '날짜 선택'; };
 const hhmm = (h: number, m: number) => `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+const SALE_MS = 3 * 3_600_000;
 const TIME_SLOTS = Array.from({ length: 48 }, (_, i) => hhmm(Math.floor(i / 2), i % 2 * 30));
 
 /* ── 판매 상품 등록 / 판매 정보 수정 ─────────────────────────────────────────────── */
@@ -166,7 +167,8 @@ export function WizardPage() {
   const reference = d.reference;
   const discount = reference && d.price > 0 && d.price < reference.price ? reference.price - d.price : 0;
   const start = new Date(d.startsAt), startOk = Number.isFinite(start.getTime());
-  const endLabel = startOk ? (() => { const h = start.getHours() + 3; return hhmm(h === 24 ? 24 : h % 24, start.getMinutes()); })() : '';
+  // 판매 기간은 시작부터 3시간 고정(endsAt = startsAt + 3시간, 서버가 계산). 날짜가 바뀌면 날짜도 보여 준다
+  const end = new Date(start.getTime() + SALE_MS), endLabel = startOk ? `${end.getDate() !== start.getDate() ? `${dateLabel(localDateTime(end.getTime()))} ` : ''}${hhmm(end.getHours(), end.getMinutes())}` : '';
   const setDate = (date: string) => { if (!date) return; patch({ startsAt: `${date}T${startOk ? hhmm(start.getHours(), start.getMinutes()) : '21:00'}` }); };
   const setTime = (time: string) => patch({ startsAt: `${(startOk ? localDateTime(start.getTime()) : localDateTime(now)).slice(0, 10)}T${time}` });
 
@@ -345,7 +347,8 @@ export function WizardPage() {
         <label className="relative flex h-12 min-w-0 flex-[1.6] items-center justify-between border-b border-[var(--line)]"><span className="text-[16px]">{startOk ? dateLabel(d.startsAt) : '날짜 선택'}</span><Calendar size={18} className="text-[var(--aux)]"/><input aria-label="판매 날짜" type="date" className="absolute inset-0 opacity-0" min={localDateTime(now).slice(0, 10)} max={localDateTime(now + 7 * 86_400_000).slice(0, 10)} value={startOk ? localDateTime(start.getTime()).slice(0, 10) : ''} onChange={e => setDate(e.target.value)}/></label>
         <label className="relative flex h-12 min-w-0 flex-1 items-center justify-between border-b border-[var(--line)]"><span className="text-[16px]">{startOk ? hhmm(start.getHours(), start.getMinutes()) : '시간'}</span><ChevronDown size={18} className="text-[var(--aux)]"/><select aria-label="판매 시작 시각" className="absolute inset-0 opacity-0" value={startOk ? hhmm(start.getHours(), start.getMinutes()) : ''} onChange={e => setTime(e.target.value)}>{TIME_SLOTS.map(t => <option key={t}>{t}</option>)}</select></label>
       </div>
-      {startOk && <p className="flex items-center gap-2 rounded-[6px] bg-[var(--soft)] px-4 py-3 text-[13px] font-bold"><Timer size={16}/>{`${hhmm(start.getHours(), start.getMinutes())} – ${endLabel} · 3시간 동안 선착순 판매`}</p>}
+      {startOk && <p className="flex items-center gap-2 rounded-[6px] bg-[var(--soft)] px-4 py-3 text-[13px] font-bold"><Timer size={16}/>{`${hhmm(start.getHours(), start.getMinutes())} 시작 – ${endLabel} 자동 종료 · 3시간 선착순 판매`}</p>}
+      <p className="flex items-start gap-1.5 text-[12px] text-[var(--aux)]"><Info size={14} className="mt-[2px] shrink-0"/>운영자 승인 전에 시작 시각이 지나면 승인이 실패해요. 여유 있게 잡아 주세요</p>
       <FieldError name="startsAt"/>
     </section>
 
