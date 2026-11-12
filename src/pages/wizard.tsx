@@ -9,7 +9,7 @@ import { imageData } from '../files';
 import { Button, Empty, ErrorBox, Header, LiveStatus, Modal, Note, ProductImage, Unavailable, useToast } from '../components/ui';
 import { useClock } from '../hooks';
 import { USE_MOCK } from '../config';
-import { analyzeDraft, createProductDraft, deleteProductImage, errorMessage, fieldErrors, isApiError, getRegistrationMetadata, getSellerProductWithImages, mergeProducts, reorderProductImages, submitListing, submitRevisionFromDraft, uploadProductImage, useApi, useLive } from '../api';
+import { analysisBlocker, analyzeDraft, createProductDraft, deleteProductImage, errorMessage, fieldErrors, isApiError, getRegistrationMetadata, getSellerProductWithImages, mergeProducts, reorderProductImages, submitListing, submitRevisionFromDraft, uploadProductImage, useApi, useLive } from '../api';
 
 /* ── 초안 ─────────────────────────────────────────────────────────────────────── */
 const SWATCH: Record<string, string> = { 차콜: '#3F3F3F', 오트밀: '#E6DCC6', 크림: '#F3EBDC', 네이비: '#2B3A55', 블랙: '#222222', 화이트: '#FFFFFF', 내추럴: '#E8DCC8', 그레이: '#9A9A9A', 베이지: '#E3D3B8' };
@@ -52,7 +52,6 @@ async function analyzeReal(userId: string, token: string) {
   const failed: Draft['ai'] = { status: 'failed', signature: token, category: '', reason: '' };
   try {
     const id = await ensureServerDraft(userId), d = getState().drafts[userId];
-    if (!d.images.length) return done(failed);
     const r = await analyzeDraft(d, id);
     // 서버가 주는 값만 쓴다: 일치도·사진에서 찾은 정보·대안 카테고리는 명세에 없어 비운다(화면에서 숨김). TODO(api-gap): 점검 질문 → FAQ(suggestionId) 저장 흐름
     const questions = r.questions.map(q => ({ question: q.question, reason: q.reason }));
@@ -156,7 +155,7 @@ export function WizardPage() {
           images.push(u.url || URL.createObjectURL(f)); ids.push(u.id); patch({ images: [...images], imageIds: [...ids] }); // 열람 URL을 못 받아도 선택한 파일로 미리보기
         }
       }
-      if (!d.category && d.name.trim() && !USE_MOCK) startAnalysis(user.id); else if (!d.category && USE_MOCK) startAnalysis(user.id);
+      if (!d.category && (USE_MOCK || !analysisBlocker({ name: d.name, images: [...d.images, ...picked.map(f => f.name)] }))) startAnalysis(user.id);
     }
     catch (e) { setPhotoError(errorMessage(e)); } finally { setUploading(false); setProgress(''); }
   }
@@ -178,7 +177,7 @@ export function WizardPage() {
     else if (d.ai.status === 'failed') navigate(`/seller/new/ai/failed${suffix}`);
     else if (d.ai.result) navigate(`/seller/new/ai${suffix}`);
     else if (d.ai.status === 'uncertain' && !USE_MOCK) { const next = new URLSearchParams(params); next.set('pick', 'category'); setParams(next); }
-    else if (d.images.length && !USE_MOCK && !d.name.trim()) setPhotoError('AI 분석을 하려면 상품명을 먼저 입력해 주세요.');
+    else if (d.images.length && !USE_MOCK && analysisBlocker(d)) setPhotoError(analysisBlocker(d)!);
     else if (d.images.length) { startAnalysis(user.id); navigate(`/seller/new/ai/analyzing${suffix}`); }
     else { const next = new URLSearchParams(params); next.set('pick', 'category'); setParams(next); }
   }
@@ -232,7 +231,7 @@ export function WizardPage() {
     {!USE_MOCK && <section><Label hint="· 필수">처분 사유</Label><input aria-label="처분 사유" className="field-line" value={d.reason} maxLength={500} onChange={e => patch({ reason: e.target.value })} placeholder="예: 시즌 종료 후 남은 미판매 새 상품"/><FieldError name="disposalReason"/></section>}
 
     <section><Label hint="· AI 자동 분류">카테고리</Label>
-      {!USE_MOCK && d.images.length > 0 && !d.name.trim() && !d.category && <p className="pb-1 text-[12px] text-[var(--aux)]">상품명을 먼저 입력하면 AI가 카테고리를 분석해요.</p>}
+      {!USE_MOCK && d.images.length > 0 && !d.category && analysisBlocker(d) && <p className="pb-1 text-[12px] text-[var(--aux)]">{analysisBlocker(d)}</p>}
       {!USE_MOCK && !d.category && d.ai.status === 'uncertain' && d.ai.reason && <p role="status" className="pb-1 text-[12px] text-[var(--aux)]">{d.ai.reason}</p>}
       <button type="button" onClick={openCategory} className="flex h-12 w-full items-center gap-2 border-b border-[var(--line)] text-left">
         <Sparkles size={16} className="shrink-0"/>

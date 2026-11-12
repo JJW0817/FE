@@ -199,8 +199,17 @@ export async function submitRevisionFromDraft(d: Draft, id: string): Promise<Pro
   return submitRevision(id, p.version ?? 0, { name: d.name.trim(), description: d.description.trim(), imageIds: ids, representativeId: ids[0], shippingFee: d.shipping, dispatchBusinessDays: d.dispatchDays, startsAt: startIso(d) });
 }
 /** AI 점검(실제 모드): 현재 입력을 기본 정보로 저장 → 요청 → 폴링. 결과의 카테고리 코드는 점검 기준 이름으로 바꾼다 */
+/**
+ * 실제 모드 AI 분석을 시작할 수 있는지. 시작 조건은 이 함수 한 곳에서만 바꾼다. null = 시작 가능.
+ * 지금은 사진 + 상품명이 있어야 한다. 백엔드 답변 후 사진만으로 분석하게 하려면 상품명 줄만 지운다.
+ */
+export function analysisBlocker(d: Pick<Draft, 'name' | 'images'>): string | null {
+  if (!d.images.length) return '상품 사진을 먼저 올려 주세요.';
+  if (!d.name.trim()) return '상품명을 먼저 입력하면 AI가 카테고리를 분석해요.';
+  return null;
+}
 export async function analyzeDraft(d: Draft, id: string, o?: { interval?: number; tries?: number }) {
-  if (!d.name.trim()) throw new Error('상품명을 먼저 입력해 주세요.');
+  const blocked = analysisBlocker(d); if (blocked) throw new Error(blocked);
   // 단계 이름을 붙여 던진다(서버가 violations 없이 PRODUCT_INVALID만 주는 경우 어느 단계인지 보이게)
   const at_ = async <T,>(stage: string, f: () => Promise<T>): Promise<T> => { try { return await f(); } catch (e) { throw new Error(`${stage}: ${errorMessage(e)}`); } };
   const meta = await at_('등록 정보 조회 실패', getRegistrationMetadata);

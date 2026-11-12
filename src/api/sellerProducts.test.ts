@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { api } from './client';
-import { addProductFaq, analyzeDraft, answerProductInquiry, basicInfoOf, createProductDraft, deleteProductFaq, deleteProductImage, getAiAnalysis, getProductImageUrl, getRegistrationMetadata, getSalesSummary, getSellerProduct, getSellerProductWithImages, listProductImages, listRevisions, listSellerProductInquiries, listSellerProducts, optionPayload, pollAiAnalysis, reorderProductImages, requestAiAnalysis, saveBasicInfo, saveDetails, saveOptions, savePricingShipping, saveRegistrationFaqs, saveSchedule, sellerProductFromApi, submitListing, submitReview, submitRevision, submitRevisionFromDraft, updateProductFaq, uploadProductImage } from './sellerProducts';
+import { addProductFaq, analysisBlocker, analyzeDraft, answerProductInquiry, basicInfoOf, createProductDraft, deleteProductFaq, deleteProductImage, getAiAnalysis, getProductImageUrl, getRegistrationMetadata, getSalesSummary, getSellerProduct, getSellerProductWithImages, listProductImages, listRevisions, listSellerProductInquiries, listSellerProducts, optionPayload, pollAiAnalysis, reorderProductImages, requestAiAnalysis, saveBasicInfo, saveDetails, saveOptions, savePricingShipping, saveRegistrationFaqs, saveSchedule, sellerProductFromApi, submitListing, submitReview, submitRevision, submitRevisionFromDraft, updateProductFaq, uploadProductImage } from './sellerProducts';
 import { blankDraft, optionKey } from '../domain';
 import type { Draft } from '../domain';
 import type { SellerProductDto } from './types';
@@ -143,7 +143,7 @@ describe('AI 분석', () => {
     const calls = fake(c => c.url.includes('registration-metadata') ? { categories: ['의류'], categoryCriteria: [{ code: 'CLOTHING', name: '의류', checks: [] }] }
       : c.url.includes('/ai-analyses') ? { requestId: 'r1' } : c.url.includes('/ai/product-analyses/') ? { status: 'COMPLETED', result: { outcome: 'RECOMMENDED', recommendedCategory: 'CLOTHING', questions: [{ suggestionId: 's', checkCode: 'c', question: 'q', reason: 'r' }] } }
       : c.method === 'PUT' ? dto({ version: 6 }) : dto({ version: 5 }));
-    const r = await analyzeDraft({ ...blankDraft(), name: '상품' }, 'p1', { interval: 0 });
+    const r = await analyzeDraft({ ...blankDraft(), name: '상품', images: ['x'] }, 'p1', { interval: 0 });
     expect(r).toMatchObject({ outcome: 'RECOMMENDED', category: '의류' }); expect(r.questions).toHaveLength(1);
     expect(calls.find(c => c.url.includes('basic-info'))!.body.expectedVersion).toBe(5); expect(calls.find(c => c.url.includes('/ai-analyses'))!.body.expectedVersion).toBe(6);
   });
@@ -166,5 +166,12 @@ describe('문의 답변', () => {
     expect(a).toMatchObject({ answer: '답', version: 3, public: true });
     expect(calls.map(sig)).toEqual(['GET /seller/products/inquiries?size=100&unanswered=true', 'PUT /seller/products/p1/inquiries/q1/answer']);
     expect(calls[1].body).toEqual({ publishToFaq: true, expectedVersion: 2, answer: '답' });
+  });
+});
+describe('AI 분석 시작 조건', () => {
+  it('사진과 상품명이 있어야 시작한다', () => {
+    expect(analysisBlocker({ name: '', images: [] })).toContain('사진');
+    expect(analysisBlocker({ name: ' ', images: ['x'] })).toContain('상품명');
+    expect(analysisBlocker({ name: '상품', images: ['x'] })).toBeNull();
   });
 });
