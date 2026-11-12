@@ -3,13 +3,13 @@ import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Plus, Check, ChevronRight, FileText, Info, Rocket, ScanSearch, Share2, Truck } from 'lucide-react';
 import { activeUser, feeFor, markDelivered, money, nowOf, saleState, uid } from '../domain';
-import type { Order, SellerSettings } from '../domain';
+import type { Order, Product, SellerSettings } from '../domain';
 import { atomic, mutate, useStore } from '../store';
 import { endSession } from '../auth';
 import { dateTime, kstShort, kstSlot, useClock } from '../hooks';
 import { Badge, Button, CopyButton, copyText, Toggle, Empty, ErrorBox, Field, Header, InfoRow, LiveStatus, MenuRow, Modal, Note, ORDER_LABELS, ProductImage, ProductSummary, Unavailable, useToast } from '../components/ui';
 import { PdfField } from '../components/PdfField';
-import { answerOrderInquiry, listSellerOrderInquiries, answerProductInquiry, deleteSellerLogo, deliverOrder, errorMessage, getSalesSummary, getSellerOrder, getSellerOrderInquiry, getSellerOrderSummary, getSellerProductWithImages, listRevisions, listSellerOrderInquiryInbox, listSellerOrders, listSellerProductInquiries, listSellerProducts, mergeInquiries, mergeOrders, mergeProducts, shipOrder, useLive, fetchSellerLogo, fetchSellerMe, fetchSellerStore, fetchWithdrawalEligibility, updateSellerAddresses, updateSellerBank, updateSellerContact, updateSellerStore, uploadSellerLogo, useApi, withdrawAccount } from '../api';
+import { answerOrderInquiry, listSellerOrderInquiries, answerProductInquiry, deleteSellerLogo, deliverOrder, errorMessage, getSalesSummary, getSellerOrder, getSellerOrderInquiry, getSellerOrderSummary, getSellerProduct, getSellerProductWithImages, listRevisions, listSellerOrderInquiryInbox, listSellerOrders, listSellerProductInquiries, listSellerProducts, mergeInquiries, mergeOrders, mergeProducts, shipOrder, useLive, fetchSellerLogo, fetchSellerMe, fetchSellerStore, fetchWithdrawalEligibility, updateSellerAddresses, updateSellerBank, updateSellerContact, updateSellerStore, uploadSellerLogo, useApi, withdrawAccount } from '../api';
 import { api } from '../api';
 import { USE_MOCK } from '../config';
 const hm = (t: number) => new Date(t).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -34,7 +34,7 @@ export function SellerProductsPage() {
         <div className="flex gap-3">
           <ProductImage src={p.images[0]} alt={p.name} className="h-[72px] w-[72px] shrink-0"/>
           <div className="min-w-0 flex-1 space-y-1">
-            <div className="flex items-center gap-2"><span className={`rounded-[3px] px-2 py-0.5 text-[11px] font-bold ${isLive ? 'bg-[#EEF8F3] text-[#3FB181]' : 'bg-[var(--soft)] text-[var(--muted)]'}`}>{isLive ? '판매 중' : status}</span><span className="muted text-[11px] font-bold">{isLive ? `오늘 ${hm(p.startsAt)} – ${hm(p.endsAt)}` : ended ? `${md(p.endsAt)} ${hm(p.endsAt)} 종료` : `${md(p.startsAt)} ${hm(p.startsAt)} 오픈`}</span></div>
+            <div className="flex items-center gap-2"><span className={`rounded-[3px] px-2 py-0.5 text-[11px] font-bold ${isLive ? 'bg-[#EEF8F3] text-[#3FB181]' : !USE_MOCK && p.reviewStatus === 'REJECTED' ? 'bg-[var(--red-soft)] text-[var(--red)]' : 'bg-[var(--soft)] text-[var(--muted)]'}`}>{isLive ? '판매 중' : status === '게시 전' && !USE_MOCK && p.reviewStatus ? REVIEW_LABEL[p.reviewStatus] : status}</span><span className="muted text-[11px] font-bold">{isLive ? `오늘 ${hm(p.startsAt)} – ${hm(p.endsAt)}` : ended ? `${md(p.endsAt)} ${hm(p.endsAt)} 종료` : `${md(p.startsAt)} ${hm(p.startsAt)} 오픈`}</span></div>
             <p className="text-[14px]">{p.name}</p>
             <p className="font-number text-[15px] font-bold">{money(p.price)} <span className="muted text-[12px] font-normal">{total}개 한정</span></p>
           </div>
@@ -43,11 +43,32 @@ export function SellerProductsPage() {
         {ended && <><div className="flex items-center justify-between text-[12px]"><span className="font-bold">{sold} / {total}개 판매</span><span className="muted">{sold >= total ? '완판' : '판매 종료'}</span></div><div className="h-1 w-full rounded-full bg-[var(--line)]"><div className="h-1 rounded-full bg-[var(--muted)]" style={{width: total > 0 ? `${Math.min(100, sold/total*100)}%` : '0%'}}/></div></>}
         {status === '판매 예정' && <p className="muted text-[12px]">D-{Math.max(0, Math.ceil((p.startsAt - now)/86400000))}{USE_MOCK && ` · 알림 신청 ${alarmCount}명`}</p>}
         {isLive || ended ? <Link to={`/seller/product/${p.id}`} className="btn btn-outline w-full text-[13px]!">{isLive ? '판매 현황' : '판매 결과'}</Link> : status === '판매 예정' && <Link to={`/seller/new?edit=${p.id}`} className="btn btn-outline w-full text-[13px]!">판매 정보 수정</Link>}
-        {status === '게시 전' && (p.reviewStatus === 'IN_REVIEW' ? <Link to={`/seller/published/${p.id}`} className="btn btn-outline w-full text-[13px]!">심사 상태 보기</Link> : <Link to={`/seller/new?edit=${p.id}`} className="btn btn-outline w-full text-[13px]!">{p.reviewStatus === 'REJECTED' ? '수정하고 다시 요청' : '이어서 등록'}</Link>)}
+        {status === '게시 전' && (p.reviewStatus === 'IN_REVIEW' ? <Link to={`/seller/published/${p.id}`} className="btn btn-outline w-full text-[13px]!">심사 상태 보기</Link> : p.reviewStatus === 'REJECTED' && !USE_MOCK ? <RejectedActions p={p}/> : <Link to={`/seller/new?edit=${p.id}`} className="btn btn-outline w-full text-[13px]!">{p.reviewStatus === 'REJECTED' ? '수정하고 다시 요청' : '이어서 등록'}</Link>)}
       </div>;
     })}
     {!products.length && !live.loading && <Empty title="등록한 상품이 없어요"/>}
     <Link className="btn mt-6 w-full" to="/seller/new"><Plus size={17}/>새 한정 판매 등록</Link>
+  </div>;
+}
+/** 서버 심사 status → 목록 배지 (승인은 판매 예정·판매 중·판매 종료로 보인다) */
+const REVIEW_LABEL: Record<NonNullable<Product['reviewStatus']>, string> = { DRAFT: '작성 중', IN_REVIEW: '심사 중', REJECTED: '반려됨', APPROVED: '승인' };
+/** 반려 상품: 반려 사유 보기(목록엔 사유가 없어 누를 때 상세를 불러온다) + 수정 후 재요청 — 알림의 심사 결과 화면과 같은 정보·같은 이동 */
+function RejectedActions({ p }: { p: Product }) {
+  const [open, setOpen] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState('');
+  async function show() {
+    if (open) { setOpen(false); return; }
+    setError('');
+    if (p.rejectionReason === undefined) {
+      setBusy(true);
+      try { const full = await getSellerProduct(p.id); mutate(st => mergeProducts(st, [full])); } catch (e) { setError(errorMessage(e)); setBusy(false); return; }
+      setBusy(false);
+    }
+    setOpen(true);
+  }
+  return <div className="space-y-2">
+    {open && <Note title="반려 사유">{p.rejectionReason || '반려 사유가 등록되지 않았어요.'}</Note>}
+    <ErrorBox message={error}/>
+    <div className="flex gap-2"><Button outline className="flex-1 text-[13px]!" disabled={busy} onClick={show}>{busy ? '불러오는 중…' : open ? '반려 사유 닫기' : '반려 사유 보기'}</Button><Link to={`/seller/new?edit=${p.id}`} className="btn flex-1 text-[13px]!">수정 후 재요청</Link></div>
   </div>;
 }
 export function SellerProductPage() {
@@ -117,7 +138,7 @@ export function SellerProductPage() {
       <div className="relative overflow-hidden rounded-[8px]">
         <ProductImage src={p.images[0]} alt={p.name} className="h-[220px] w-full object-cover"/>
         <div className="absolute inset-0 flex flex-col items-center justify-end bg-black/60 pb-6 text-white">
-          <p className="text-[20px] font-bold">{approved ? '판매 승인 완료' : '심사 대기 중'}</p>
+          <p className="text-[20px] font-bold">{approved ? '판매 승인 완료' : USE_MOCK ? '심사 대기 중' : '심사 중'}</p>
           <p className="mt-1 text-[13px] text-white/80">{p.brand} {p.name}</p>
         </div>
       </div>
