@@ -156,6 +156,7 @@ export function WizardPage() {
   if (editId && (!editing || !canEdit(editing, now))) return <Empty title={editing ? editBlocker(editing, now)! : '상품을 찾을 수 없어요'}><Link to="/seller/products" className="btn">상품 관리로</Link></Empty>;
   if (!d || !d.axes || (editId && d.editingId !== editId)) return <LiveStatus state={live}/>;
   const axes = d.axes, colors = d.colors ?? [], sizes = d.sizes ?? [], stock = d.stock ?? {};
+  const rejected = editing?.reviewStatus === 'REJECTED', startPassed = rejected && !(new Date(d.startsAt).getTime() > now);
   const setStock = (key: string, n: number) => patch({ stock: { ...stock, [key]: n } });
   // shortcut: 점검 기준 항목은 attributes의 name을 check.question으로 저장한다(명세에 항목명 규칙 없음). 백엔드가 이름 규칙을 주면 교체
   const setExtra = (key: string, value: string) => patch({ extras: d.extras.some(e => e.key === key) ? d.extras.map(e => e.key === key ? { ...e, value } : e) : [...d.extras.filter(e => e.key.trim()), { key, value }] });
@@ -261,8 +262,13 @@ export function WizardPage() {
   return <div className="space-y-6 pb-4">
     <Header title={editId ? '판매 정보 수정' : '한정 판매 등록'} bare/>
     {editing && <div className="-mt-4 space-y-3">
-      {editing.startsAt > 0 && <p className="flex items-center gap-2 text-[12px] text-[var(--meta)]"><span className="rounded-[3px] bg-[var(--soft)] px-1.5 py-0.5 text-[11px] font-bold text-[var(--aux)]">판매 예정</span>{`${new Date(editing.startsAt).getMonth() + 1}.${new Date(editing.startsAt).getDate()} (${WEEK[new Date(editing.startsAt).getDay()]}) ${hhmm(new Date(editing.startsAt).getHours(), new Date(editing.startsAt).getMinutes())} 오픈`}{editing.notifySubscribers !== undefined && ` · 알림 신청 ${editing.notifySubscribers}명`}</p>}
-      <div className="flex gap-2 rounded-[6px] bg-[var(--soft)] p-3.5"><Info size={15} className="mt-[2px] shrink-0 text-[var(--aux)]"/><p className="text-[12px] leading-[1.5] text-[var(--aux)]">수정하면 판매 심사를 다시 받아요.<br/>심사 중에도 기존 정보로 오픈 일정은 유지돼요.</p></div>
+      {editing.startsAt > 0 && <p className="flex items-center gap-2 text-[12px] text-[var(--meta)]"><span className="rounded-[3px] bg-[var(--soft)] px-1.5 py-0.5 text-[11px] font-bold text-[var(--aux)]">{rejected ? '반려됨' : '판매 예정'}</span>{`${new Date(editing.startsAt).getMonth() + 1}.${new Date(editing.startsAt).getDate()} (${WEEK[new Date(editing.startsAt).getDay()]}) ${hhmm(new Date(editing.startsAt).getHours(), new Date(editing.startsAt).getMinutes())} 오픈`}{editing.notifySubscribers !== undefined && ` · 알림 신청 ${editing.notifySubscribers}명`}</p>}
+      {rejected ? <>
+        <Note title="반려 사유">{editing.rejectionReason || '반려 사유가 등록되지 않았어요.'}</Note>
+        <div className="flex gap-2 rounded-[6px] bg-[var(--soft)] p-3.5"><Info size={15} className="mt-[2px] shrink-0 text-[var(--aux)]"/><p className="text-[12px] leading-[1.5] text-[var(--aux)]">고친 내용을 저장하면 작성 중 상태가 되고, 재심사를 요청하면 다시 심사해요.</p></div>
+        {/* 반려 상품의 판매 시작이 지났으면 일정부터 미래 시각으로 바꿔야 재요청할 수 있다 */}
+        {startPassed && <div role="alert" className="space-y-2 rounded-[6px] border border-[var(--red)] p-3.5"><p className="text-[13px] font-bold text-[var(--red)]">판매 시작 시각이 지났어요</p><p className="text-[12px] text-[var(--aux)]">판매 일정을 지금보다 뒤로 바꾼 뒤 재심사를 요청해 주세요.</p><Button outline className="w-full text-[13px]!" onClick={() => showProblems({ startsAt: '판매 시작 시각이 지났어요. 지금보다 뒤로 바꿔 주세요.' })}>판매 일정 바꾸기</Button></div>}
+      </> : <div className="flex gap-2 rounded-[6px] bg-[var(--soft)] p-3.5"><Info size={15} className="mt-[2px] shrink-0 text-[var(--aux)]"/><p className="text-[12px] leading-[1.5] text-[var(--aux)]">수정하면 판매 심사를 다시 받아요.<br/>심사 중에도 기존 정보로 오픈 일정은 유지돼요.</p></div>}
     </div>}
 
     {/* 상품 사진 */}
