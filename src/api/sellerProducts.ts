@@ -170,6 +170,10 @@ export function basicInfoOf(d: Draft, categories?: string[]) {
     category: d.category && (!categories || categories.includes(d.category)) ? d.category : undefined };
 }
 const startIso = (d: Draft) => iso(new Date(d.startsAt).getTime());
+const detailsOf = (d: Draft) => ({ attributes: d.extras.filter(e => e.key.trim() && e.value.trim()).map(e => ({ name: e.key.trim(), value: e.value.trim() })), disposalReason: d.reason.trim() || undefined });
+/** 서버에 이미 같은 값이 저장돼 있는지(같으면 저장 요청을 건너뛴다) */
+export const sameBasic = (b: ReturnType<typeof basicInfoOf>, p: Product) => (b.name ?? '') === p.name && (b.description ?? '') === p.description && (b.brandOrStore ?? '') === p.brand && (b.sourceUrl ?? '') === p.originalUrl && (b.category ?? '') === p.category;
+export const sameDetails = (x: ReturnType<typeof detailsOf>, p: Product) => (x.disposalReason ?? '') === p.reason && JSON.stringify(x.attributes) === JSON.stringify(p.extras.map(e => ({ name: e.key, value: e.value })));
 
 /**
  * 등록 화면 제출(실제 모드): 최신 version을 읽고 → 기본 정보 → 상세 → 옵션 → 가격·배송 → 일정 → (FAQ) → 심사 제출.
@@ -179,7 +183,7 @@ export async function submitListing(d: Draft, id: string): Promise<Product> {
   let p = await getSellerProduct(id);
   const v = () => p.version ?? 0;
   p = await saveBasicInfo(id, v(), basicInfoOf(d));
-  p = await saveDetails(id, v(), { attributes: d.extras.filter(e => e.key.trim() && e.value.trim()).map(e => ({ name: e.key.trim(), value: e.value.trim() })), disposalReason: d.reason.trim() || undefined });
+  p = await saveDetails(id, v(), detailsOf(d));
   const o = optionPayload(d);
   if (!o.variants.length) throw new Error('옵션별 한정 수량을 입력해 주세요.');
   p = await saveOptions(id, v(), o);
@@ -201,9 +205,11 @@ export async function analyzeDraft(d: Draft, id: string, o?: { interval?: number
   const at_ = async <T,>(stage: string, f: () => Promise<T>): Promise<T> => { try { return await f(); } catch (e) { throw new Error(`${stage}: ${errorMessage(e)}`); } };
   const meta = await at_('등록 정보 조회 실패', getRegistrationMetadata);
   // 매 단계의 응답 version을 다음 요청에 쓴다(낙관적 잠금)
-  let p = await at_('기본 정보 저장 실패', async () => saveBasicInfo(id, (await getSellerProduct(id)).version ?? 0, basicInfoOf(d, meta.categories)));
-  // 명세: AI 점검은 현재 이미지·기본정보·처분 사유 기준 — 처분 사유를 저장해 둔다
-  p = await at_('상세 정보 저장 실패', () => saveDetails(id, p.version ?? 0, { attributes: d.extras.filter(e => e.key.trim() && e.value.trim()).map(e => ({ name: e.key.trim(), value: e.value.trim() })), disposalReason: d.reason.trim() || undefined }));
+  // 서버 값과 같으면 저장하지 않는다(재분석마다 version이 2씩 오르던 문제). 명세: AI 점검은 현재 이미지·기본정보·처분 사유 기준
+  let p = await at_('상품 조회 실패', () => getSellerProduct(id));
+  const basic = basicInfoOf(d, meta.categories), details = detailsOf(d);
+  if (!sameBasic(basic, p)) p = await at_('기본 정보 저장 실패', () => saveBasicInfo(id, p.version ?? 0, basic));
+  if (!sameDetails(details, p)) p = await at_('상세 정보 저장 실패', () => saveDetails(id, p.version ?? 0, details));
   const accepted = await at_('AI 분석 요청 실패', () => requestAiAnalysis(id, p.version ?? 0));
   const r = await at_('AI 분석 결과 확인 실패', () => pollAiAnalysis(accepted.requestId, o));
   // 추측(명세 없음): recommendedCategory(코드, 예 CLOTHING)의 이름(예 의류)을 등록 카테고리 이름으로 쓴다

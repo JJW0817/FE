@@ -147,6 +147,14 @@ describe('AI 분석', () => {
     expect(r).toMatchObject({ outcome: 'RECOMMENDED', category: '의류' }); expect(r.questions).toHaveLength(1);
     expect(calls.find(c => c.url.includes('basic-info'))!.body.expectedVersion).toBe(5); expect(calls.find(c => c.url.includes('/ai-analyses'))!.body.expectedVersion).toBe(6);
   });
+  it('analyzeDraft: 서버 값과 같으면 기본 정보·상세를 다시 저장하지 않는다(재분석마다 version이 오르지 않게)', async () => {
+    const calls = fake(c => c.url.includes('registration-metadata') ? { categories: ['의류'], categoryCriteria: [] }
+      : c.url.includes('/ai-analyses') ? { requestId: 'r1' } : c.url.includes('/ai/product-analyses/') ? { status: 'COMPLETED', result: { outcome: 'NOT_APPLICABLE', recommendedCategory: null, questions: [] } }
+      : dto({ version: 9, name: '상품', disposalReason: '재고 정리' }));
+    await analyzeDraft({ ...blankDraft(), name: '상품', reason: '재고 정리', images: ['x'] }, 'p1', { interval: 0 });
+    expect(calls.filter(c => c.method === 'PUT')).toHaveLength(0);
+    expect(calls.find(c => c.url.includes('/ai-analyses'))!.body.expectedVersion).toBe(9);
+  });
 });
 
 describe('문의 답변', () => {

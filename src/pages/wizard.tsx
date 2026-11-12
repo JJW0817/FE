@@ -37,10 +37,14 @@ function patchDraft(userId: string, value: Partial<Draft>) {
 /** 수정 가능한 상품: 실제 API는 초안·반려는 항상, 승인 상품은 판매 시작 전(수정 심사). 심사 중은 불가. mock은 판매 시작 전 */
 const canEdit = (p: Product, now: number) => (p.reviewStatus ? p.reviewStatus === 'DRAFT' || p.reviewStatus === 'REJECTED' || (p.reviewStatus === 'APPROVED' && now < p.startsAt) : now < p.startsAt);
 /** 실제 모드: 서버 초안 상품이 없으면 만든다(사진 업로드·AI 분석 전에 상품 id가 필요) */
+const creating = new Map<string, Promise<string>>();
 async function ensureServerDraft(userId: string): Promise<string> {
   const d = getState().drafts[userId], id = d?.editingId ?? d?.serverId;
   if (id) return id;
-  const p = await createProductDraft(); patchDraft(userId, { serverId: p.id }); return p.id;
+  // 사진 업로드와 분석이 겹쳐도 초안은 하나만 만든다
+  const running = creating.get(userId); if (running) return running;
+  const p = createProductDraft().then(x => { patchDraft(userId, { serverId: x.id }); return x.id; }).finally(() => creating.delete(userId));
+  creating.set(userId, p); return p;
 }
 /** 실제 모드 AI 분석: 서버에 기본 정보 저장 → 분석 요청 → 폴링. 결과가 오면(화면을 떠났어도) 초안에 반영 */
 async function analyzeReal(userId: string, token: string) {
@@ -60,6 +64,8 @@ async function analyzeReal(userId: string, token: string) {
 /** 화면을 떠나도 계속되는 AI 분석(mock은 목업) */
 const ANALYSIS_MS = 2500;
 function startAnalysis(userId: string) {
+  // 실제 모드: 진행 중인 분석이 있으면 새로 시작하지 않는다(같은 초안에 저장·요청이 겹치면 version만 오른다)
+  if (!USE_MOCK && getState().drafts[userId]?.ai.status === 'analyzing') return;
   const token = Date.now().toString(36);
   patchDraft(userId, { ai: { status: 'analyzing', signature: token, category: '', reason: '' } });
   if (!USE_MOCK) { void analyzeReal(userId, token); return; }
