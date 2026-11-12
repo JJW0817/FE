@@ -58,19 +58,25 @@ export async function getRegistrationMetadata(signal?: AbortSignal) {
   if (import.meta.env.DEV) void fetch('/__dev/registration-metadata', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(meta) }).catch(() => {});
   return meta;
 }
-/** 대분류 code 접두사 → 대분류 이름(점검 기준 code 접두사로 판단. FASHION_ACCESSORIES_는 CLOTHING_과 겹치지 않는다) */
-export const MAJOR_PREFIXES = [['CLOTHING_', '의류'], ['FASHION_ACCESSORIES_', '패션잡화'], ['STATIONERY_', '문구'], ['HOUSEHOLD_', '생활잡화']] as const;
-export const majorOf = (code: string) => MAJOR_PREFIXES.find(([p]) => code.startsWith(p))?.[0];
+/** 대분류 code(실제 서버: 대분류 항목의 code가 곧 접두사. 하위 카테고리 code는 `CLOTHING_TSHIRT_01`처럼 접두사 + `_`로 시작) */
+export const MAJOR_CODES = ['CLOTHING', 'FASHION_ACCESSORIES', 'STATIONERY', 'HOUSEHOLD'] as const;
+export const majorOf = (code: string) => MAJOR_CODES.find(m => code === m || code.startsWith(`${m}_`));
 /**
- * 점검 항목 key → 구매자 상품 상세에 보일 짧은 표시명(대분류별 4개, 총 16개). key = check.code에서 `__` 뒤 문자열(없으면 code 전체).
- * 질문 문장·checkCode는 구매자에게 그대로 보이므로 항목명으로 쓰지 않는다.
- * shortcut: key 이름은 백엔드 확정 전 가정(CLOTHING_MATERIAL·CLOTHING_MEASUREMENTS만 확인). 실제 key가 다르면 아래 표만 고친다
+ * 점검 항목 key → 구매자 상품 상세에 보일 짧은 표시명(대분류별 4개, 총 16개). 실제 서버 registration-metadata(255개 카테고리)의 key 전체와 일치한다.
+ * key = check.code에서 `__` 뒤 문자열(대분류 항목처럼 `__`가 없으면 code 전체). 질문 문장·checkCode는 구매자에게 그대로 보이므로 항목명으로 쓰지 않는다.
  */
 export const ATTRIBUTE_NAMES: Record<string, string> = {
-  CLOTHING_MATERIAL: '소재', CLOTHING_MEASUREMENTS: '실측 사이즈', CLOTHING_CARE: '세탁·관리 방법', CLOTHING_CONDITION: '상품 상태',
-  FASHION_ACCESSORIES_MATERIAL: '소재', FASHION_ACCESSORIES_SIZE: '크기', FASHION_ACCESSORIES_CARE: '관리 방법', FASHION_ACCESSORIES_CONDITION: '상품 상태',
-  STATIONERY_SPEC: '규격', STATIONERY_QUANTITY: '구성 수량', STATIONERY_MATERIAL: '재질', STATIONERY_CONDITION: '상품 상태',
-  HOUSEHOLD_SIZE: '크기', HOUSEHOLD_MATERIAL: '재질', HOUSEHOLD_CAUTION: '사용 시 주의', HOUSEHOLD_CONDITION: '상품 상태',
+  CLOTHING_MEASUREMENTS: '실측 사이즈', CLOTHING_MATERIAL: '소재·혼용률', CLOTHING_CARE: '세탁·관리', CLOTHING_COMPONENTS: '구성품',
+  FASHION_ACCESSORIES_DIMENSIONS: '크기·치수', FASHION_ACCESSORIES_MATERIAL: '소재', FASHION_ACCESSORIES_COMPONENTS: '구성품', FASHION_ACCESSORIES_CARE: '유의사항',
+  STATIONERY_DIMENSIONS: '크기·규격', STATIONERY_MATERIAL: '재질·사양', STATIONERY_COMPONENTS: '구성·개수', STATIONERY_USE: '사용 방법',
+  HOUSEHOLD_DIMENSIONS: '크기·규격', HOUSEHOLD_MATERIAL: '소재', HOUSEHOLD_COMPONENTS: '구성품', HOUSEHOLD_USE: '사용·관리',
+};
+/** mock 메타데이터용 질문 원문(실제 서버 응답과 같은 문장) */
+const MOCK_QUESTIONS: Record<string, string> = {
+  CLOTHING_MEASUREMENTS: '실측 사이즈와 측정 기준을 알려주세요.', CLOTHING_MATERIAL: '소재와 혼용률을 알려주세요.', CLOTHING_CARE: '세탁 및 관리 방법을 알려주세요.', CLOTHING_COMPONENTS: '구매 시 제공되는 구성품을 알려주세요.',
+  FASHION_ACCESSORIES_DIMENSIONS: '제품의 크기와 치수를 알려주세요.', FASHION_ACCESSORIES_MATERIAL: '제품 소재를 알려주세요.', FASHION_ACCESSORIES_COMPONENTS: '사진에 있는 구성품이 모두 포함되는지 알려주세요.', FASHION_ACCESSORIES_CARE: '사용 및 관리 시 유의사항을 알려주세요.',
+  STATIONERY_DIMENSIONS: '제품의 크기와 규격을 알려주세요.', STATIONERY_MATERIAL: '재질과 주요 사양을 알려주세요.', STATIONERY_COMPONENTS: '한 번 구매할 때 제공되는 구성과 개수를 알려주세요.', STATIONERY_USE: '사용 방법과 사용 시 유의사항을 알려주세요.',
+  HOUSEHOLD_DIMENSIONS: '제품의 크기와 규격을 알려주세요.', HOUSEHOLD_MATERIAL: '제품 소재를 알려주세요.', HOUSEHOLD_COMPONENTS: '사진에 있는 구성품이 모두 포함되는지 알려주세요.', HOUSEHOLD_USE: '사용 방법과 관리 시 유의사항을 알려주세요.',
 };
 export const OTHER_ATTRIBUTE_NAME = '기타 정보';
 export const checkKey = (code: string) => code.includes('__') ? code.slice(code.lastIndexOf('__') + 2) : code;
@@ -94,11 +100,11 @@ export const composeShippingNotice = (carrier: string, returnFee: string, exchan
   const won = (v: string) => Number(v).toLocaleString('ko-KR');
   return [carrier.trim(), returnFee.trim() && `반품 배송비 ${won(returnFee)}원`, exchangeFee.trim() && `교환 배송비 ${won(exchangeFee)}원`].filter(Boolean).join(' / ');
 };
-const mockMajor = (path: string) => path.startsWith('패션 › 잡화') ? 'FASHION_ACCESSORIES_' : path.startsWith('패션') ? 'CLOTHING_' : path.startsWith('문구') ? 'STATIONERY_' : 'HOUSEHOLD_';
-/** mock 모드 등록 메타데이터(서버와 같은 모양: categoryCriteria는 categories와 같은 순서·개수) */
+const mockMajor = (path: string) => path.startsWith('패션 › 잡화') ? 'FASHION_ACCESSORIES' : path.startsWith('패션') ? 'CLOTHING' : path.startsWith('문구') ? 'STATIONERY' : 'HOUSEHOLD';
+/** mock 모드 등록 메타데이터(서버와 같은 모양: categoryCriteria는 categories와 같은 순서·개수, 하위 카테고리 code는 `대분류_MOCK_NN`, check code는 `code__KEY`) */
 export const MOCK_REGISTRATION_METADATA: RegistrationMetadataDto = { categories: CATEGORY_PATHS, categoryCriteria: CATEGORY_PATHS.map((name, i) => {
-  const major = mockMajor(name), code = `${major}${String(i + 1).padStart(2, '0')}`;
-  return { code, name, checks: Object.keys(ATTRIBUTE_NAMES).filter(k => k.startsWith(major)).map(k => ({ code: `${code}__${k}`, question: `${ATTRIBUTE_NAMES[k]}을(를) 알려 주세요` })) };
+  const major = mockMajor(name), code = `${major}_MOCK_${String(i + 1).padStart(2, '0')}`;
+  return { code, name, checks: Object.keys(ATTRIBUTE_NAMES).filter(k => k.startsWith(`${major}_`)).map(k => ({ code: `${code}__${k}`, question: MOCK_QUESTIONS[k] })) };
 }) };
 export type Criteria = RegistrationMetadataDto['categoryCriteria'][number];
 /** 카테고리 이름이 같은 점검 기준(없으면 undefined) */
@@ -106,7 +112,7 @@ export const criteriaFor = (meta: RegistrationMetadataDto, category: string) => 
 /** AI 추천 code(categoryCriteria code)가 속한 대분류의 카테고리 이름들(code 접두사로 판단) */
 export function categoriesForCode(meta: RegistrationMetadataDto, code: string): string[] {
   const major = majorOf(code);
-  return major ? meta.categoryCriteria.filter(c => c.code.startsWith(major)).map(c => c.name) : [];
+  return major ? meta.categoryCriteria.filter(c => majorOf(c.code) === major).map(c => c.name) : [];
 }
 /** AI 추천 code → 등록 카테고리 이름(code로 categoryCriteria를 찾아 name, 없으면 '') */
 export const categoryForCode = (meta: RegistrationMetadataDto, code: string | null) => (code && meta.categoryCriteria.find(x => x.code === code)?.name) || '';

@@ -188,7 +188,7 @@ describe('registration-metadata 카테고리', () => {
     { code: 'CLOTHING_B_02', name: '의류 B', checks: [] }, { code: 'STATIONERY_A_01', name: '문구 A', checks: [] }] };
   it('추천 code → 이름 · 같은 대분류(code 접두사) 목록 · 이름이 같은 점검 기준', () => {
     expect(categoryForCode(meta, 'CLOTHING_B_02')).toBe('의류 B'); expect(categoryForCode(meta, 'FOOD_01')).toBe(''); expect(categoryForCode(meta, null)).toBe('');
-    expect(categoriesForCode(meta, 'CLOTHING_B_02')).toEqual(['의류 A', '의류 B']);
+    expect(categoriesForCode(meta, 'CLOTHING_B_02')).toEqual(['의류 A', '의류 B']); expect(categoriesForCode(meta, 'CLOTHING')).toEqual(['의류 A', '의류 B']); // 대분류 항목 code(접두사 그대로)도 같은 분류
     expect(criteriaFor(meta, '의류 A')?.code).toBe('CLOTHING_A_01'); expect(criteriaFor(meta, '의류')).toBeUndefined(); expect(criteriaFor(meta, '')).toBeUndefined();
   });
   it('mock 메타데이터는 categories와 같은 순서·개수', () => {
@@ -198,7 +198,7 @@ describe('registration-metadata 카테고리', () => {
 
 describe('attributes 항목명', () => {
   it('check.code의 __ 뒤 key를 고정 표시명으로 바꾸고 모르는 key는 기타 정보', () => {
-    expect(attributeName('CLOTHING_TSHIRT_01__CLOTHING_MATERIAL')).toBe('소재');
+    expect(attributeName('CLOTHING_TSHIRT_01__CLOTHING_MATERIAL')).toBe('소재·혼용률');
     expect(attributeName('CLOTHING_MEASUREMENTS')).toBe('실측 사이즈'); // __ 없으면 code 전체
     expect(Object.keys(ATTRIBUTE_NAMES)).toHaveLength(16);
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});

@@ -256,5 +256,5 @@ export function lookupReference(url: string): ReferenceListing | undefined {
 }
 /** AI 상품 분석 목업 — 서버 결과와 같은 모양(코드 + 점검 질문) */
 export function mockAiAnalysis(d: Draft): AiAnalysis {
-  return { code: 'CLOTHING_01', category: '패션 › 상의 › 니트/스웨터', photos: d.images.length, questions: [{ checkCode: 'CLOTHING_01__CLOTHING_MEASUREMENTS', question: '실측 사이즈(총장·가슴 단면)를 알려 주세요', reason: '사진만으로는 사이즈를 확인할 수 없어요' }] };
+  return { code: 'CLOTHING_MOCK_01', category: '패션 › 상의 › 니트/스웨터', photos: d.images.length, questions: [{ checkCode: 'CLOTHING_MOCK_01__CLOTHING_MEASUREMENTS', question: '실측 사이즈(총장·가슴 단면)를 알려 주세요', reason: '사진만으로는 사이즈를 확인할 수 없어요' }] };
 }
