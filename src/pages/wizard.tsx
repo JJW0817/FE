@@ -9,7 +9,7 @@ import { imageData } from '../files';
 import { Button, Empty, ErrorBox, Header, LiveStatus, Modal, Note, ProductImage, Unavailable, useToast } from '../components/ui';
 import { useClock } from '../hooks';
 import { USE_MOCK } from '../config';
-import { analysisBlocker, analyzeDraft, createProductDraft, deleteProductImage, errorMessage, fieldErrors, isApiError, getRegistrationMetadata, getSellerProductWithImages, mergeProducts, reorderProductImages, submitListing, submitRevisionFromDraft, uploadProductImage, useApi, useLive } from '../api';
+import { PRODUCT_STATE_MESSAGE, analysisProblems, analyzeDraft, createProductDraft, deleteProductImage, errorMessage, fieldErrors, isApiError, getRegistrationMetadata, getSellerProductWithImages, mergeProducts, reorderProductImages, submitListing, submitRevisionFromDraft, uploadProductImage, useApi, useLive } from '../api';
 
 /* ── 초안 ─────────────────────────────────────────────────────────────────────── */
 const SWATCH: Record<string, string> = { 차콜: '#3F3F3F', 오트밀: '#E6DCC6', 크림: '#F3EBDC', 네이비: '#2B3A55', 블랙: '#222222', 화이트: '#FFFFFF', 내추럴: '#E8DCC8', 그레이: '#9A9A9A', 베이지: '#E3D3B8' };
@@ -22,7 +22,7 @@ function fromProduct(p: Product): Draft {
   const colors = split(color?.values), sizes = size ? split(size.values) : !color && !basic ? p.options.map(o => o.name) : [];
   const stock: Record<string, number> = {};
   for (const o of p.options) { const parts = o.name.split(' / '); const c = axes.color ? parts[0] : '', s = axes.color && axes.size ? parts[1] : axes.size ? o.name : ''; stock[optionKey(basic ? '' : c, basic ? '' : s)] = o.stock; }
-  return { ...blankDraft(), editingId: p.id, name: p.name, brand: p.brand, description: p.description, images: [...p.images], imageIds: p.imageIds && [...p.imageIds], category: p.category, originalUrl: p.originalUrl, extras: structuredClone(p.extras), reason: p.reason, dimensions: structuredClone(p.dimensions), noOptions: basic, options: structuredClone(p.options), price: p.price, shipping: p.shipping, dispatchDays: p.dispatchDays, maxPerAccount: p.maxPerAccount, startsAt: p.startsAt ? localDateTime(p.startsAt) : blankDraft().startsAt, faqs: structuredClone(p.faqs), axes, colors, sizes, stock, reference: p.reference ?? lookupReference(p.originalUrl) };
+  return { ...blankDraft(), editingId: p.id, name: p.name, brand: p.brand, description: p.description, images: [...p.images], imageIds: p.imageIds && [...p.imageIds], imageSizes: p.imageSizes && [...p.imageSizes], category: p.category, originalUrl: p.originalUrl, extras: structuredClone(p.extras), reason: p.reason, dimensions: structuredClone(p.dimensions), noOptions: basic, options: structuredClone(p.options), price: p.price, shipping: p.shipping, dispatchDays: p.dispatchDays, maxPerAccount: p.maxPerAccount, startsAt: p.startsAt ? localDateTime(p.startsAt) : blankDraft().startsAt, faqs: structuredClone(p.faqs), axes, colors, sizes, stock, reference: p.reference ?? lookupReference(p.originalUrl) };
 }
 function freshDraft(now: number): Draft { const start = new Date(now + 3_600_000); start.setMinutes(0, 0, 0); return { ...blankDraft(now), startsAt: localDateTime(start.getTime()), axes: { size: true, color: true }, colors: [], sizes: [], stock: {} }; }
 /** 초안 변경 — options·dimensions를 항상 축·수량에서 다시 계산 */
@@ -70,7 +70,7 @@ async function analyzeReal(userId: string, token: string) {
     if (r.outcome === 'RECOMMENDED' && r.category) done({ status: 'recommended', signature: token, category: '', reason: '', result: { category: r.category, path: r.category, photos: d.images.length, questions } });
     // NOT_APPLICABLE·UNCLEAR 등은 실패가 아니다: 등록 화면에 직접 선택 안내만 하고 계속 진행. 실패 화면은 요청·확인 자체가 실패했을 때만
     else done({ status: 'uncertain', signature: token, category: '', reason: r.outcome === 'NOT_APPLICABLE' ? 'AI가 이 사진으로는 카테고리를 추천하지 못했어요. 직접 선택해 주세요.' : 'AI가 카테고리를 정하지 못했어요. 직접 선택해 주세요.' });
-  } catch (e) { done({ ...failed, reason: errorMessage(e) }); }
+  } catch (e) { done({ ...failed, reason: isApiError(e, 'PRODUCT_STATE') ? PRODUCT_STATE_MESSAGE : errorMessage(e) }); }
 }
 /** 화면을 떠나도 계속되는 AI 분석(mock은 목업) */
 const ANALYSIS_MS = 2500;
@@ -160,30 +160,29 @@ export function WizardPage() {
         if (!['image/jpeg', 'image/png', 'image/webp'].includes(f.type)) throw new Error(`${f.name}: JPG·PNG·WEBP 이미지만 올릴 수 있어요.`);
         if (f.size < 1 || f.size > 10 * 1024 * 1024) throw new Error(`${f.name}: 사진은 10MB 이하여야 해요.`);
       }
-      if (USE_MOCK) { const added = await Promise.all(picked.map(imageData)); patch({ images: [...d.images, ...added] }); }
+      if (USE_MOCK) { const added = await Promise.all(picked.map(imageData)); patch({ images: [...d.images, ...added], imageSizes: [...(d.imageSizes ?? []), ...picked.map(f => f.size)] }); }
       else { // 실제 모드: 선택 즉시 초안 상품을 만들고 사진을 한 장씩 올린다(권한 발급 → S3 PUT → 완료 확인)
         setProgress('준비 중…');
-        const id = await ensureServerDraft(user.id), images = [...d.images], ids = [...(d.imageIds ?? [])];
+        const id = await ensureServerDraft(user.id), images = [...d.images], ids = [...(d.imageIds ?? [])], sizes = [...(d.imageSizes ?? [])];
         for (const [n, f] of picked.entries()) {
           setProgress(`${n + 1}/${picked.length}장 올리는 중…`);
           const u = await uploadProductImage(id, f);
-          images.push(u.url || URL.createObjectURL(f)); ids.push(u.id); patch({ images: [...images], imageIds: [...ids] }); // 열람 URL을 못 받아도 선택한 파일로 미리보기
+          images.push(u.url || URL.createObjectURL(f)); ids.push(u.id); sizes.push(f.size); patch({ images: [...images], imageIds: [...ids], imageSizes: [...sizes] }); // 열람 URL을 못 받아도 선택한 파일로 미리보기
         }
       }
-      if (!d.category && (USE_MOCK || !analysisBlocker({ name: d.name, images: [...d.images, ...picked.map(f => f.name)] }))) startAnalysis(user.id);
     }
     catch (e) { setPhotoError(errorMessage(e)); } finally { setUploading(false); setProgress(''); }
   }
   const serverId = d.editingId ?? d.serverId;
   /** 사진 삭제·대표 지정: 실제 모드는 서버에도 반영 */
   async function removePhoto(i: number) {
-    try { if (!USE_MOCK && serverId && d.imageIds?.[i]) await deleteProductImage(serverId, d.imageIds[i]); patch({ images: d.images.filter((_, j) => j !== i), ...(d.imageIds ? { imageIds: d.imageIds.filter((_, j) => j !== i) } : {}) }); }
+    try { if (!USE_MOCK && serverId && d.imageIds?.[i]) await deleteProductImage(serverId, d.imageIds[i]); patch({ images: d.images.filter((_, j) => j !== i), ...(d.imageIds ? { imageIds: d.imageIds.filter((_, j) => j !== i) } : {}), ...(d.imageSizes ? { imageSizes: d.imageSizes.filter((_, j) => j !== i) } : {}) }); }
     catch (e) { setPhotoError(errorMessage(e)); }
     setPhoto(null);
   }
   async function coverPhoto(i: number) {
     const ids = d.imageIds && [d.imageIds[i], ...d.imageIds.filter((_, j) => j !== i)];
-    try { if (!USE_MOCK && serverId && ids) await reorderProductImages(serverId, ids, ids[0]); patch({ images: [d.images[i], ...d.images.filter((_, j) => j !== i)], ...(ids ? { imageIds: ids } : {}) }); }
+    try { if (!USE_MOCK && serverId && ids) await reorderProductImages(serverId, ids, ids[0]); patch({ images: [d.images[i], ...d.images.filter((_, j) => j !== i)], ...(ids ? { imageIds: ids } : {}), ...(d.imageSizes ? { imageSizes: [d.imageSizes[i], ...d.imageSizes.filter((_, j) => j !== i)] } : {}) }); }
     catch (e) { setPhotoError(errorMessage(e)); }
     setPhoto(null);
   }
@@ -191,10 +190,19 @@ export function WizardPage() {
     if (d.ai.status === 'analyzing') navigate(`/seller/new/ai/analyzing${suffix}`);
     else if (d.ai.status === 'failed') navigate(`/seller/new/ai/failed${suffix}`);
     else if (d.ai.result) navigate(`/seller/new/ai${suffix}`);
-    else if (d.ai.status === 'uncertain' && !USE_MOCK) { const next = new URLSearchParams(params); next.set('pick', 'category'); setParams(next); }
-    else if (d.images.length && !USE_MOCK && analysisBlocker(d)) setPhotoError(analysisBlocker(d)!);
-    else if (d.images.length) { startAnalysis(user.id); navigate(`/seller/new/ai/analyzing${suffix}`); }
     else { const next = new URLSearchParams(params); next.set('pick', 'category'); setParams(next); }
+  }
+  /** 빠진 칸으로 스크롤하고 그 칸에 포커스 */
+  function showProblems(f: Record<string, string>) {
+    setFieldErr(f);
+    const first = Object.keys(f)[0], el = first && document.querySelector<HTMLElement>(`[data-field="${first}"]`);
+    if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.querySelector<HTMLElement>('input, textarea, select, button')?.focus({ preventScroll: true }); }
+  }
+  /** AI 분석 버튼: 조건이 빠졌으면 빠진 칸을 표시하고, 갖춰졌으면 분석을 시작한다 */
+  function runAnalysis() {
+    const f = analysisProblems(d, editing?.reviewStatus);
+    if (Object.keys(f).length) { showProblems(f); return; }
+    setFieldErr({}); startAnalysis(user.id); navigate(`/seller/new/ai/analyzing${suffix}`);
   }
   const closePicker = () => { const next = new URLSearchParams(params); next.delete('pick'); setParams(next, { replace: true }); };
   async function submit() {
@@ -236,18 +244,23 @@ export function WizardPage() {
       {progress && <p role="status" className="text-[12px] text-[var(--aux)]">{progress}</p>}
       <ErrorBox message={photoError}/>
       <p className="text-[11px] text-[var(--meta)]">JPG·PNG·WEBP · 장당 10MB 이하 · 첫 번째 사진이 대표예요</p>
-      <p className="flex items-center gap-1.5 text-[12px] text-[var(--aux)]"><Sparkles size={14}/>사진을 올리면 AI가 카테고리를 자동으로 분류해요</p>
+      <FieldError name="images"/>
     </section>
 
-    <section><Label hint="· 필수">상품명</Label><input aria-label="상품명" className="field-line" value={d.name} maxLength={50} onChange={e => patch({ name: e.target.value })} placeholder="상품명을 입력해 주세요"/><FieldError name="name"/></section>
+    <section data-field="name"><Label hint="· 필수">상품명</Label><input aria-label="상품명" className="field-line" value={d.name} maxLength={50} onChange={e => patch({ name: e.target.value })} placeholder="상품명을 입력해 주세요"/><FieldError name="name"/></section>
 
-    {/* 실제 모드: 서버가 심사 때 요구하는 값(설명·처분 사유). 비워 두면 보내지 않는다. Figma에는 아직 없는 칸 */}
-    {!USE_MOCK && <section><Label hint="· 필수">상품 설명</Label><textarea aria-label="상품 설명" className="field-line min-h-[88px] resize-y" value={d.description} maxLength={20000} onChange={e => patch({ description: e.target.value })} placeholder="상품 상태·구성·특징을 적어 주세요"/><FieldError name="description"/></section>}
-    {!USE_MOCK && <section><Label hint="· 필수">처분 사유</Label><input aria-label="처분 사유" className="field-line" value={d.reason} maxLength={500} onChange={e => patch({ reason: e.target.value })} placeholder="예: 시즌 종료 후 남은 미판매 새 상품"/><FieldError name="disposalReason"/></section>}
+    {/* AI 분석·심사 제출에 필요한 값(단계 저장 땐 선택). 비워 두면 보내지 않는다 — 임의 문구로 채우지 않는다. Figma에 추가할 칸 */}
+    <section data-field="description"><Label hint="· 필수 · 한두 줄이면 돼요">짧은 설명</Label><textarea aria-label="짧은 설명" rows={2} className="field-line min-h-[64px] resize-y" value={d.description} maxLength={20000} onChange={e => patch({ description: e.target.value })} placeholder="예: 새 상품, 택 그대로, 박스 없음"/><FieldError name="description"/></section>
+    <section data-field="disposalReason"><Label hint="· 필수 · 한두 줄이면 돼요">처분 사유</Label><input aria-label="처분 사유" className="field-line" value={d.reason} maxLength={500} onChange={e => patch({ reason: e.target.value })} placeholder="예: 시즌 종료 후 남은 미판매 새 상품"/><FieldError name="disposalReason"/></section>
 
-    <section><Label hint="· AI 자동 분류">카테고리</Label>
-      {!USE_MOCK && d.images.length > 0 && !d.category && analysisBlocker(d) && <p className="pb-1 text-[12px] text-[var(--aux)]">{analysisBlocker(d)}</p>}
-      {!USE_MOCK && !d.category && d.ai.status === 'uncertain' && d.ai.reason && <p role="status" className="pb-1 text-[12px] text-[var(--aux)]">{d.ai.reason}</p>}
+    <section data-field="state" className="space-y-2">
+      <Button outline={!!Object.keys(analysisProblems(d, editing?.reviewStatus)).length} className="flex w-full items-center justify-center gap-1.5 text-[14px]!" disabled={d.ai.status === 'analyzing' || uploading} onClick={runAnalysis}><Sparkles size={15}/>{d.ai.status === 'analyzing' ? 'AI가 분석하고 있어요' : d.ai.result || d.ai.status === 'uncertain' ? 'AI 분석 다시 하기' : 'AI로 카테고리 분석하기'}</Button>
+      <p className="text-[12px] text-[var(--meta)]">사진·상품명·짧은 설명·처분 사유를 입력하면 AI가 카테고리를 추천해요</p>
+      <FieldError name="state"/>
+    </section>
+
+    <section><Label hint="· AI 추천 또는 직접 선택">카테고리</Label>
+      {!d.category && d.ai.status === 'uncertain' && d.ai.reason && <p role="status" className="pb-1 text-[12px] text-[var(--aux)]">{d.ai.reason}</p>}
       <button type="button" onClick={openCategory} className="flex h-12 w-full items-center gap-2 border-b border-[var(--line)] text-left">
         <Sparkles size={16} className="shrink-0"/>
         <span className={`min-w-0 flex-1 truncate text-[16px] ${d.category ? '' : 'text-[var(--placeholder)]'}`}>{d.category || (d.ai.status === 'analyzing' ? '사진을 분석하고 있어요' : '카테고리를 선택해 주세요')}</span>

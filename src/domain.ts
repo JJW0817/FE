@@ -17,7 +17,7 @@ export interface Product {
   /** 선착순 마감(완판) 시각 — 백엔드 요청 필드 */ soldOutAt?: number;
   /** 판매에 참여(구매 시도)한 인원 — 백엔드 요청 필드 */ participants?: number;
   /** 타 플랫폼 판매가 확인 결과 — 백엔드 요청 필드 */ reference?: ReferenceListing;
-  /** 판매자 API 상품: 낙관적 잠금 version, 심사 상태, 서버 이미지 id(images와 같은 순서) */ version?: number; reviewStatus?: 'DRAFT' | 'IN_REVIEW' | 'REJECTED' | 'APPROVED'; imageIds?: string[];
+  /** 판매자 API 상품: 낙관적 잠금 version, 심사 상태, 서버 이미지 id(images와 같은 순서) */ version?: number; reviewStatus?: 'DRAFT' | 'IN_REVIEW' | 'REJECTED' | 'APPROVED'; imageIds?: string[]; /** 서버 이미지 바이트 수(imageIds와 같은 순서) */ imageSizes?: number[];
   /** 서버(실제 API)에서 받은 상품의 재고 요약. 있으면 options[].stock은 서버의 남은 수량이고 로컬 주문·확보로 다시 빼지 않는다 */ live?: { initial: number; available: number };
 }
 export interface User { id: string; name: string; email: string; phone: string; seller: boolean; admin: boolean }
@@ -64,6 +64,7 @@ export interface Draft {
   ai: { status: AiStatus; signature: string; category: string; reason: string; result?: AiAnalysis };
   /** 단일 화면 등록(Figma 판매 상품 등록): 옵션 축, 색상·사이즈, 조합별 수량, 추가 URL, 타 플랫폼 확인 결과 */
   /** 실제 API: 서버에 만든 초안 상품 id·서버 이미지 id(images와 같은 순서) */ serverId?: string; imageIds?: string[];
+  /** 사진 바이트 수(images와 같은 순서) — AI 분석 30MB 한도 확인용 */ imageSizes?: number[];
   axes?: { size: boolean; color: boolean }; colors?: string[]; sizes?: string[]; stock?: Record<string, number>; extraUrls?: string[]; reference?: ReferenceListing;
 }
 export interface ReferenceListing { platform: string; title: string; price: number; image?: string }

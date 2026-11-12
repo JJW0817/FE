@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { api } from './client';
-import { addProductFaq, analysisBlocker, analyzeDraft, answerProductInquiry, basicInfoOf, createProductDraft, deleteProductFaq, deleteProductImage, getAiAnalysis, getProductImageUrl, getRegistrationMetadata, getSalesSummary, getSellerProduct, getSellerProductWithImages, listProductImages, listRevisions, listSellerProductInquiries, listSellerProducts, optionPayload, pollAiAnalysis, reorderProductImages, requestAiAnalysis, saveBasicInfo, saveDetails, saveOptions, savePricingShipping, saveRegistrationFaqs, saveSchedule, sellerProductFromApi, submitListing, submitReview, submitRevision, submitRevisionFromDraft, updateProductFaq, uploadProductImage } from './sellerProducts';
+import { MAX_ANALYSIS_BYTES, PRODUCT_STATE_MESSAGE, addProductFaq, analysisBlocker, analysisProblems, analyzeDraft, answerProductInquiry, basicInfoOf, createProductDraft, deleteProductFaq, deleteProductImage, getAiAnalysis, getProductImageUrl, getRegistrationMetadata, getSalesSummary, getSellerProduct, getSellerProductWithImages, listProductImages, listRevisions, listSellerProductInquiries, listSellerProducts, optionPayload, pollAiAnalysis, reorderProductImages, requestAiAnalysis, saveBasicInfo, saveDetails, saveOptions, savePricingShipping, saveRegistrationFaqs, saveSchedule, sellerProductFromApi, submitListing, submitReview, submitRevision, submitRevisionFromDraft, updateProductFaq, uploadProductImage } from './sellerProducts';
 import { blankDraft, optionKey } from '../domain';
 import type { Draft } from '../domain';
 import type { SellerProductDto } from './types';
@@ -143,15 +143,15 @@ describe('AI 분석', () => {
     const calls = fake(c => c.url.includes('registration-metadata') ? { categories: ['의류'], categoryCriteria: [{ code: 'CLOTHING', name: '의류', checks: [] }] }
       : c.url.includes('/ai-analyses') ? { requestId: 'r1' } : c.url.includes('/ai/product-analyses/') ? { status: 'COMPLETED', result: { outcome: 'RECOMMENDED', recommendedCategory: 'CLOTHING', questions: [{ suggestionId: 's', checkCode: 'c', question: 'q', reason: 'r' }] } }
       : c.method === 'PUT' ? dto({ version: 6 }) : dto({ version: 5 }));
-    const r = await analyzeDraft({ ...blankDraft(), name: '상품', images: ['x'] }, 'p1', { interval: 0 });
+    const r = await analyzeDraft({ ...blankDraft(), name: '상품', description: '설명', reason: '재고', images: ['x'] }, 'p1', { interval: 0 });
     expect(r).toMatchObject({ outcome: 'RECOMMENDED', category: '의류' }); expect(r.questions).toHaveLength(1);
     expect(calls.find(c => c.url.includes('basic-info'))!.body.expectedVersion).toBe(5); expect(calls.find(c => c.url.includes('/ai-analyses'))!.body.expectedVersion).toBe(6);
   });
   it('analyzeDraft: 서버 값과 같으면 기본 정보·상세를 다시 저장하지 않는다(재분석마다 version이 오르지 않게)', async () => {
     const calls = fake(c => c.url.includes('registration-metadata') ? { categories: ['의류'], categoryCriteria: [] }
       : c.url.includes('/ai-analyses') ? { requestId: 'r1' } : c.url.includes('/ai/product-analyses/') ? { status: 'COMPLETED', result: { outcome: 'NOT_APPLICABLE', recommendedCategory: null, questions: [] } }
-      : dto({ version: 9, name: '상품', disposalReason: '재고 정리' }));
-    await analyzeDraft({ ...blankDraft(), name: '상품', reason: '재고 정리', images: ['x'] }, 'p1', { interval: 0 });
+      : dto({ version: 9, name: '상품', description: '설명', disposalReason: '재고 정리' }));
+    await analyzeDraft({ ...blankDraft(), name: '상품', description: '설명', reason: '재고 정리', images: ['x'] }, 'p1', { interval: 0 });
     expect(calls.filter(c => c.method === 'PUT')).toHaveLength(0);
     expect(calls.find(c => c.url.includes('/ai-analyses'))!.body.expectedVersion).toBe(9);
   });
@@ -169,9 +169,15 @@ describe('문의 답변', () => {
   });
 });
 describe('AI 분석 시작 조건', () => {
-  it('사진과 상품명이 있어야 시작한다', () => {
-    expect(analysisBlocker({ name: '', images: [] })).toContain('사진');
-    expect(analysisBlocker({ name: ' ', images: ['x'] })).toContain('상품명');
-    expect(analysisBlocker({ name: '상품', images: ['x'] })).toBeNull();
+  const ok = { name: '상품', description: '새 상품', reason: '재고 정리', images: ['x'] };
+  it('업로드 완료 사진 · 30MB 이하 · 상품명·설명·처분 사유 · DRAFT/REJECTED', () => {
+    expect(analysisBlocker(ok)).toBeNull();
+    expect(analysisBlocker(ok, 'REJECTED')).toBeNull();
+    expect(analysisProblems({ ...ok, images: [] })).toHaveProperty('images');
+    expect(analysisProblems({ ...ok, imageIds: [] })).toHaveProperty('images'); // 실제 모드: 완료 확인 전 사진은 세지 않는다
+    expect(analysisProblems({ ...ok, imageSizes: [MAX_ANALYSIS_BYTES, 1] }).images).toContain('30MB');
+    expect(analysisProblems({ ...ok, name: ' ', description: '', reason: '' })).toEqual({ name: expect.any(String), description: expect.any(String), disposalReason: expect.any(String) });
+    expect(analysisProblems(ok, 'IN_REVIEW').state).toBe(PRODUCT_STATE_MESSAGE);
+    expect(analysisProblems(ok, 'APPROVED')).toHaveProperty('state');
   });
 });

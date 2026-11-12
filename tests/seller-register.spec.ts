@@ -20,8 +20,13 @@ test('판매 상품 등록 단일 화면 → AI 분석 적용 → 판매 심사 
   await expect(page.getByText('2/10')).toBeVisible();
   await page.getByLabel('상품명').fill('울 블렌드 오버핏 니트 (차콜)');
 
-  // 사진을 올리면 AI 분석이 시작되고, 결과를 적용해야 카테고리가 채워진다
-  await page.getByRole('button', { name: /사진을 분석하고 있어요|분석 결과/ }).click();
+  // 설명·처분 사유가 비어 있으면 AI 분석 버튼이 빠진 칸을 알려 준다
+  await page.getByRole('button', { name: 'AI로 카테고리 분석하기' }).click();
+  await expect(page.getByText('짧은 설명을 입력해 주세요.')).toBeVisible();
+  await expect(page.getByText('처분 사유를 입력해 주세요.')).toBeVisible();
+  await page.getByLabel('짧은 설명').fill('새 상품, 택 그대로');
+  await page.getByLabel('처분 사유').fill('시즌 종료 후 남은 재고');
+  await page.getByRole('button', { name: 'AI로 카테고리 분석하기' }).click();
   await expect(page.getByRole('heading', { name: 'AI 상품 분석' })).toBeVisible();
   await page.getByRole('button', { name: '이 카테고리로 적용' }).click();
   await expect(page.getByText('패션 › 상의 › 니트/스웨터')).toBeVisible();

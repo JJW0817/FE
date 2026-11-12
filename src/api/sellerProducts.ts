@@ -77,7 +77,7 @@ export async function getSellerProductWithImages(id: string, signal?: AbortSigna
   const [p, metas] = await Promise.all([getSellerProduct(id, signal), listProductImages(id, signal)]);
   const sorted = [...metas].sort((a, b) => a.position - b.position);
   const urls = await Promise.all(sorted.map(m => getProductImageUrl(id, m.id, signal).catch(() => '')));
-  return { ...p, images: urls, imageIds: sorted.map(m => m.id) };
+  return { ...p, images: urls, imageIds: sorted.map(m => m.id), imageSizes: sorted.map(m => m.sizeBytes ?? 0) };
 }
 /** 이미지 한 장 업로드 3단계 → 서버 imageId와 열람 URL. S3 PUT은 Authorization 없이 정확한 Content-Type으로 보내므로 fetch를 쓴다 */
 export async function uploadProductImage(id: string, file: File, putFetch: typeof fetch = (u, i) => fetch(u, i)): Promise<{ id: string; url: string }> {
@@ -198,20 +198,33 @@ export async function submitRevisionFromDraft(d: Draft, id: string): Promise<Pro
   if (!ids.length) throw new Error('상품 사진을 확인해 주세요.');
   return submitRevision(id, p.version ?? 0, { name: d.name.trim(), description: d.description.trim(), imageIds: ids, representativeId: ids[0], shippingFee: d.shipping, dispatchBusinessDays: d.dispatchDays, startsAt: startIso(d) });
 }
-/** AI 점검(실제 모드): 현재 입력을 기본 정보로 저장 → 요청 → 폴링. 결과의 카테고리 코드는 점검 기준 이름으로 바꾼다 */
+/** AI 분석 요청 사진 전체 용량 한도(백엔드 규칙) */
+export const MAX_ANALYSIS_BYTES = 30 * 1024 * 1024;
+export const PRODUCT_STATE_MESSAGE = '심사 중이거나 승인된 상품은 분석할 수 없어요';
+type AnalysisInput = Pick<Draft, 'name' | 'description' | 'reason' | 'images'> & Partial<Pick<Draft, 'imageIds' | 'imageSizes'>>;
 /**
- * 실제 모드 AI 분석을 시작할 수 있는지. 시작 조건은 이 함수 한 곳에서만 바꾼다. null = 시작 가능.
- * 지금은 사진 + 상품명이 있어야 한다. 백엔드 답변 후 사진만으로 분석하게 하려면 상품명 줄만 지운다.
+ * AI 분석 요청 조건(백엔드 규칙) — 빠진 칸별 문구. 빈 객체 = 시작 가능. 서버는 PRODUCT_INVALID를 violations 없이 주므로 여기서 먼저 막는다.
+ * 업로드 완료된 사진 1장 이상 · 사진 합계 30MB 이하 · 상품명·설명·처분 사유 · 상태 DRAFT/REJECTED. 카테고리·옵션·가격은 필요 없다.
  */
-export function analysisBlocker(d: Pick<Draft, 'name' | 'images'>): string | null {
-  if (!d.images.length) return '상품 사진을 먼저 올려 주세요.';
-  if (!d.name.trim()) return '상품명을 먼저 입력하면 AI가 카테고리를 분석해요.';
-  return null;
+export function analysisProblems(d: AnalysisInput, status?: Product['reviewStatus']): Record<string, string> {
+  const f: Record<string, string> = {};
+  if (status && status !== 'DRAFT' && status !== 'REJECTED') f.state = PRODUCT_STATE_MESSAGE;
+  // 실제 모드는 완료 확인까지 끝난 사진만 imageIds에 들어간다(mock은 imageIds 없음)
+  const uploaded = d.imageIds ? d.imageIds.filter(Boolean).length : d.images.length;
+  if (!uploaded) f.images = '상품 사진을 1장 이상 올려 주세요.';
+  else if ((d.imageSizes ?? []).reduce((n, b) => n + b, 0) > MAX_ANALYSIS_BYTES) f.images = '사진 전체 용량이 30MB를 넘어요. 일부 사진을 빼 주세요.';
+  if (!d.name.trim()) f.name = '상품명을 입력해 주세요.';
+  if (!d.description.trim()) f.description = '짧은 설명을 입력해 주세요.';
+  if (!d.reason.trim()) f.disposalReason = '처분 사유를 입력해 주세요.';
+  return f;
 }
+/** 첫 번째로 빠진 조건 문구(null = 시작 가능) */
+export const analysisBlocker = (d: AnalysisInput, status?: Product['reviewStatus']) => Object.values(analysisProblems(d, status))[0] ?? null;
+/** AI 점검(실제 모드): 현재 입력을 기본 정보로 저장 → 요청 → 폴링. 결과의 카테고리 코드는 점검 기준 이름으로 바꾼다 */
 export async function analyzeDraft(d: Draft, id: string, o?: { interval?: number; tries?: number }) {
   const blocked = analysisBlocker(d); if (blocked) throw new Error(blocked);
-  // 단계 이름을 붙여 던진다(서버가 violations 없이 PRODUCT_INVALID만 주는 경우 어느 단계인지 보이게)
-  const at_ = async <T,>(stage: string, f: () => Promise<T>): Promise<T> => { try { return await f(); } catch (e) { throw new Error(`${stage}: ${errorMessage(e)}`); } };
+  // 단계 이름을 붙여 던진다(서버가 violations 없이 PRODUCT_INVALID만 주는 경우 어느 단계인지 보이게). 상태 오류는 화면이 코드로 구분하도록 그대로
+  const at_ = async <T,>(stage: string, f: () => Promise<T>): Promise<T> => { try { return await f(); } catch (e) { if (e instanceof ApiError && e.code === 'PRODUCT_STATE') throw e; throw new Error(`${stage}: ${errorMessage(e)}`); } };
   const meta = await at_('등록 정보 조회 실패', getRegistrationMetadata);
   // 매 단계의 응답 version을 다음 요청에 쓴다(낙관적 잠금)
   // 서버 값과 같으면 저장하지 않는다(재분석마다 version이 2씩 오르던 문제). 명세: AI 점검은 현재 이미지·기본정보·처분 사유 기준
