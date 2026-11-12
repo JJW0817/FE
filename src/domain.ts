@@ -67,7 +67,8 @@ export interface Draft {
   axes?: { size: boolean; color: boolean }; colors?: string[]; sizes?: string[]; stock?: Record<string, number>; extraUrls?: string[]; reference?: ReferenceListing;
 }
 export interface ReferenceListing { platform: string; title: string; price: number; image?: string }
-export interface AiAnalysis { category: string; path: string; confidence: number; photos: number; found: [string, string][]; alternatives: [string, number][] }
+/** AI 분석 결과. 실제 모드는 서버가 주는 값만 채운다(일치도·찾은 정보·대안은 명세에 없어 비어 있으면 화면에서 숨긴다) */
+export interface AiAnalysis { category: string; path: string; confidence?: number; photos: number; found?: [string, string][]; alternatives?: [string, number][]; questions?: { question: string; reason: string }[] }
 /** 사업자 정보 — 사업자등록증 기준. 값이 없으면 화면에서 해당 행을 숨긴다 */
 export interface BusinessInfo { name?: string; representative?: string; registrationNumber?: string; businessType?: string; openedAt?: string; address?: string }
 export interface SellerSettings { business?: BusinessInfo; displayName: string; bank: string; account: string; holder: string; shippingAddress: string; returnAddress: string; shippingPostal?: string; returnPostal?: string; shippingDetail?: string; returnDetail?: string; notifications: Record<string, boolean> }

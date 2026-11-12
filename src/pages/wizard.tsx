@@ -50,8 +50,8 @@ async function analyzeReal(userId: string, token: string) {
     const id = await ensureServerDraft(userId), d = getState().drafts[userId];
     if (!d.images.length) return done(failed);
     const r = await analyzeDraft(d, id);
-    // TODO(api-gap): 일치도(confidence)·사진에서 찾은 정보(found)·대안 카테고리(alternatives)는 API에 없어 목업 표시 유지. AI 점검 질문(questions)→FAQ(suggestionId) 흐름은 FAQ 입력 화면이 없어 보류
-    done(r.outcome === 'RECOMMENDED' && r.category ? { status: 'recommended', signature: token, category: '', reason: '', result: { ...mockAiAnalysis(d), category: r.category, path: r.category, alternatives: [] } } : failed);
+    // 서버가 주는 값만 쓴다: 일치도·사진에서 찾은 정보·대안 카테고리는 명세에 없어 비운다(화면에서 숨김). TODO(api-gap): 점검 질문 → FAQ(suggestionId) 저장 흐름
+    done(r.outcome === 'RECOMMENDED' && r.category ? { status: 'recommended', signature: token, category: '', reason: '', result: { category: r.category, path: r.category, photos: d.images.length } } : failed);
   } catch (e) { done({ ...failed, reason: errorMessage(e) }); }
 }
 /** 화면을 떠나도 계속되는 AI 분석(mock은 목업) */
@@ -309,18 +309,18 @@ export function AiAnalysisPage() {
   if (!d) return null;
   if (d.ai.status === 'analyzing') return <Navigate to={`/seller/new/ai/analyzing${suffix}`} replace/>;
   if (d.ai.status === 'failed' || !d.ai.result) return <Navigate to={`/seller/new/ai/failed${suffix}`} replace/>;
-  const r = d.ai.result, chosen = pick || r.path;
+  const r = d.ai.result, chosen = pick || r.path, found = r.found ?? [], alternatives = r.alternatives ?? [];
   const back = () => navigate(`/seller/new${suffix}`);
   return <AiFrame footer={<div className="flex gap-2"><Button outline className="w-[128px] text-[15px]!" onClick={() => { startAnalysis(user.id); navigate(`/seller/new/ai/analyzing${suffix}`, { replace: true }); }}>다시 분석</Button><Button className="flex-1 text-[15px]!" onClick={() => { patch({ category: chosen }); back(); }}>이 카테고리로 적용</Button></div>}>
     <div className="space-y-2"><div className="relative"><ProductImage src={d.images[0]} alt="분석한 대표 사진" className="h-[240px] w-full"/><span className="absolute left-3 top-3 flex items-center gap-1 rounded-[4px] bg-black/70 px-2 py-1 text-[11px] font-bold text-white"><Sparkles size={12}/>AI 분석 완료</span></div><p className="text-[12px] text-[var(--meta)]">등록한 사진 {r.photos}장을 분석했어요</p></div>
     <button type="button" onClick={() => setPick(r.path)} className="block w-full space-y-2 text-left">
       <p className="text-[12px] font-bold text-[var(--meta)]">AI 추천 카테고리</p>
-      <div className="flex items-end justify-between"><div><p className="text-[22px] font-bold">{r.category}</p><p className="mt-1 text-[13px] text-[var(--aux)]">{r.path}</p></div><div className="text-right"><p className="text-[16px] font-bold">{r.confidence}%</p><p className="text-[11px] text-[var(--meta)]">일치도</p></div></div>
-      <div className="h-1 w-full rounded-full bg-[var(--line)]"><div className="h-1 rounded-full bg-[var(--positive)]" style={{ width: `${r.confidence}%` }}/></div>
+      <div className="flex items-end justify-between"><div><p className="text-[22px] font-bold">{r.category}</p><p className="mt-1 text-[13px] text-[var(--aux)]">{r.path}</p></div>{r.confidence !== undefined && <div className="text-right"><p className="text-[16px] font-bold">{r.confidence}%</p><p className="text-[11px] text-[var(--meta)]">일치도</p></div>}</div>
+      {r.confidence !== undefined && <div className="h-1 w-full rounded-full bg-[var(--line)]"><div className="h-1 rounded-full bg-[var(--positive)]" style={{ width: `${r.confidence}%` }}/></div>}
     </button>
     <div className="-mx-4 h-2 bg-[var(--divider)]"/>
-    <section className="space-y-4"><h2 className="text-[16px] font-bold">사진에서 찾은 정보</h2>{r.found.map(([k, v]) => <div key={k} className="flex justify-between text-[13px]"><span className="text-[var(--aux)]">{k}</span><span>{v}</span></div>)}</section>
-    <section className="pt-2"><h2 className="mb-2 text-[16px] font-bold">다른 추천 카테고리</h2>{r.alternatives.map(([path, pct]) => <label key={path} className="flex h-12 cursor-pointer items-center gap-3 border-b border-[var(--line)]"><input type="radio" name="ai-category" className="peer sr-only" checked={chosen === path} onChange={() => setPick(path)}/><span className={`grid h-5 w-5 place-items-center rounded-full border-[1.5px] ${chosen === path ? 'border-[var(--ink)]' : 'border-[var(--border)]'}`}>{chosen === path && <span className="h-2.5 w-2.5 rounded-full bg-[var(--ink)]"/>}</span><span className="flex-1 text-[14px]">{path}</span><span className="text-[13px] text-[var(--meta)]">{pct}%</span></label>)}</section>
+    {found.length > 0 && <section className="space-y-4"><h2 className="text-[16px] font-bold">사진에서 찾은 정보</h2>{found.map(([k, v]) => <div key={k} className="flex justify-between text-[13px]"><span className="text-[var(--aux)]">{k}</span><span>{v}</span></div>)}</section>}
+    {alternatives.length > 0 && <section className="pt-2"><h2 className="mb-2 text-[16px] font-bold">다른 추천 카테고리</h2>{alternatives.map(([path, pct]) => <label key={path} className="flex h-12 cursor-pointer items-center gap-3 border-b border-[var(--line)]"><input type="radio" name="ai-category" className="peer sr-only" checked={chosen === path} onChange={() => setPick(path)}/><span className={`grid h-5 w-5 place-items-center rounded-full border-[1.5px] ${chosen === path ? 'border-[var(--ink)]' : 'border-[var(--border)]'}`}>{chosen === path && <span className="h-2.5 w-2.5 rounded-full bg-[var(--ink)]"/>}</span><span className="flex-1 text-[14px]">{path}</span><span className="text-[13px] text-[var(--meta)]">{pct}%</span></label>)}</section>}
     <div className="flex gap-2 rounded-[6px] bg-[var(--soft)] p-4"><Info size={15} className="mt-[2px] shrink-0 text-[var(--aux)]"/><p className="text-[12px] leading-[1.5] text-[var(--aux)]">AI 분석 결과는 판매 심사에서 한 번 더 확인해요.<br/>카테고리가 다르면 다른 추천 중에서 골라주세요.</p></div>
   </AiFrame>;
 }
