@@ -166,10 +166,9 @@ export function optionPayload(d: Draft) {
 }
 /** 기본 정보 단계 값. 추측(명세 없음): 화면에 설명·처분 사유 입력란이 없어 설명=상품명, 처분 사유=기본 문구로 채운다 */
 export function basicInfoOf(d: Draft, categories?: string[]) {
-  return { name: d.name.trim() || undefined, description: d.description.trim() || d.name.trim() || undefined, brandOrStore: d.brand.trim() || undefined, sourceUrl: d.originalUrl.trim() ? (/^https?:\/\//.test(d.originalUrl.trim()) ? d.originalUrl.trim() : `https://${d.originalUrl.trim()}`) : undefined,
+  return { name: d.name.trim() || undefined, description: d.description.trim() || undefined, brandOrStore: d.brand.trim() || undefined, sourceUrl: d.originalUrl.trim() ? (/^https?:\/\//.test(d.originalUrl.trim()) ? d.originalUrl.trim() : `https://${d.originalUrl.trim()}`) : undefined,
     category: d.category && (!categories || categories.includes(d.category)) ? d.category : undefined };
 }
-export const DEFAULT_DISPOSAL_REASON = '시즌 종료 후 남은 미판매 새 상품';
 const startIso = (d: Draft) => iso(new Date(d.startsAt).getTime());
 
 /**
@@ -180,7 +179,7 @@ export async function submitListing(d: Draft, id: string): Promise<Product> {
   let p = await getSellerProduct(id);
   const v = () => p.version ?? 0;
   p = await saveBasicInfo(id, v(), basicInfoOf(d));
-  p = await saveDetails(id, v(), { attributes: d.extras.filter(e => e.key.trim() && e.value.trim()).map(e => ({ name: e.key.trim(), value: e.value.trim() })), disposalReason: d.reason.trim() || DEFAULT_DISPOSAL_REASON });
+  p = await saveDetails(id, v(), { attributes: d.extras.filter(e => e.key.trim() && e.value.trim()).map(e => ({ name: e.key.trim(), value: e.value.trim() })), disposalReason: d.reason.trim() || undefined });
   const o = optionPayload(d);
   if (!o.variants.length) throw new Error('옵션별 한정 수량을 입력해 주세요.');
   p = await saveOptions(id, v(), o);
@@ -193,7 +192,7 @@ export async function submitListing(d: Draft, id: string): Promise<Product> {
 export async function submitRevisionFromDraft(d: Draft, id: string): Promise<ProductRevisionDto> {
   const p = await getSellerProduct(id), ids = (d.imageIds ?? []).filter(Boolean);
   if (!ids.length) throw new Error('상품 사진을 확인해 주세요.');
-  return submitRevision(id, p.version ?? 0, { name: d.name.trim(), description: d.description.trim() || d.name.trim(), imageIds: ids, representativeId: ids[0], shippingFee: d.shipping, dispatchBusinessDays: d.dispatchDays, startsAt: startIso(d) });
+  return submitRevision(id, p.version ?? 0, { name: d.name.trim(), description: d.description.trim(), imageIds: ids, representativeId: ids[0], shippingFee: d.shipping, dispatchBusinessDays: d.dispatchDays, startsAt: startIso(d) });
 }
 /** AI 점검(실제 모드): 현재 입력을 기본 정보로 저장 → 요청 → 폴링. 결과의 카테고리 코드는 점검 기준 이름으로 바꾼다 */
 export async function analyzeDraft(d: Draft, id: string, o?: { interval?: number; tries?: number }) {
@@ -204,7 +203,7 @@ export async function analyzeDraft(d: Draft, id: string, o?: { interval?: number
   // 매 단계의 응답 version을 다음 요청에 쓴다(낙관적 잠금)
   let p = await at_('기본 정보 저장 실패', async () => saveBasicInfo(id, (await getSellerProduct(id)).version ?? 0, basicInfoOf(d, meta.categories)));
   // 명세: AI 점검은 현재 이미지·기본정보·처분 사유 기준 — 처분 사유를 저장해 둔다
-  p = await at_('상세 정보 저장 실패', () => saveDetails(id, p.version ?? 0, { attributes: d.extras.filter(e => e.key.trim() && e.value.trim()).map(e => ({ name: e.key.trim(), value: e.value.trim() })), disposalReason: d.reason.trim() || DEFAULT_DISPOSAL_REASON }));
+  p = await at_('상세 정보 저장 실패', () => saveDetails(id, p.version ?? 0, { attributes: d.extras.filter(e => e.key.trim() && e.value.trim()).map(e => ({ name: e.key.trim(), value: e.value.trim() })), disposalReason: d.reason.trim() || undefined }));
   const accepted = await at_('AI 분석 요청 실패', () => requestAiAnalysis(id, p.version ?? 0));
   const r = await at_('AI 분석 결과 확인 실패', () => pollAiAnalysis(accepted.requestId, o));
   // 추측(명세 없음): recommendedCategory(코드, 예 CLOTHING)의 이름(예 의류)을 등록 카테고리 이름으로 쓴다

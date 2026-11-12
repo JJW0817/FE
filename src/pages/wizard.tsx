@@ -9,7 +9,7 @@ import { imageData } from '../files';
 import { Button, Empty, ErrorBox, Header, LiveStatus, Modal, Note, ProductImage, Unavailable, useToast } from '../components/ui';
 import { useClock } from '../hooks';
 import { USE_MOCK } from '../config';
-import { analyzeDraft, createProductDraft, deleteProductImage, errorMessage, getRegistrationMetadata, getSellerProductWithImages, mergeProducts, reorderProductImages, submitListing, submitRevisionFromDraft, uploadProductImage, useApi, useLive } from '../api';
+import { analyzeDraft, createProductDraft, deleteProductImage, errorMessage, fieldErrors, isApiError, getRegistrationMetadata, getSellerProductWithImages, mergeProducts, reorderProductImages, submitListing, submitRevisionFromDraft, uploadProductImage, useApi, useLive } from '../api';
 
 /* ── 초안 ─────────────────────────────────────────────────────────────────────── */
 const SWATCH: Record<string, string> = { 차콜: '#3F3F3F', 오트밀: '#E6DCC6', 크림: '#F3EBDC', 네이비: '#2B3A55', 블랙: '#222222', 화이트: '#FFFFFF', 내추럴: '#E8DCC8', 그레이: '#9A9A9A', 베이지: '#E3D3B8' };
@@ -108,7 +108,7 @@ export function WizardPage() {
     const m = st.products.find(x => x.id === p.id)!;
     if (canEdit(m, nowOf(st))) st.drafts[user.id] = fromProduct(m);
   }, [editId]);
-  const [error, setError] = useState(''), [uploading, setUploading] = useState(false), [progress, setProgress] = useState(''), [photoError, setPhotoError] = useState(''), [busy, setBusy] = useState(false), [photo, setPhoto] = useState<number | null>(null), [activeColor, setActiveColor] = useState(0);
+  const [error, setError] = useState(''), [uploading, setUploading] = useState(false), [progress, setProgress] = useState(''), [photoError, setPhotoError] = useState(''), [fieldErr, setFieldErr] = useState<Record<string, string>>({}), [busy, setBusy] = useState(false), [photo, setPhoto] = useState<number | null>(null), [activeColor, setActiveColor] = useState(0);
   const picking = params.get('pick') === 'category';
   if (!user.seller) return <Unavailable message="승인된 판매자만 상품을 등록할 수 있습니다."/>;
   const editing = editId ? s.products.find(p => p.id === editId && p.sellerId === user.id) : undefined;
@@ -174,7 +174,7 @@ export function WizardPage() {
   }
   const closePicker = () => { const next = new URLSearchParams(params); next.delete('pick'); setParams(next, { replace: true }); };
   async function submit() {
-    setBusy(true); setError('');
+    setBusy(true); setError(''); setFieldErr({});
     try {
       if (USE_MOCK) { const product = await atomic(state => publishDraft(state, state.activeUserId, state.drafts[state.activeUserId], nowOf(state))); navigate(`/seller/published/${product.id}`, { replace: true }); return; }
       // 실제 모드: 단계별 저장(버전 이어받기) 후 심사 제출. 승인 상품은 수정 심사 제출
@@ -184,8 +184,14 @@ export function WizardPage() {
       const product = await submitListing(d, id);
       mutate(st => { mergeProducts(st, [product]); delete st.drafts[user.id]; }); navigate(`/seller/published/${product.id}`, { replace: true });
     }
-    catch (e) { setError(errorMessage(e)); } finally { setBusy(false); }
+    catch (e) {
+      // 서버 violations는 해당 입력칸 아래에. violations 없이 PRODUCT_INVALID면 비어 있는 필수 칸(설명·처분 사유)을 표시한다
+      const f = fieldErrors(e);
+      if (!Object.keys(f).length && isApiError(e, 'PRODUCT_INVALID')) { if (!d.description.trim()) f.description = '상품 설명을 입력해 주세요.'; if (!d.reason.trim()) f.disposalReason = '처분 사유를 입력해 주세요.'; }
+      setFieldErr(f); setError(errorMessage(e));
+    } finally { setBusy(false); }
   }
+  const FieldError = ({ name }: { name: string }) => fieldErr[name] ? <p role="alert" className="mt-1.5 text-[12px] text-[var(--red)]">{fieldErr[name]}</p> : null;
   const chip = (on: boolean, label: string, onClick: () => void) => <button type="button" onClick={onClick} className={`inline-flex h-8 items-center gap-1 rounded-full px-3.5 text-[13px] ${on ? 'bg-[var(--ink)] font-bold text-white' : 'border border-[var(--border)] text-[var(--aux)]'}`}>{on && <Check size={13} strokeWidth={2.5}/>}{label}</button>;
   const qtyRow = (label: string, key: string, last: boolean) => <div key={key} className={`flex h-[52px] items-center justify-between ${last ? '' : 'border-b border-[var(--line)]'}`}><span className="text-[15px]">{label}</span><Stepper label={label} value={stock[key] ?? 0} onChange={n => setStock(key, n)}/></div>;
 
@@ -209,7 +215,11 @@ export function WizardPage() {
       <p className="flex items-center gap-1.5 text-[12px] text-[var(--aux)]"><Sparkles size={14}/>사진을 올리면 AI가 카테고리를 자동으로 분류해요</p>
     </section>
 
-    <section><Label hint="· 필수">상품명</Label><input aria-label="상품명" className="field-line" value={d.name} maxLength={50} onChange={e => patch({ name: e.target.value })} placeholder="상품명을 입력해 주세요"/></section>
+    <section><Label hint="· 필수">상품명</Label><input aria-label="상품명" className="field-line" value={d.name} maxLength={50} onChange={e => patch({ name: e.target.value })} placeholder="상품명을 입력해 주세요"/><FieldError name="name"/></section>
+
+    {/* 실제 모드: 서버가 심사 때 요구하는 값(설명·처분 사유). 비워 두면 보내지 않는다. Figma에는 아직 없는 칸 */}
+    {!USE_MOCK && <section><Label hint="· 필수">상품 설명</Label><textarea aria-label="상품 설명" className="field-line min-h-[88px] resize-y" value={d.description} maxLength={20000} onChange={e => patch({ description: e.target.value })} placeholder="상품 상태·구성·특징을 적어 주세요"/><FieldError name="description"/></section>}
+    {!USE_MOCK && <section><Label hint="· 필수">처분 사유</Label><input aria-label="처분 사유" className="field-line" value={d.reason} maxLength={500} onChange={e => patch({ reason: e.target.value })} placeholder="예: 시즌 종료 후 남은 미판매 새 상품"/><FieldError name="disposalReason"/></section>}
 
     <section><Label hint="· AI 자동 분류">카테고리</Label>
       {!USE_MOCK && d.images.length > 0 && !d.name.trim() && !d.category && <p className="pb-1 text-[12px] text-[var(--aux)]">상품명을 먼저 입력하면 AI가 카테고리를 분석해요.</p>}

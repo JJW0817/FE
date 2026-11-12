@@ -38,9 +38,9 @@ describe('변환', () => {
     expect(o.dimensions).toEqual([{ name: '색상', values: ['크림'] }, { name: '사이즈', values: ['S', 'M'] }]);
     expect(optionPayload({ ...blankDraft(), axes: { size: false, color: false }, stock: { [optionKey('', '')]: 4 } })).toEqual({ dimensions: [{ name: '옵션', values: ['기본'] }], variants: [{ selections: { 옵션: '기본' }, initialQuantity: 4 }] });
   });
-  it('기본 정보: URL 스킴 보정, 서버 목록에 없는 카테고리는 보내지 않는다', () => {
+  it('기본 정보: URL 스킴 보정, 빈 설명·서버 목록에 없는 카테고리는 보내지 않는다', () => {
     const d = { ...blankDraft(), name: ' 상품 ', originalUrl: 'coupang.com/p', category: '패션 › 상의' };
-    expect(basicInfoOf(d, ['의류'])).toMatchObject({ name: '상품', description: '상품', sourceUrl: 'https://coupang.com/p', category: undefined });
+    expect(basicInfoOf(d, ['의류'])).toMatchObject({ name: '상품', description: undefined, sourceUrl: 'https://coupang.com/p', category: undefined });
     expect(basicInfoOf({ ...d, category: '의류' }, ['의류']).category).toBe('의류');
   });
 });
@@ -70,7 +70,8 @@ describe('상품 관리 API', () => {
     const p = await submitListing(d, 'p1');
     expect(calls.map(sig)).toEqual(['GET /seller/products/p1', 'PUT /seller/products/p1/registration/basic-info', 'PUT /seller/products/p1/registration/details', 'PUT /seller/products/p1/registration/options', 'PUT /seller/products/p1/registration/pricing-shipping', 'PUT /seller/products/p1/registration/schedule', 'POST /seller/products/p1/review-submissions']);
     expect(calls.slice(1).map(c => c.body.expectedVersion)).toEqual([10, 11, 12, 13, 14, 15]);
-    expect(calls[2].body.disposalReason).toBeTruthy(); expect(calls[4].body).toMatchObject({ price: 5000, shippingFee: 3000, dispatchBusinessDays: 2, perAccountLimit: 2 }); expect(calls[4].body.dispatchAddressId).toBeUndefined();
+    expect(calls[2].body.disposalReason).toBeUndefined(); // 비어 있으면 보내지 않는다(기본 문구 채우기 금지)
+    expect(calls[4].body).toMatchObject({ price: 5000, shippingFee: 3000, dispatchBusinessDays: 2, perAccountLimit: 2 }); expect(calls[4].body.dispatchAddressId).toBeUndefined();
     expect(calls[5].body.startsAt).toBe(new Date('2030-01-01T10:00').toISOString()); expect(p.version).toBe(16);
   });
   it('submitListing: 수량이 없으면 옵션 단계에서 멈춘다', async () => {
