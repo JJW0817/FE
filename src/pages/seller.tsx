@@ -26,7 +26,7 @@ export function SellerProductsPage() {
     <Header title="판매 상품 관리" action={<Link to="/seller/new" aria-label="상품 등록"><Plus size={22}/></Link>}/>
     <div className="flex items-center justify-between py-3"><span className="text-[13px] font-bold">{settings?.displayName ?? user.name}</span><span className="muted text-[12px]">{new Date(now).getMonth()+1}월 기준</span></div>
     <LiveStatus state={live}/>
-    <div className="mb-4 flex justify-around rounded-[4px] bg-[var(--canvas)] py-4">{([['이번 달 판매', `${thisMonth}개`], ['알림 신청', `${alarmCount}명`], ['완판', `${soldOutCount}건`]] as [string,string][]).map(([label, value]) => <div key={label} className="text-center"><p className="font-number text-[16px] font-bold">{value}</p><p className="muted mt-1 text-[11px]">{label}</p></div>)}</div>
+    <div className="mb-4 flex justify-around rounded-[4px] bg-[var(--canvas)] py-4">{([['이번 달 판매', `${thisMonth}개`], ...(USE_MOCK ? [['알림 신청', `${alarmCount}명`]] : []), ['완판', `${soldOutCount}건`]] as [string,string][]).map(([label, value]) => <div key={label} className="text-center"><p className="font-number text-[16px] font-bold">{value}</p><p className="muted mt-1 text-[11px]">{label}</p></div>)}</div>
     <div className="-mx-4 mb-2 flex gap-1.5 overflow-x-auto px-4">{chips.map(([label, count]) => <button key={label} onClick={() => setParams(label === '전체' ? {} : { state: label })} className={`h-[30px] shrink-0 rounded-[4px] px-2.5 text-[12px] ${tab === label ? 'bg-[var(--ink)] font-bold text-[var(--surface)]' : 'muted bg-[var(--soft)]'}`}>{label} {count}</button>)}</div>
     {products.map(p => {
       const status = saleState(p, now); const sold = s.orders.filter(o => o.productId === p.id && !['cancelled','refunded'].includes(o.status)).reduce((n, o) => n + o.lines.reduce((a, l) => a + l.quantity, 0), 0); const total = p.options.reduce((n, o) => n + o.stock, 0); const remaining = Math.max(0, total - sold); const isLive = status === '판매 중', ended = status === '판매 종료'; const secondsLeft = Math.max(0, Math.floor((p.endsAt - now) / 1000)); const hh = String(Math.floor(secondsLeft/3600)).padStart(2,'0'), mm = String(Math.floor(secondsLeft%3600/60)).padStart(2,'0'), ss = String(secondsLeft%60).padStart(2,'0');
@@ -41,7 +41,7 @@ export function SellerProductsPage() {
         </div>
         {isLive && <><div className="flex items-center justify-between text-[12px]"><span className="font-bold">{sold} / {total}개 판매</span><span className="muted">{hh}:{mm}:{ss} 남음</span></div><div className="h-1 w-full rounded-full bg-[var(--line)]"><div className="h-1 rounded-full bg-[var(--ink)]" style={{width: total > 0 ? `${(sold/total)*100}%` : '0%'}}/></div></>}
         {ended && <><div className="flex items-center justify-between text-[12px]"><span className="font-bold">{sold} / {total}개 판매</span><span className="muted">{sold >= total ? '완판' : '판매 종료'}</span></div><div className="h-1 w-full rounded-full bg-[var(--line)]"><div className="h-1 rounded-full bg-[var(--muted)]" style={{width: total > 0 ? `${Math.min(100, sold/total*100)}%` : '0%'}}/></div></>}
-        {status === '판매 예정' && <p className="muted text-[12px]">D-{Math.max(0, Math.ceil((p.startsAt - now)/86400000))} · 알림 신청 {alarmCount}명</p>}
+        {status === '판매 예정' && <p className="muted text-[12px]">D-{Math.max(0, Math.ceil((p.startsAt - now)/86400000))}{USE_MOCK && ` · 알림 신청 ${alarmCount}명`}</p>}
         {isLive || ended ? <Link to={`/seller/product/${p.id}`} className="btn btn-outline w-full text-[13px]!">{isLive ? '판매 현황' : '판매 결과'}</Link> : status === '판매 예정' && <Link to={`/seller/new?edit=${p.id}`} className="btn btn-outline w-full text-[13px]!">판매 정보 수정</Link>}
         {status === '게시 전' && (p.reviewStatus === 'IN_REVIEW' ? <Link to={`/seller/published/${p.id}`} className="btn btn-outline w-full text-[13px]!">심사 상태 보기</Link> : <Link to={`/seller/new?edit=${p.id}`} className="btn btn-outline w-full text-[13px]!">{p.reviewStatus === 'REJECTED' ? '수정하고 다시 요청' : '이어서 등록'}</Link>)}
       </div>;
@@ -193,7 +193,7 @@ export function SellerProductPage() {
         </div>
       </div>
       <div className="grid grid-cols-3 gap-2">
-        {([['결제 완료', `${totalSold}건`], ...(USE_MOCK ? [['결제 진행 중', '3명']] : []), ['알림 신청', `${alarmCount}명`]] as [string,string][]).map(([lbl,val]) => <div key={lbl} className="rounded-[6px] border border-[var(--line)] p-3"><p className="muted text-[11px]">{lbl}</p><p className="font-number mt-2 text-[16px] font-bold">{val}</p></div>)}
+        {([['결제 완료', `${totalSold}건`], ...(USE_MOCK ? [['결제 진행 중', '3명'], ['알림 신청', `${alarmCount}명`]] : [])] as [string,string][]).map(([lbl,val]) => <div key={lbl} className="rounded-[6px] border border-[var(--line)] p-3"><p className="muted text-[11px]">{lbl}</p><p className="font-number mt-2 text-[16px] font-bold">{val}</p></div>)}
       </div>
       <section>
         <div className="mb-3 flex items-center justify-between"><h2 className="text-[15px] font-bold">실시간 주문</h2><Link to={`/seller/orders?product=${p.id}`} className="muted text-[12px]">전체 {totalSold}건 ›</Link></div>
@@ -416,7 +416,7 @@ export function SellerMyPage() {
   const activeDrops = products.filter(p => saleState(p, Date.now()) === '판매 중' || saleState(p, Date.now()) === '판매 예정').length;
   const settlement = s.orders.filter(o => o.sellerId === user.id && !['cancelled','refunded'].includes(o.status)).reduce((n, o) => n + o.total - o.shipping, 0);
   const unanswered = s.inquiries.filter(q => q.sellerId === user.id && !q.answer).length;
-  const maskedBank = settings?.account ? `국민 ****${settings.account.slice(-4)}` : '국민 ****1024';
+  const maskedBank = USE_MOCK ? (settings?.account ? `국민 ****${settings.account.slice(-4)}` : '국민 ****1024') : settings?.account ? `${settings.bank} ${settings.account}`.trim() : '';
   return (
     <div className="space-y-0">
       <Header title="판매자 마이페이지" subtitle="스토어 정보와 판매 설정을 관리하세요." back={false}/>
