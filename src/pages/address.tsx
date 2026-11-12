@@ -6,6 +6,7 @@ import { activeUser } from '../domain';
 import type { Address } from '../domain';
 import { mutate, useStore } from '../store';
 import { errorMessage, listAddresses, saveAddress } from '../api';
+import { currentAddress } from '../geo';
 import type { AddressBody, SavedAddress } from '../api';
 
 /* ── 배송지 데이터: 실제 모드는 API, mock 모드는 localStorage 목업 (src/api/addresses.ts) ── */
@@ -19,7 +20,7 @@ export const addressLine = (a: SavedAddress) => `${a.postalCode ? `[${a.postalCo
 const DRAFT_KEY = 'stockdrop:address-form';
 const PICK_KEY = 'stockdrop:address-pick';
 /** 주소 검색에서 고른 값(우편번호·도로명 주소)을 한 번 꺼낸다 */
-export function takeAddressPick(): { postalCode: string; roadAddress: string } | null { try { const v = JSON.parse(sessionStorage.getItem(PICK_KEY) || 'null'); sessionStorage.removeItem(PICK_KEY); return v; } catch { return null; } }
+export function takeAddressPick(): { postalCode: string; roadAddress: string; jibunAddress?: string } | null { try { const v = JSON.parse(sessionStorage.getItem(PICK_KEY) || 'null'); sessionStorage.removeItem(PICK_KEY); return v; } catch { return null; } }
 type FormValue = AddressBody & { makeDefault: boolean };
 const emptyForm: FormValue = { label: '', recipientName: '', recipientPhone: '', postalCode: '', roadAddress: '', detailAddress: '', deliveryMemo: '', makeDefault: true };
 
@@ -28,7 +29,7 @@ export function AddressFormPage() {
   const { id } = useParams(); const isNew = !id; const s = useStore(); const user = activeUser(s);
   const navigate = useNavigate(); const location = useLocation(); const [params] = useSearchParams(); const toast = useToast();
   const returnTo = params.get('returnTo') || '/addresses';
-  const [value, setValue] = useState<FormValue>(emptyForm); const [ready, setReady] = useState(false);
+  const [value, setValue] = useState<FormValue>(emptyForm); const [ready, setReady] = useState(false); const [jibun, setJibun] = useState(''); const [focusDetail, setFocusDetail] = useState(false); const detailRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState(''); const [loadError, setLoadError] = useState(''); const [busy, setBusy] = useState(false);
   const draftKey = `${DRAFT_KEY}:${location.pathname}`;
 
@@ -41,13 +42,15 @@ export function AddressFormPage() {
         try { const found = (await listAddresses()).find(a => a.addressId === id); if (found) { const { addressId: _i, defaultAddress, ...rest } = found; base = { ...rest, makeDefault: defaultAddress }; } }
         catch (e) { if (alive) { setLoadError(errorMessage(e)); setReady(true); } return; }
       }
-      try { const pick = JSON.parse(sessionStorage.getItem(PICK_KEY) || 'null'); if (pick) { base = { ...base, postalCode: pick.postalCode, roadAddress: pick.roadAddress }; sessionStorage.removeItem(PICK_KEY); } } catch { /* 선택 값 없음 */ }
+      try { const pick = JSON.parse(sessionStorage.getItem(PICK_KEY) || 'null'); if (pick) { base = { ...base, postalCode: pick.postalCode, roadAddress: pick.roadAddress }; if (alive) { setJibun(pick.jibunAddress ?? ''); setFocusDetail(true); } sessionStorage.removeItem(PICK_KEY); } } catch { /* 선택 값 없음 */ }
       sessionStorage.removeItem(draftKey);
       if (alive) { setValue(base); setReady(true); }
     })();
     return () => { alive = false; };
   }, [id]);
 
+  // 주소를 고르고 돌아오면 상세 주소부터 입력하게 한다(저장은 사용자가 직접)
+  useEffect(() => { if (ready && focusDetail) { detailRef.current?.focus(); setFocusDetail(false); } }, [ready, focusDetail]);
   const set = (patch: Partial<FormValue>) => { setError(''); setValue(v => ({ ...v, ...patch })); };
   const valid = value.recipientName.trim() && value.recipientPhone.trim() && value.roadAddress.trim() && value.detailAddress.trim();
   function openSearch() { sessionStorage.setItem(draftKey, JSON.stringify(value)); navigate(`/address-search?returnTo=${encodeURIComponent(location.pathname + location.search)}`); }
@@ -77,7 +80,8 @@ export function AddressFormPage() {
         <div>{labelRow('주소', true)}
           <div className="flex items-center gap-3">{input('postalCode', '우편번호', '우편번호', { readOnly: true, onClick: openSearch })}<button type="button" onClick={openSearch} className="h-10 shrink-0 rounded-[6px] border border-[var(--border)] px-3.5 text-[12px] font-bold">주소 검색</button></div>
           <input aria-label="기본 주소" className="field-line text-[var(--aux)]!" value={value.roadAddress} placeholder="기본 주소" readOnly onClick={openSearch}/>
-          {input('detailAddress', '상세 주소', '상세 주소를 입력해 주세요')}
+          {jibun && jibun !== value.roadAddress && <p className="mt-1 text-[12px] text-[var(--meta)]">지번 {jibun}</p>}
+          {input('detailAddress', '상세 주소', '상세 주소를 입력해 주세요', { ref: detailRef })}
         </div>
         <div>{labelRow('배송 요청사항')}
           <label className="relative block"><select aria-label="배송 요청사항" className={`field-line appearance-none pr-8 ${value.deliveryMemo ? '' : 'text-[var(--placeholder)]'}`} value={value.deliveryMemo} onChange={e => set({ deliveryMemo: e.target.value })}><option value="">요청사항을 선택해 주세요</option>{DELIVERY_MEMOS.map(m => <option key={m} value={m}>{m}</option>)}{value.deliveryMemo && !DELIVERY_MEMOS.includes(value.deliveryMemo) && <option value={value.deliveryMemo}>{value.deliveryMemo}</option>}</select><ChevronDown size={18} className="pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 text-[var(--muted)]"/></label>
@@ -102,7 +106,7 @@ export function AddressSearchPage() {
   const navigate = useNavigate(); const [params] = useSearchParams();
   const returnTo = params.get('returnTo') || '/addresses/new';
   const [query, setQuery] = useState(''); const [searched, setSearched] = useState(''); const [count, setCount] = useState<number | null>(null);
-  const [unavailable, setUnavailable] = useState(false);
+  const [unavailable, setUnavailable] = useState(false); const [locating, setLocating] = useState(false); const [geoError, setGeoError] = useState('');
   const frame = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -114,7 +118,7 @@ export function AddressSearchPage() {
       width: '100%', height: '100%', hideMapBtn: true, hideEngBtn: true, autoMappingRoad: true,
       onsearch: (data: { q: string; count: number }) => { setSearched(data.q); setQuery(data.q); setCount(data.count); },
       oncomplete: (data: { zonecode: string; roadAddress: string; jibunAddress: string; buildingName?: string }) => {
-        sessionStorage.setItem(PICK_KEY, JSON.stringify({ postalCode: data.zonecode, roadAddress: data.roadAddress || data.jibunAddress }));
+        sessionStorage.setItem(PICK_KEY, JSON.stringify({ postalCode: data.zonecode, roadAddress: data.roadAddress || data.jibunAddress, jibunAddress: data.jibunAddress }));
         navigate(returnTo, { replace: true });
       },
     }).embed(node, { q: searched, autoClose: false });
@@ -130,7 +134,8 @@ export function AddressSearchPage() {
         ? <label className="flex h-12 items-center gap-2.5 rounded-[6px] bg-[var(--soft)] px-4"><Search size={18} className="shrink-0 text-[var(--meta)]"/><input aria-label="주소 검색" value={query} onChange={e => setQuery(e.target.value)} className="min-w-0 flex-1 bg-transparent text-[15px] outline-none"/><button type="button" aria-label="검색어 지우기" onClick={() => { setQuery(''); setSearched(''); setCount(null); }}><X size={16} className="text-[var(--meta)]"/></button></label>
         : <label className="flex h-12 items-center gap-2.5 rounded-[6px] border-[1.5px] border-[var(--ink)] px-3.5"><Search size={18} className="shrink-0"/><input aria-label="주소 검색" value={query} onChange={e => setQuery(e.target.value)} placeholder="도로명, 건물명 또는 지번으로 검색" className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-[var(--placeholder)]" autoFocus/></label>}
     </form>
-    {!searched && <button type="button" className="flex h-11 w-full items-center justify-center gap-2 rounded-[6px] border border-[var(--border)] text-[14px] font-bold"><LocateFixed size={16}/>현재 위치로 주소 찾기</button>}
+    {!searched && <button type="button" disabled={locating} onClick={async () => { setLocating(true); setGeoError(''); try { sessionStorage.setItem(PICK_KEY, JSON.stringify(await currentAddress())); navigate(returnTo, { replace: true }); } catch (e) { setGeoError((e as Error).message); } finally { setLocating(false); } }} className="flex h-11 w-full items-center justify-center gap-2 rounded-[6px] border border-[var(--border)] text-[14px] font-bold disabled:opacity-60"><LocateFixed size={16}/>{locating ? '현재 위치를 찾는 중…' : '현재 위치로 주소 찾기'}</button>}
+    {!searched && <ErrorBox message={geoError}/>}
     {searched && <div ref={frame} aria-label="주소 검색 결과" className={empty ? 'hidden' : 'h-[calc(100dvh-150px)] w-full'}/>}
     {empty && <div className="space-y-8 pt-8">
       <div className="flex flex-col items-center text-center"><span className="grid h-11 w-11 place-items-center rounded-full bg-[var(--soft)]"><MapPin size={20} className="text-[var(--meta)]"/></span><p className="mt-4 text-[15px] font-bold">'{searched}' 검색 결과가 없어요</p><p className="mt-2 px-2 text-[13px] leading-relaxed text-[var(--aux)]">결과가 없으면 띄어쓰기를 바꾸거나 건물번호를 빼고 검색해 보세요.</p></div>
