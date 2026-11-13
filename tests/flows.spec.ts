@@ -37,6 +37,31 @@ test('5분 만료와 새로고침 시 재고 확보 시간 연장 방지', async
   await reserveBag(page); await fiveMinutesLater(page); await expect(page.getByText(/만료되어 확보한 재고가 해제됐어요/)).toBeVisible(); await page.reload(); await expect(page.getByText('주문이 취소됐어요')).toBeVisible(); await expect(page.getByRole('button', { name: /안에 결제하기/ })).toHaveCount(0);
 });
 
+test('결제 중 타이머가 0이 되면 바로 만료 화면으로 바뀌고 새로고침해도 유지, 다시 구매하기는 새 주문으로', async ({ page }) => {
+  await reserveBag(page); const oldId = (await state(page)).holds[0].id;
+  await editState(page, s => { s.holds[0].expiresAt = Date.now() + 2500; }); // 남은 시간 2.5초
+  await expect(page.getByRole('button', { name: /안에 결제하기/ })).toBeVisible();
+  // 새로고침 없이 타이머가 0이 되는 순간 화면 전체가 만료 화면으로 바뀐다
+  await expect(page.getByText('시간 만료', { exact: true }).first()).toBeVisible(); await expect(page.getByText('00:00')).toBeVisible();
+  await expect(page.getByRole('heading', { name: /주문이 취소됐어요/ })).toBeVisible(); await expect(page.getByText('재고 해제', { exact: true })).toBeVisible();
+  await expect(page.getByText('안에 결제하기')).toHaveCount(0); await expect(page.getByText('배송지', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('checkbox')).toHaveCount(0);
+  await expect(page.getByText('재고 확보', { exact: true })).toBeVisible(); await expect(page.getByText('결제 만료', { exact: true })).toBeVisible(); await expect(page.getByText('남은 수량', { exact: true })).toBeVisible();
+  await page.reload(); await expect(page.getByRole('heading', { name: /주문이 취소됐어요/ })).toBeVisible(); await expect(page.getByRole('checkbox')).toHaveCount(0);
+  // 다시 구매하기: 만료된 주문을 다시 열지 않고 같은 상품·옵션·수량으로 새 주문
+  await page.getByRole('button', { name: '다시 구매하기' }).click();
+  await expect(page.getByRole('button', { name: /안에 결제하기/ })).toBeVisible();
+  const st = await state(page); const fresh = st.holds.find((h: any) => h.id !== oldId && h.status === 'reserved');
+  expect(page.url()).toContain(fresh.id); expect(fresh.lines.map((l: any) => [l.name, l.quantity])).toEqual([['내추럴', 2]]); expect(st.holds.find((h: any) => h.id === oldId).status).toBe('released');
+});
+
+test('다시 구매하기에서 재고가 없으면 재고 확보 실패 안내가 뜬다', async ({ page }) => {
+  await reserveBag(page);
+  await editState(page, s => { s.holds[0].expiresAt = Date.now() - 1000; s.products.find((p: any) => p.id === 'ecobag').endsAt = Date.now() - 500; }); // 만료 + 판매 종료
+  await page.getByRole('button', { name: '다시 구매하기' }).click();
+  await expect(page).toHaveURL(/product\/ecobag/); await expect(page.getByRole('dialog', { name: '옵션 선택' })).toBeVisible(); await expect(page.getByText(/판매 시간에만 구매할 수 있습니다/)).toBeVisible();
+});
+
 test('사업자 PDF 신청 후 운영자 승인 시 기존 구매 권한과 주문이 유지', async ({ page }) => {
   // 출고지·반품 주소는 주소 검색으로만 채워지므로 신청서 임시저장에 미리 넣어 둔다
   await page.evaluate(() => localStorage.setItem('application-draft:buyer', JSON.stringify({ displayName: '나의 상점', name: '김서윤', email: 'buyer@example.com', phone: '01012345678', bank: '신한은행', account: '', shippingPostal: '04782', shippingAddress: '서울시 성동구 성수이로 10', returnPostal: '04782', returnAddress: '서울시 성동구 성수이로 10' })));
