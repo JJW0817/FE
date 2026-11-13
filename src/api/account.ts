@@ -19,8 +19,8 @@ export function signupCategories(): Promise<SignupOptionsDto['categories']> {
 export const resetSignupCategoryCache = () => { optionsCache = undefined; };
 
 export const mySettingsFromApi = (d: AccountDto, cats: { code: string; label: string }[]): MySettings => ({
-  name: d.name, interests: d.interestCategories.map(c => cats.find(x => x.code === c)?.label ?? c),
-  saleStart: d.notificationSettings.saleStart, personalizedRecommendation: d.notificationSettings.personalizedRecommendation, marketing: d.marketingConsent.agreed,
+  name: d.name ?? '', interests: (d.interestCategories ?? []).map(c => cats.find(x => x.code === c)?.label ?? c),
+  saleStart: d.notificationSettings?.saleStart ?? false, personalizedRecommendation: d.notificationSettings?.personalizedRecommendation ?? false, marketing: d.marketingConsent?.agreed ?? false,
 });
 
 /* ── API ── */

@@ -78,7 +78,8 @@ export interface SellerProfileDto {
   bankAccount: { bankName: string; maskedBankAccount: string; accountHolderName: string | null }; dispatchAddress: SellerAddressDto; returnAddress: SellerAddressDto; approvedAt: Iso; updatedAt: Iso;
 }
 export interface SellerAddressBookDto { id: string; type: 'DISPATCH' | 'RETURN'; label: string; contactName: string; contactPhone: string; address: SellerAddressDto; defaultAddress: boolean }
-export interface SellerStoreDto { sellerDisplayName: string; introduction: string; hasLogo: boolean; updatedAt: Iso }
+/** introduction은 아직 안 썼으면 null로 온다(실제 서버 확인) */
+export interface SellerStoreDto { sellerDisplayName: string; introduction: string | null; hasLogo: boolean; updatedAt: Iso }
 
 /* ── 판매자 상품·운영자 심사 ── */
 export type ProductStatus = 'DRAFT' | 'IN_REVIEW' | 'REJECTED' | 'APPROVED';

@@ -502,7 +502,7 @@ export function SellerSettingsPage() {
   // 스토어 소개·로고(계정 설정 화면)
   const store = useApi(async signal => (USE_MOCK || section !== 'account' ? null : fetchSellerStore(signal)), [section]);
   const [intro, setIntro] = useState(''), [logoUrl, setLogoUrl] = useState(''), [logoTick, setLogoTick] = useState(0);
-  useEffect(() => { if (store.data) setIntro(store.data.introduction); }, [store.data]);
+  useEffect(() => { if (store.data) setIntro(store.data.introduction ?? ''); }, [store.data]);
   useEffect(() => {
     if (!store.data?.hasLogo) { setLogoUrl(''); return; }
     let url = '', alive = true;

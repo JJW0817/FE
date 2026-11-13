@@ -13,8 +13,8 @@ export type NotificationKind = '구매' | '상품' | '맞춤 추천';
 export interface InboxItem { id: string; kind: NotificationKind; title: string; desc: string; ts: number; read: boolean; targetType: NotificationDto['targetType']; targetId: string }
 
 export function notificationFromApi(d: NotificationDto): InboxItem {
-  const kind: NotificationKind = d.type.includes('PERSONALIZED') ? '맞춤 추천' : d.targetType === 'ORDER' || d.targetType === 'SELLER_ORDER' ? '구매' : '상품';
-  return { id: d.id, kind, title: d.title, desc: d.body, ts: ms(d.occurredAt) ?? Date.parse(d.createdAt), read: !!d.readAt, targetType: d.targetType, targetId: d.targetId };
+  const kind: NotificationKind = (d.type ?? '').includes('PERSONALIZED') ? '맞춤 추천' : d.targetType === 'ORDER' || d.targetType === 'SELLER_ORDER' ? '구매' : '상품';
+  return { id: d.id, kind, title: d.title ?? '', desc: d.body ?? '', ts: ms(d.occurredAt) ?? Date.parse(d.createdAt), read: !!d.readAt, targetType: d.targetType, targetId: d.targetId };
 }
 /** 알림 대상 → 앱 경로. SELLER_APPLICATION은 전용 화면이 없어 /apply로 보낸다 */
 export function notificationPath(n: Pick<InboxItem, 'targetType' | 'targetId'>): string {

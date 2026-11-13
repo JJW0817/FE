@@ -24,9 +24,9 @@ export function addressFromApi(a: OrderAddressDto): Address {
 export function orderFromApi(d: OrderDetailDto, userId: string, image = ''): Order {
   return {
     id: d.orderId, userId, sellerId: '', productId: d.productId, holdId: d.orderId,
-    lines: d.items.map(i => ({ optionId: i.optionId, name: i.label ?? '', quantity: i.quantity })),
-    product: { name: d.productName, brand: d.brandOrStore, image, category: '', originalUrl: '', price: d.unitPrice },
-    shipping: d.shippingFee, total: d.totalAmount,
+    lines: (d.items ?? []).map(i => ({ optionId: i.optionId, name: i.label ?? '', quantity: i.quantity })),
+    product: { name: d.productName ?? '', brand: d.brandOrStore ?? '', image, category: '', originalUrl: '', price: d.unitPrice ?? 0 },
+    shipping: d.shippingFee ?? 0, total: d.totalAmount ?? 0,
     address: d.address ? addressFromApi(d.address) : { name: '', phone: '', address: '', detail: '', request: '' },
     status: orderStatus(d.state, d.delivery), createdAt: Date.parse(d.createdAt),
     carrier: d.carrier ?? undefined, tracking: d.trackingNumber ?? undefined, shippedAt: ms(d.shippedAt), deliveredAt: ms(d.deliveredAt),

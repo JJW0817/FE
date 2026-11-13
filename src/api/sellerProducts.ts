@@ -24,9 +24,9 @@ export function sellerProductFromApi(d: SellerProductDto): Product {
   return {
     id: d.id, sellerId: d.sellerId, name: d.name ?? '', brand: d.brandOrStore ?? '', category: d.category ?? '', description: d.description ?? '', images: [], originalUrl: d.sourceUrl ?? '',
     price: d.price ?? 0, shipping: d.shippingFee ?? 0, maxPerAccount: d.perAccountLimit ?? 0, dispatchDays: d.dispatchBusinessDays ?? 0, startsAt: ms(d.startsAt) ?? 0, endsAt: ms(d.endsAt) ?? 0,
-    published: d.status === 'APPROVED', options: d.options.map(o => ({ id: o.id, name: o.label, stock: o.initialQuantity })),
-    dimensions: d.optionDimensions.map(x => ({ name: x.name, values: x.values.join(', ') })), extras: d.attributes.map(a => ({ key: a.name, value: a.value })), reason: d.disposalReason ?? '',
-    faqs: d.faqs.map(f => ({ id: f.id, question: f.question, answer: f.answer, confirmed: true })),
+    published: d.status === 'APPROVED', options: (d.options ?? []).map(o => ({ id: o.id, name: o.label, stock: o.initialQuantity })),
+    dimensions: (d.optionDimensions ?? []).map(x => ({ name: x.name, values: (x.values ?? []).join(', ') })), extras: (d.attributes ?? []).map(a => ({ key: a.name, value: a.value })), reason: d.disposalReason ?? '',
+    faqs: (d.faqs ?? []).map(f => ({ id: f.id, question: f.question, answer: f.answer, confirmed: true })),
     shippingNotice: d.shippingNotice ?? '', rejectionReason: d.status === 'REJECTED' ? (d.reviewReason ?? '') : undefined, version: d.version, reviewStatus: d.status,
   };
 }

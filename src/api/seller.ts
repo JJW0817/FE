@@ -18,13 +18,13 @@ export const SERVER_DOC = 'server:';
 /* ── 변환 ── */
 /** 보완 요청 항목 이름 → 화면(ApplicationPage)이 쓰는 항목 이름 */
 const FIELD_LABEL: Record<CorrectionField, string> = { CERTIFICATE: '사업자등록증 PDF', STORE_NAME: '판매자 표시 이름', CONTACT: '담당자', BANK_ACCOUNT: '정산 계좌번호', DISPATCH_ADDRESS: '출고지', RETURN_ADDRESS: '반품 주소' };
-const addrLine = (a: SellerAddressDto) => [a.roadAddress, a.detailAddress].filter(Boolean).join(' ');
+const addrLine = (a?: SellerAddressDto | null) => [a?.roadAddress, a?.detailAddress].filter(Boolean).join(' ');
 
 /** 신청 응답(+보완 요청) → 화면 Application. CHANGES_REQUESTED·REJECTED는 화면의 'rejected', 나머지 미지 상태는 심사 중 */
 export function applicationFromApi(d: SellerApplicationDto, userId: string, correction?: CorrectionRequestDto | null): Application {
   const status = d.status === 'APPROVED' ? 'approved' : d.status === 'REJECTED' || d.status === 'CHANGES_REQUESTED' ? 'rejected' : 'pending';
   const submittedAt = ms(d.submittedAt) ?? 0;
-  const items = correction?.items.map(i => ({ field: FIELD_LABEL[i.field] ?? i.field, reason: i.reason }))
+  const items = correction?.items?.map(i => ({ field: FIELD_LABEL[i.field] ?? i.field, reason: i.reason }))
     ?? (d.status === 'REJECTED' ? [{ field: '입점 심사', reason: d.rejectionReason ?? '' }] : undefined);
   return {
     id: d.applicationId, userId, displayName: d.sellerDisplayName ?? '', name: d.contactName, email: d.contactEmail, phone: d.contactPhone,
@@ -43,9 +43,9 @@ export function mergeApplication(s: State, app: Application | null) {
 /** GET /sellers/me → 화면 설정(주소 상세는 shippingDetail/returnDetail에 보관해 저장 때 지워지지 않게 한다) */
 export function sellerSettingsFromApi(d: SellerProfileDto, prev?: SellerSettings): SellerSettings {
   return {
-    notifications: {}, ...prev, displayName: d.sellerDisplayName, bank: d.bankAccount.bankName, account: d.bankAccount.maskedBankAccount, holder: d.bankAccount.accountHolderName ?? '',
-    shippingAddress: d.dispatchAddress.roadAddress, shippingPostal: d.dispatchAddress.postalCode, shippingDetail: d.dispatchAddress.detailAddress ?? '',
-    returnAddress: d.returnAddress.roadAddress, returnPostal: d.returnAddress.postalCode, returnDetail: d.returnAddress.detailAddress ?? '',
+    notifications: {}, ...prev, displayName: d.sellerDisplayName ?? '', bank: d.bankAccount?.bankName ?? '', account: d.bankAccount?.maskedBankAccount ?? '', holder: d.bankAccount?.accountHolderName ?? '',
+    shippingAddress: d.dispatchAddress?.roadAddress ?? '', shippingPostal: d.dispatchAddress?.postalCode ?? '', shippingDetail: d.dispatchAddress?.detailAddress ?? '',
+    returnAddress: d.returnAddress?.roadAddress ?? '', returnPostal: d.returnAddress?.postalCode ?? '', returnDetail: d.returnAddress?.detailAddress ?? '',
   };
 }
 

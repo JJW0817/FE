@@ -13,7 +13,7 @@ const general = 'general' as const, purchase = 'purchase' as const;
 const enc = encodeURIComponent;
 
 /* ── 변환 ── */
-const lines = (items: OrderItemDto[]) => items.map(i => ({ optionId: i.optionId, name: i.label ?? '', quantity: i.quantity }));
+const lines = (items: OrderItemDto[] | null) => (items ?? []).map(i => ({ optionId: i.optionId, name: i.label ?? '', quantity: i.quantity }));
 /** 결제 대기(HELD) → reserved, 결제 진행·검증 중 → pending, 확정 → consumed, 실패·만료 → released */
 const IN_PROGRESS: OrderState[] = ['RESERVING', 'STARTING_PAYMENT', 'APPROVING_PAYMENT', 'VERIFYING_PAYMENT', 'CONFIRMING_STOCK', 'COMPENSATING_PAYMENT', 'RELEASING_STOCK'];
 export const holdStatus = (st: OrderState): Hold['status'] => (st === 'HELD' ? 'reserved' : st === 'CONFIRMED' ? 'consumed' : IN_PROGRESS.includes(st) ? 'pending' : 'released');
@@ -39,7 +39,7 @@ export function orderFromCommand(d: OrderCommandDto, userId: string): Order {
 export function orderFromListItem(d: OrderListItemDto, userId: string): Order {
   return {
     id: d.orderId, userId, sellerId: '', productId: d.productId, holdId: d.orderId, lines: lines(d.items),
-    product: { name: d.productName, brand: d.brandOrStore, image: '', category: '', originalUrl: '', price: 0 },
+    product: { name: d.productName ?? '', brand: d.brandOrStore ?? '', image: '', category: '', originalUrl: '', price: 0 },
     shipping: 0, total: d.totalAmount, address: { name: '', phone: '', address: '', detail: '', request: '' }, status: orderStatus(d.state, d.delivery), createdAt: Date.parse(d.createdAt),
   };
 }

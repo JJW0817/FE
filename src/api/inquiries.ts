@@ -15,18 +15,18 @@ const base = (orderId: string) => `/v1/orders/${enc(orderId)}`;
 /* ── 변환 ── */
 /** 주문 문의 상세·목록 항목 → Inquiry. 상품명·판매자·수량은 응답에 없어 merge가 주문에서 채운다 */
 export function orderInquiryFromApi(d: OrderInquiryDto, userId: string): Inquiry {
-  const msgs = d.messages.map(m => ({ seller: m.seller, body: m.body, createdAt: Date.parse(m.createdAt) }));
+  const msgs = (d.messages ?? []).map(m => ({ seller: m.seller, body: m.body, createdAt: Date.parse(m.createdAt) }));
   return {
-    id: d.id, userId, sellerId: '', productId: '', orderId: d.orderId, productName: '', kind: d.category,
+    id: d.id, userId, sellerId: '', productId: '', orderId: d.orderId, productName: '', kind: d.category ?? '',
     question: msgs.find(m => !m.seller)?.body ?? '', answer: [...msgs].reverse().find(m => m.seller)?.body,
-    public: false, createdAt: d.createdAt ? Date.parse(d.createdAt) : (msgs[0]?.createdAt ?? 0), messages: msgs, imageIds: d.imageIds,
+    public: false, createdAt: d.createdAt ? Date.parse(d.createdAt) : (msgs[0]?.createdAt ?? 0), messages: msgs, imageIds: d.imageIds ?? [],
   };
 }
 /** 문의함 항목 → Inquiry. 추측(명세 없음): 카드에는 마지막 메시지만 있어 question=lastMessage, 판매자 차례가 아니면(awaitingSeller=false) 답변 있음으로 본다 */
 export function inquiryFromCard(d: InquiryCardDto, userId: string): Inquiry {
   return {
-    id: d.id, userId, sellerId: '', productId: d.productId, orderId: d.orderId, productName: d.productName, kind: d.category,
-    question: d.lastMessage, answer: d.awaitingSeller ? undefined : d.lastMessage, public: false, createdAt: Date.parse(d.createdAt),
+    id: d.id, userId, sellerId: '', productId: d.productId, orderId: d.orderId, productName: d.productName ?? '', kind: d.category ?? '',
+    question: d.lastMessage ?? '', answer: d.awaitingSeller ? undefined : (d.lastMessage ?? ''), public: false, createdAt: Date.parse(d.createdAt),
   };
 }
 /** 상품 문의(구매 전) → Inquiry. 상품명은 merge가 상품에서 채운다 */
