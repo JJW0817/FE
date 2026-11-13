@@ -15,14 +15,19 @@ export function initAnalytics() {
 }
 
 let lastPath = '';
-/** 라우트가 바뀔 때마다 page_view 한 번(같은 경로 연속 전송 없음) */
+/** 리다이렉트(예 / → /onboarding)는 한 번에 여러 경로를 지나므로, 경로가 바뀐 뒤 잠깐 가만히 있을 때의 마지막 경로만 보낸다 */
+const SETTLE_MS = 150;
+/** 라우트가 바뀔 때마다 page_view 한 번(같은 경로 연속 전송 없음, 자동 이동은 마지막 화면만) */
 export function usePageView() {
   const { pathname, search } = useLocation();
   useEffect(() => {
     if (!GA_ID || !window.gtag) return;
     const path = pathname + search;
-    if (path === lastPath) return;
-    lastPath = path;
-    window.gtag('event', 'page_view', { page_path: path, page_title: document.title, page_location: location.href });
+    const t = setTimeout(() => {
+      if (path === lastPath) return;
+      lastPath = path;
+      window.gtag?.('event', 'page_view', { page_path: path, page_title: document.title, page_location: location.href });
+    }, SETTLE_MS);
+    return () => clearTimeout(t); // 그 사이 다른 경로로 바뀌면(리다이렉트) 이전 경로는 보내지 않는다
   }, [pathname, search]);
 }
