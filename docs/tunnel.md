@@ -69,3 +69,20 @@ iPhone 푸시·쿠키 확인은 HTTPS가 필요하므로 로컬이 아니라 Ver
 4. `https://<Preview>/api/v1/auth/csrf`가 JSON인지 확인(2절 7번).
 5. 서버 팀에 S3 터널 CORS(Preview origin, PUT, Content-Type) 확인을 요청한다.
 6. `docs/api-check.md`의 "아이폰 확인 순서"를 따라 진행한다.
+
+## 6. 고정 주소(stockdrop-app.vercel.app)로 Preview 연결하기
+
+Preview는 배포마다 주소(`fe-xxxx-jjw0817.vercel.app`)가 바뀐다. 아이폰·팀 확인에는 고정 별칭 `stockdrop-app.vercel.app`을 쓰고, **재배포할 때마다 새 배포에 다시 연결**해야 한다.
+
+```bash
+# 1) Preview 배포 (--prod 쓰지 않는다). 마지막 줄의 주소가 새 배포 주소
+npx vercel deploy --yes
+# 2) 별칭을 새 배포로 옮긴다
+npx vercel alias set <새 배포 주소> stockdrop-app.vercel.app
+# 3) 확인: 별칭이 새 배포를 가리키는지
+npx vercel alias ls
+```
+
+- 대시보드에서 Redeploy를 했다면 1)은 건너뛰고 새 배포 주소만 2)에 넣는다.
+- `VITE_USE_MOCK=false`는 빌드 때 적용되므로 환경 변수를 바꾼 뒤에는 반드시 새로 배포(Redeploy)해야 한다.
+- 연결 후 `https://stockdrop-app.vercel.app/#/login`에서 역할 선택(구매자/판매자/운영자) 버튼이 없고 이메일·비밀번호 입력만 보이면 실제 서버 모드다.
