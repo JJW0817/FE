@@ -1,35 +1,30 @@
-# 터널로 아이폰에서 테스트하기
+# 서버 주소와 Vercel 미리보기 (고정 도메인)
 
-Safari(iOS)는 **다른 사이트의 쿠키를 막는다**. 프론트(Vercel)에서 터널 주소를 직접 부르면 refresh 쿠키가 안 붙어 로그인이 안 된다.
-그래서 앱은 **상대 경로만** 부르고(같은 origin), Vercel이 뒤에서 터널로 넘겨 준다.
+Safari(iOS)는 **다른 사이트의 쿠키를 막는다**. 프론트(Vercel)에서 서버 주소를 직접 부르면 refresh 쿠키가 안 붙어 로그인이 안 된다.
+그래서 앱은 **상대 경로만** 부르고(같은 origin), Vercel이 뒤에서 서버로 넘겨 준다.
 
 ```
-브라우저(Safari)  ──/api/v1/…──────►  Vercel rewrite  ──►  https://GW_TUNNEL_HOST/api/v1/…   (Gateway :8000)
-                 ──/pg/api/v1/…───►  Vercel rewrite  ──►  https://PG_TUNNEL_HOST/api/v1/…   (PurchaseGateway :8001, /pg는 뗀다)
+브라우저(Safari)  ──/api/v1/…──────►  Vercel rewrite  ──►  https://api.stockdrop.cloud/api/v1/…   (Gateway)
+                 ──/pg/api/v1/…───►  Vercel rewrite  ──►  https://pay.stockdrop.cloud/api/v1/…   (PurchaseGateway, /pg는 뗀다)
 ```
 
 - `/api/…` : 인증, 계정, 판매자 정보, 상품 조회, 주문 조회, 알림, AI, 결제 설정, 운영자 입점 심사
 - `/pg/api/…` : 주문 생성, 결제, 체크아웃, 주문 문의 작성·답변, 판매자 상품 등록·관리, 운영자 상품 심사, 배송 처리
 - **인증(CSRF·login·refresh·logout)은 반드시 `/api`.** refresh 쿠키 경로가 `/api/v1/auth`라서 `/pg`로 보내면 쿠키가 안 간다.
-- 코드에서 주소는 `src/api/services.ts` 한 곳(`account`·`general` = `/api`, `purchase` = `/pg/api`)이다. 터널 주소는 코드에 없다.
+- 코드에서 주소는 `src/api/services.ts` 한 곳(`account`·`general` = `/api`, `purchase` = `/pg/api`)이다. 서버 주소는 코드에 없다(`vercel.json`·`.env.local`에만 있다).
 
-## 1. 터널 주소 넣기 (주소가 바뀔 때마다 이 두 줄만)
+## 1. 현재 주소 (고정 도메인)
 
-`vercel.json`의 `destination` 두 줄에서 호스트만 바꾼다. `https://`는 이미 적혀 있고, 호스트에는 `https://`·끝 `/`를 넣지 않는다.
+| 용도 | 주소 | 어디에 쓰나 |
+|---|---|---|
+| 일반 API (Gateway) | `https://api.stockdrop.cloud` | `vercel.json` `/api/:path*` → `https://api.stockdrop.cloud/api/:path*`, 로컬 `VITE_API_TARGET` |
+| 구매·결제 API (PurchaseGateway) | `https://pay.stockdrop.cloud` | `vercel.json` `/pg/:path*` → `https://pay.stockdrop.cloud/:path*`, 로컬 `VITE_PG_TARGET` |
+| 이미지 | `https://img.stockdrop.cloud` | 업로드·열람 URL은 서버 응답에 들어 있다(앱은 주소를 만들지 않는다) |
 
-```json
-{ "source": "/pg/:path*",  "destination": "https://PG_TUNNEL_HOST/:path*" },        ← PurchaseGateway(8001) 터널 호스트
-{ "source": "/api/:path*", "destination": "https://GW_TUNNEL_HOST/api/:path*" },    ← Gateway(8000) 터널 호스트
-```
+`vercel.json`의 순서는 항상 `/pg` → `/api` → `/(.*)`(index.html). API 두 줄이 위에 없으면 API 요청이 `index.html`을 받는다.
+주소가 또 바뀌면 `vercel.json` 두 줄과 아래 로컬 `.env.local` 두 값만 고치고, 이 표도 같이 고친다.
 
-예) Gateway 터널이 `https://abc-def.trycloudflare.com` 이면 `https://abc-def.trycloudflare.com/api/:path*`.
-
-1. `feat/api-integration` 브랜치에서 위 두 줄을 고친다.
-2. 커밋 후 push → Vercel이 이 브랜치 Preview를 자동으로 다시 배포한다.
-3. **세 번째 줄(`/(.*)` → `/index.html`)은 항상 맨 아래.** API 두 줄이 위에 없으면 API 요청이 `index.html`을 받는다.
-4. 터널을 다시 열면 주소가 바뀐다 → 1~2를 반복한다.
-
-주의: 이 `vercel.json`이 `develop`/`main`에 합쳐지면 그 배포에도 같은 rewrite가 적용된다. mock 모드 화면은 `/api`를 부르지 않아 영향이 없지만, 실제 서버 주소가 정해지면 값을 교체한다.
+주의: 이 `vercel.json`이 `develop`/`main`에 합쳐지면 그 배포에도 같은 rewrite가 적용된다. mock 모드 화면은 `/api`를 부르지 않아 영향이 없다.
 
 ## 2. Vercel에서 이 브랜치 Preview만 실제 API 모드로 (직접 설정)
 
@@ -43,34 +38,25 @@ Safari(iOS)는 **다른 사이트의 쿠키를 막는다**. 프론트(Vercel)에
 6. 확인: 배포된 주소의 로그인 화면에 **역할 선택(구매자·판매자·운영자) 데모 버튼이 없어야** 한다. 보이면 아직 mock이다(5단계 재배포 확인).
 7. 서버가 연결됐는지: 브라우저에서 `https://<Preview 주소>/api/v1/auth/csrf`를 열면 JSON(`headerName`, `token`)이 와야 한다. HTML이 오면 rewrite 순서나 주소가 잘못된 것이다.
 
-## 3. 이미지(S3 터널)
+## 3. 이미지
 
-업로드·열람 URL은 서버 응답에 들어 있는 주소(S3 터널)를 **그대로** 쓴다(앱은 주소를 만들지 않는다). 업로드는 그 URL로 `PUT`, 권한 요청 때 보낸 것과 같은 `Content-Type`을 붙인다.
-이 요청은 Vercel을 거치지 않고 브라우저가 S3 터널로 바로 보내므로, 서버 팀이 **S3 터널 CORS에 Preview 주소(origin)와 `PUT`·`Content-Type` 헤더를 허용**해야 한다.
+업로드·열람 URL(`https://img.stockdrop.cloud/…`)은 서버 응답에 들어 있는 주소를 **그대로** 쓴다. 업로드는 그 URL로 `PUT`, 권한 요청 때 보낸 것과 같은 `Content-Type`을 붙인다.
+이 요청은 Vercel을 거치지 않고 브라우저가 이미지 서버로 바로 보내므로, 서버 팀이 **CORS에 Preview 주소(origin)와 `PUT`·`Content-Type` 헤더를 허용**해야 한다. (앱 코드에는 이미지 주소 허용 목록이 없다.)
 
 ## 4. 로컬 개발
 
 `.env.local`:
 
 ```
-VITE_API_TARGET=http://localhost:8000     # /api → Gateway (터널 https 주소도 가능)
-VITE_PG_TARGET=http://localhost:8001      # /pg  → PurchaseGateway (/pg는 떼고 전달)
+VITE_API_TARGET=https://api.stockdrop.cloud   # /api → Gateway
+VITE_PG_TARGET=https://pay.stockdrop.cloud    # /pg  → PurchaseGateway (/pg는 떼고 전달)
 VITE_USE_MOCK=false                        # 실제 API. mock으로 보려면 true
 ```
 
-터널 주소를 쓰면 `VITE_API_TARGET=https://<gw>`, `VITE_PG_TARGET=https://<pg>`로 바꾸고 dev 서버를 다시 띄운다.
+값을 바꾸면 dev 서버를 다시 띄운다. 서버를 내 PC에서 직접 돌릴 때는 `http://localhost:8000` / `http://localhost:8001`.
 iPhone 푸시·쿠키 확인은 HTTPS가 필요하므로 로컬이 아니라 Vercel Preview로 한다.
 
-## 5. 터널 주소를 받으면 할 일 (순서)
-
-1. `vercel.json`의 `GW_TUNNEL_HOST`(8000), `PG_TUNNEL_HOST`(8001)를 실제 호스트로 바꾼다. 9092(S3) 터널은 서버 팀이 `.env`에 넣는 값이라 프론트 파일은 없다.
-2. 커밋·push → Preview 재배포를 기다린다.
-3. Vercel 환경 변수 `VITE_USE_MOCK=false`(Preview, 브랜치 `feat/api-integration`)가 설정돼 있는지 확인(2절). 처음이면 설정 후 Redeploy.
-4. `https://<Preview>/api/v1/auth/csrf`가 JSON인지 확인(2절 7번).
-5. 서버 팀에 S3 터널 CORS(Preview origin, PUT, Content-Type) 확인을 요청한다.
-6. `docs/api-check.md`의 "아이폰 확인 순서"를 따라 진행한다.
-
-## 6. 고정 주소(stockdrop-app.vercel.app)로 Preview 연결하기
+## 5. 고정 주소(stockdrop-app.vercel.app)로 Preview 연결하기
 
 Preview는 배포마다 주소(`fe-xxxx-jjw0817.vercel.app`)가 바뀐다. 아이폰·팀 확인에는 고정 별칭 `stockdrop-app.vercel.app`을 쓰고, **재배포할 때마다 새 배포에 다시 연결**해야 한다.
 
