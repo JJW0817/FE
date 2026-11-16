@@ -17,3 +17,8 @@ export const DEMO_ACCOUNT_IDS = ['buyer', 'seller', 'admin', 'applicant'];
 /** 역할 선택 데모 로그인(구매자·판매자·운영자). 서버가 없는 mock 모드에서만 보인다. */
 export const DEMO_LOGIN = USE_MOCK;
 export const DEMO_ACCOUNTS = [{ id: 'buyer', label: '구매자' }, { id: 'seller', label: '판매자' }, { id: 'admin', label: '운영자' }] as const;
+/**
+ * 실제 모드 저장소 꼬리표 — 서버 주소·저장 형식. 저장된 값의 꼬리표가 다르면(서버 이전 등) 버리고 새로 시작한다.
+ * 배포는 vercel.json rewrites의 서버 주소와 같게 둔다. 저장 형식을 바꾸면 끝 숫자를 올린다.
+ */
+export const STORAGE_TAG = `${import.meta.env.VITE_API_TARGET || 'https://api.stockdrop.cloud'}#2`;
