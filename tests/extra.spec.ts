@@ -19,7 +19,7 @@ test('추천 실패의 직접 선택과 지원 제외 상품 우회 차단', asy
   await actor(page, 'seller'); await editState(page, s => { s.aiOutcome = 'failed'; });
   await page.goto('/#/seller/new'); await page.getByLabel('상품 사진 업로드').setInputFiles(path.resolve('public/images/generated-4.png')); await page.getByLabel('상품명').fill('코튼 에코백');
   await page.goto('/#/seller/new/ai/failed'); await expect(page.getByRole('heading', { name: /사진을 분석하지 못했어요/ })).toBeVisible(); await expect(page.getByRole('button', { name: '다시 분석' })).toBeVisible();
-  await page.getByRole('button', { name: '직접 입력하기' }).click(); await expect(page.getByRole('dialog', { name: '카테고리 선택' })).toBeVisible(); await expect(page.getByRole('radio', { name: /화장품/ })).toHaveCount(0); await page.getByRole('radio', { name: '패션 › 잡화 › 가방' }).check(); await page.getByRole('button', { name: '카테고리 저장' }).click(); await expect(page.getByRole('dialog', { name: '카테고리 선택' })).toHaveCount(0); await expect(page.getByText('패션 › 잡화 › 가방')).toBeVisible();
+  await page.getByRole('button', { name: '직접 입력하기' }).click(); await expect(page.getByRole('dialog', { name: '카테고리 선택' })).toBeVisible(); await expect(page.getByRole('radio', { name: /화장품/ })).toHaveCount(0); await expect(page.getByRole('radio')).toHaveCount(0); await page.getByLabel('카테고리 검색').fill('가방'); await page.getByRole('radio', { name: '패션 › 잡화 › 가방' }).check(); await page.getByRole('button', { name: '카테고리 저장' }).click(); await expect(page.getByRole('dialog', { name: '카테고리 선택' })).toHaveCount(0); await expect(page.getByText('패션 › 잡화 › 가방')).toBeVisible();
   await page.getByLabel('상품명').fill('비타민 건강기능식품'); await expect(page.getByText(/지원하지 않는 상품은 등록할 수 없습니/).first()).toBeVisible();
 });
 
