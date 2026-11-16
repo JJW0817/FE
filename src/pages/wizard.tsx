@@ -11,6 +11,7 @@ import { Button, Empty, ErrorBox, Header, LiveStatus, Modal, Note, ProductImage,
 import { useClock } from '../hooks';
 import { categoryTree } from '../categoryTree';
 import { INSPECTION_CHECKS, INSPECTION_PHOTOS } from '../domain';
+import { COLOR_AXIS, optionPresetFor } from '../optionPresets';
 import { IMAGE_EXPIRED, QUICK_SCHEDULE, USE_MOCK } from '../config';
 import { getProductImageUrl, FIELD_LABELS, StageError, sourceUrlProblem, MOCK_REGISTRATION_METADATA, PRODUCT_STATE_MESSAGE, SHIPPING_NOTICE_MAX, ATTRIBUTE_VALUE_MAX, attributeName, composeShippingNotice, warnCriteria, analysisProblems, analyzeDraft, criteriaFor, listAddressBook, listingProblems, createProductDraft, deleteProductImage, errorMessage, fieldErrors, isApiError, getRegistrationMetadata, getSellerProductWithImages, mergeProducts, reorderProductImages, submitListing, submitRevisionFromDraft, uploadProductImage, useApi, useLive } from '../api';
 
@@ -18,14 +19,14 @@ import { getProductImageUrl, FIELD_LABELS, StageError, sourceUrlProblem, MOCK_RE
 const SWATCH: Record<string, string> = { 차콜: '#3F3F3F', 오트밀: '#E6DCC6', 크림: '#F3EBDC', 네이비: '#2B3A55', 블랙: '#222222', 화이트: '#FFFFFF', 내추럴: '#E8DCC8', 그레이: '#9A9A9A', 베이지: '#E3D3B8' };
 const WEEK = ['일', '월', '화', '수', '목', '금', '토'];
 function fromProduct(p: Product): Draft {
-  const color = p.dimensions.find(d => d.name === '색상'), size = p.dimensions.find(d => d.name === '사이즈');
+  const color = p.dimensions.find(d => d.name === '색상'), size = p.dimensions.find(d => d.name !== '색상');
   const split = (v?: string) => (v ?? '').split(',').map(x => x.trim()).filter(Boolean);
   const basic = p.options.length === 1 && p.options[0].name === '기본';
   const axes = basic ? { size: false, color: false } : color || size ? { size: !!size, color: !!color } : { size: true, color: false };
   const colors = split(color?.values), sizes = size ? split(size.values) : !color && !basic ? p.options.map(o => o.name) : [];
   const stock: Record<string, number> = {};
   for (const o of p.options) { const parts = o.name.split(' / '); const c = axes.color ? parts[0] : '', s = axes.color && axes.size ? parts[1] : axes.size ? o.name : ''; stock[optionKey(basic ? '' : c, basic ? '' : s)] = o.stock; }
-  return { ...blankDraft(), editingId: p.id, name: p.name, brand: p.brand, description: p.description, images: [...p.images], imageIds: p.imageIds && [...p.imageIds], imageSizes: p.imageSizes && [...p.imageSizes], category: p.category, originalUrl: p.originalUrl, extras: structuredClone(p.extras), reason: p.reason, dimensions: structuredClone(p.dimensions), noOptions: basic, options: structuredClone(p.options), price: p.price, shipping: p.shipping, shippingNotice: p.shippingNotice ?? '', dispatchDays: p.dispatchDays, maxPerAccount: p.maxPerAccount, startsAt: p.startsAt ? localDateTime(p.startsAt) : blankDraft().startsAt, faqs: structuredClone(p.faqs), axes, colors, sizes, stock, reference: p.reference ?? lookupReference(p.originalUrl) };
+  return { ...blankDraft(), editingId: p.id, name: p.name, brand: p.brand, description: p.description, images: [...p.images], imageIds: p.imageIds && [...p.imageIds], imageSizes: p.imageSizes && [...p.imageSizes], category: p.category, sizeName: size?.name, originalUrl: p.originalUrl, extras: structuredClone(p.extras), reason: p.reason, dimensions: structuredClone(p.dimensions), noOptions: basic, options: structuredClone(p.options), price: p.price, shipping: p.shipping, shippingNotice: p.shippingNotice ?? '', dispatchDays: p.dispatchDays, maxPerAccount: p.maxPerAccount, startsAt: p.startsAt ? localDateTime(p.startsAt) : blankDraft().startsAt, faqs: structuredClone(p.faqs), axes, colors, sizes, stock, reference: p.reference ?? lookupReference(p.originalUrl) };
 }
 function freshDraft(now: number): Draft { const start = new Date(now + 3_600_000); start.setMinutes(0, 0, 0); return { ...blankDraft(now), startsAt: localDateTime(start.getTime()), axes: { size: true, color: true }, colors: [], sizes: [], stock: {} }; }
 /** 초안 변경 — options·dimensions를 항상 축·수량에서 다시 계산 */
@@ -273,6 +274,9 @@ export function WizardPage() {
     } finally { setBusy(false); }
   }
   const FieldError = ({ name }: { name: string }) => fieldErr[name] ? <p role="alert" className="mt-1.5 text-[12px] text-[var(--red)]">{fieldErr[name]}</p> : null;
+  // 고른 카테고리에 맞는 추천 옵션 이름. 이미 입력한 옵션 이름(카테고리를 바꾸기 전 것)도 칩으로 남겨 지우지 않는다
+  const preset = optionPresetFor(d.category, meta.data), sizeName = d.sizeName || '사이즈';
+  const secondNames = [...preset.second, ...(preset.second.includes(sizeName) ? [] : [sizeName])];
   const chip = (on: boolean, label: string, onClick: () => void) => <button type="button" onClick={onClick} className={`inline-flex h-8 items-center gap-1 rounded-full px-3.5 text-[13px] ${on ? 'bg-[var(--ink)] font-bold text-white' : 'border border-[var(--border)] text-[var(--aux)]'}`}>{on && <Check size={13} strokeWidth={2.5}/>}{label}</button>;
   const qtyRow = (label: string, key: string, last: boolean) => <div key={key} className={`flex h-[52px] items-center justify-between ${last ? '' : 'border-b border-[var(--line)]'}`}><span className="text-[15px]">{label}</span><Stepper label={label} value={stock[key] ?? 0} onChange={n => setStock(key, n)}/></div>;
 
@@ -351,13 +355,14 @@ export function WizardPage() {
     </section>
 
     <section className="space-y-3" data-field="options"><Label hint="· 필수">옵션별 한정 수량</Label>
-      <div className="flex items-center gap-2"><span className="mr-1 text-[12px] text-[var(--aux)]">옵션</span>{chip(axes.size, '사이즈', () => patch({ axes: { ...axes, size: !axes.size } }))}{chip(axes.color, '색상', () => patch({ axes: { ...axes, color: !axes.color } }))}{chip(!axes.size && !axes.color, '옵션 없음', () => patch({ axes: { size: false, color: false } }))}</div>
+      <div className="flex flex-wrap items-center gap-2"><span className="mr-1 text-[12px] text-[var(--aux)]">옵션</span>{chip(axes.color, COLOR_AXIS, () => patch({ axes: { ...axes, color: !axes.color } }))}{secondNames.map(n => chip(axes.size && sizeName === n, n, () => patch(axes.size && sizeName === n ? { axes: { ...axes, size: false } } : { axes: { ...axes, size: true }, sizeName: n })))}<InlineAdd label="직접 추가" className="h-8 rounded-full border border-[var(--border)] px-3" onAdd={v => { if (v !== COLOR_AXIS) patch({ axes: { ...axes, size: true }, sizeName: v }); }}/>{chip(!axes.size && !axes.color, '옵션 없음', () => patch({ axes: { size: false, color: false } }))}</div>
       {axes.color && <div className="flex flex-wrap gap-2">{colors.map((c, i) => <button type="button" key={c} onClick={() => setActiveColor(i)} className={`flex h-10 items-center gap-1.5 rounded-[6px] px-3.5 ${c === color ? 'border-[1.5px] border-[var(--ink)]' : 'border border-[var(--border)]'}`}><span className="h-3.5 w-3.5 rounded-full border border-black/10" style={{ background: SWATCH[c] ?? '#DEDEDE' }}/><span className={`text-[14px] ${c === color ? 'font-bold' : 'text-[var(--aux)]'}`}>{c}</span><span className="text-[12px] text-[var(--meta)]">{colorTotal(c)}개</span></button>)}<InlineAdd label="색상" className="h-10 rounded-[6px] border border-[var(--border)] px-3.5" onAdd={v => { if (!colors.includes(v)) { patch({ colors: [...colors, v] }); setActiveColor(colors.length); } }}/></div>}
       {(axes.size || (!axes.color && !axes.size) || (axes.color && color)) && <div className="rounded-[6px] border border-[var(--line)] px-4">
         {axes.size ? <>
-          <div className="flex h-12 items-center justify-between border-b border-[var(--line)]"><p className="text-[13px] font-bold">{axes.color ? `${color || '색상'} · 사이즈별 수량` : '사이즈별 수량'}</p><p className="text-[13px] font-bold text-[var(--aux)]">{axes.color ? colorTotal(color) : total}개</p></div>
+          <div className="flex h-12 items-center justify-between border-b border-[var(--line)]"><p className="text-[13px] font-bold">{axes.color ? `${color || '색상'} · ${sizeName}별 수량` : `${sizeName}별 수량`}</p><p className="text-[13px] font-bold text-[var(--aux)]">{axes.color ? colorTotal(color) : total}개</p></div>
           {sizes.map((sz, i) => qtyRow(sz, optionKey(axes.color ? color : '', sz), i === sizes.length - 1))}
-          <div className="border-t border-[var(--line)] py-3.5"><InlineAdd label="사이즈 추가" onAdd={v => { if (!sizes.includes(v)) patch({ sizes: [...sizes, v] }); }}/></div>
+          {(preset.quick[sizeName] ?? []).length > 0 && <div className="flex flex-wrap items-center gap-1.5 border-t border-[var(--line)] py-3"><span className="mr-1 text-[12px] text-[var(--aux)]">빠른 선택</span>{preset.quick[sizeName].map(v => <button type="button" key={v} aria-pressed={sizes.includes(v)} onClick={() => patch({ sizes: sizes.includes(v) ? sizes : [...sizes, v] })} className={`h-7 rounded-full px-3 text-[12px] ${sizes.includes(v) ? 'bg-[var(--ink)] font-bold text-white' : 'border border-[var(--border)] text-[var(--aux)]'}`}>{v}</button>)}</div>}
+          <div className="border-t border-[var(--line)] py-3.5"><InlineAdd label={`${sizeName} 추가`} onAdd={v => { if (!sizes.includes(v)) patch({ sizes: [...sizes, v] }); }}/></div>
         </> : axes.color ? qtyRow(`${color} 수량`, optionKey(color, ''), true) : qtyRow('기본 수량', optionKey('', ''), true)}
       </div>}
       <div className="flex items-center justify-between rounded-[6px] bg-[var(--soft)] px-4 py-3.5"><div><p className="text-[13px] font-bold">총 한정 수량</p>{axes.color && colors.length > 0 && <p className="mt-0.5 text-[12px] text-[var(--meta)]">{colors.map(c => `${c} ${colorTotal(c)}`).join(' · ')}</p>}</div><p className="text-[18px] font-bold">{total}개</p></div>

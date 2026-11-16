@@ -70,7 +70,7 @@ export interface Draft {
   /** 실제 API: 서버에 만든 초안 상품 id·서버 이미지 id(images와 같은 순서) */ serverId?: string; imageIds?: string[];
   /** 사진 바이트 수(images와 같은 순서) — AI 분석 30MB 한도 확인용 */ imageSizes?: number[];
   /** 실제 API: 판매자 주소록에서 고른 출고지·반품지 id(없으면 서버가 기본 주소를 쓴다) */ dispatchAddressId?: string; returnAddressId?: string;
-  axes?: { size: boolean; color: boolean }; colors?: string[]; sizes?: string[]; stock?: Record<string, number>; extraUrls?: string[]; reference?: ReferenceListing;
+  axes?: { size: boolean; color: boolean }; /** 색상 말고 다른 옵션 축의 이름(기본 '사이즈') */ sizeName?: string; colors?: string[]; sizes?: string[]; stock?: Record<string, number>; extraUrls?: string[]; reference?: ReferenceListing;
 }
 export interface ReferenceListing { platform: string; title: string; price: number; image?: string }
 /** AI 분석 결과(RECOMMENDED). 서버는 outcome·추천 카테고리 코드·점검 질문만 준다 — 신뢰도·대안·속성은 없다 */
@@ -253,7 +253,7 @@ export function listingOptions(d: Draft): Option[] {
 }
 export function listingDimensions(d: Draft): Dimension[] {
   const axes = d.axes ?? { size: false, color: false };
-  return [...(axes.color ? [{ name: '색상', values: (d.colors ?? []).join(', ') }] : []), ...(axes.size ? [{ name: '사이즈', values: (d.sizes ?? []).join(', ') }] : [])];
+  return [...(axes.color ? [{ name: '색상', values: (d.colors ?? []).join(', ') }] : []), ...(axes.size ? [{ name: d.sizeName || '사이즈', values: (d.sizes ?? []).join(', ') }] : [])];
 }
 export function validateListing(d: Draft, now: number) {
   if (unsupportedInput(d.name, d.description) || d.ai.status === 'unsupported') throw new DomainError('지원하지 않는 상품은 등록할 수 없습니다.');

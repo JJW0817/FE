@@ -221,11 +221,11 @@ export async function answerProductInquiry(sellerId: string, productId: string, 
 /* ── 화면 초안(Draft) → 서버 단계 값 ── */
 /** 옵션 축·수량 → 서버 dimensions/variants. 수량 0인 조합은 보내지 않고(≥1 필수), 차원 값도 쓰이는 값만 보낸다 */
 export function optionPayload(d: Draft) {
-  const axes = d.axes ?? { size: false, color: false }, colors = d.colors ?? [], sizes = d.sizes ?? [], stock = d.stock ?? {};
+  const axes = d.axes ?? { size: false, color: false }, colors = d.colors ?? [], sizes = d.sizes ?? [], stock = d.stock ?? {}, sn = d.sizeName || '사이즈'; // 색상 말고 다른 축 이름(카테고리 추천 또는 직접 입력)
   type Row = { name: string; selections: Record<string, string>; qty: number };
-  const rows: Row[] = axes.color && axes.size ? colors.flatMap(c => sizes.map(s => ({ name: `${c} / ${s}`, selections: { 색상: c, 사이즈: s }, qty: stock[optionKey(c, s)] ?? 0 })))
+  const rows: Row[] = axes.color && axes.size ? colors.flatMap(c => sizes.map(s => ({ name: `${c} / ${s}`, selections: { 색상: c, [sn]: s }, qty: stock[optionKey(c, s)] ?? 0 })))
     : axes.color ? colors.map(c => ({ name: c, selections: { 색상: c }, qty: stock[optionKey(c, '')] ?? 0 }))
-    : axes.size ? sizes.map(s => ({ name: s, selections: { 사이즈: s }, qty: stock[optionKey('', s)] ?? 0 }))
+    : axes.size ? sizes.map(s => ({ name: s, selections: { [sn]: s }, qty: stock[optionKey('', s)] ?? 0 }))
     : [{ name: '기본', selections: { 옵션: '기본' }, qty: stock[optionKey('', '')] ?? 0 }]; // 추측(명세 없음): 옵션 없음 = 차원 '옵션' 값 '기본' 하나
   const used = rows.filter(r => r.qty >= 1);
   const dimensions = [...new Set(used.flatMap(r => Object.keys(r.selections)))].map(name => ({ name, values: [...new Set(used.map(r => r.selections[name]))] }));
