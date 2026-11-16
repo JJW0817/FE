@@ -13,7 +13,7 @@ const n = null as never;
 
 describe('서버 null 응답 → 빈 값', () => {
   it('내 설정(계정)', () => {
-    expect(mySettingsFromApi({ name: n, interestCategories: n, notificationSettings: n, marketingConsent: n } as never, [])).toEqual({ name: '', interests: [], saleStart: false, personalizedRecommendation: false, marketing: false });
+    expect(mySettingsFromApi({ name: n, notificationSettings: n, marketingConsent: n } as never)).toEqual({ name: '', saleStart: false, personalizedRecommendation: false, marketing: false });
   });
   it('판매자 프로필(설정 화면)', () => {
     const s = sellerSettingsFromApi({ sellerDisplayName: n, bankAccount: n, dispatchAddress: n, returnAddress: n } as never);

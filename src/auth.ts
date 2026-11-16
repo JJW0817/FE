@@ -2,7 +2,7 @@ import { initialAuth } from './domain';
 import type { State } from './domain';
 import { atomic, getState, mutate } from './store';
 import { applyAnalyticsId, syncAnalyticsIdentity } from './analytics';
-import { api, ApiError, errorMessage, getAccessToken, homePathFor, parseServerTime, rolesToFlags, saveInterests, saveMarketingConsent, saveNotificationSettings } from './api';
+import { api, ApiError, errorMessage, getAccessToken, homePathFor, parseServerTime, rolesToFlags, saveMarketingConsent, saveNotificationSettings } from './api';
 import type { AccountDto, AuthTokens, ChallengeDto, LoginDto, ResetTokenDto, VerificationTokenDto } from './api';
 import { DEMO_ACCOUNT_IDS, DEMO_LOGIN, USE_MOCK } from './config';
 import { disablePush } from './push';
@@ -35,9 +35,9 @@ function syncRoles(tokens: Pick<AuthTokens, 'accountId' | 'roles'>) {
 /** 지금 로그인한 계정이 처음 가야 할 화면 (운영자 /admin, 판매자 /seller, 그 외 홈) */
 export function homePath(s: State = getState()) { const u = s.users.find(u => u.id === s.activeUserId); return u ? homePathFor({ seller: u.seller, admin: u.admin }) : '/'; }
 
-/* ── 가입 직후 설정(관심 카테고리·알림) 보관 ── 가입·로그인 확인이 끝나기 전에 고른 값은 잃지 않게 세션 동안 보관했다가, 로그인이 끝난 뒤 저장한다 */
+/* ── 가입 직후 설정(알림) 보관 ── 가입·로그인 확인이 끝나기 전에 고른 값은 잃지 않게 세션 동안 보관했다가, 로그인이 끝난 뒤 저장한다 */
 const PENDING_KEY = 'stockdrop:pending-prefs';
-export interface PendingPrefs { interests?: string[]; sale?: boolean; recommend?: boolean; marketing?: boolean }
+export interface PendingPrefs { sale?: boolean; recommend?: boolean; marketing?: boolean }
 const readPending = (): PendingPrefs => { try { return JSON.parse(sessionStorage.getItem(PENDING_KEY) || '{}') ?? {}; } catch { return {}; } };
 const writePending = (p: PendingPrefs) => { try { Object.keys(p).length ? sessionStorage.setItem(PENDING_KEY, JSON.stringify(p)) : sessionStorage.removeItem(PENDING_KEY); } catch { /* 보관 못 해도 진행 */ } };
 export const setPendingPrefs = (patch: PendingPrefs) => writePending({ ...readPending(), ...patch });
@@ -53,7 +53,6 @@ export async function flushPendingPrefs(): Promise<boolean> {
   const p = readPending(); if (!Object.keys(p).length) return true;
   if (!(await ensureSession())) return false;
   const left: PendingPrefs = { ...p };
-  if (p.interests) { try { if (p.interests.length) await saveInterests(p.interests); delete left.interests; } catch { /* 남김 */ } }
   if (p.sale !== undefined || p.recommend !== undefined) { try { await saveNotificationSettings(!!p.sale, !!p.recommend); delete left.sale; delete left.recommend; } catch { /* 남김 */ } }
   if (p.marketing !== undefined) { try { await saveMarketingConsent(p.marketing); delete left.marketing; } catch { /* 남김 */ } }
   writePending(left); return !Object.keys(left).length;
@@ -122,7 +121,7 @@ export async function login(emailValue: string, password: string): Promise<strin
   // 표시 이름은 서버 값으로 맞춘다 (실패해도 로그인은 유지)
   api.get<AccountDto>('/v1/accounts/me').then(me => { if (me?.name) mutate(s => { const u = s.users.find(u => u.id === data.accountId); if (u) u.name = me.name; }); }).catch(() => {});
   syncAnalyticsIdentity().catch(() => {}); // 분석 참여 상태는 로그인할 때마다 서버에서 다시 받는다
-  await flushPendingPrefs(); // 로그인 전에 고른 관심 카테고리·알림 설정이 있으면 지금 저장
+  await flushPendingPrefs(); // 로그인 전에 고른 알림 설정이 있으면 지금 저장
   return homePath();
 }
 /** 가입은 성공했지만 자동 로그인이 실패했다 */
