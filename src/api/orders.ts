@@ -6,6 +6,7 @@
  */
 import type { Hold, Order, State } from '../domain';
 import { api } from './client';
+import { isApiError } from './errors';
 import { ms, orderStatus, addressFromApi, orderFromApi } from './mappers';
 import type { CheckoutTermsDto, OrderCommandDto, OrderItemDto, OrderListItemDto, OrderDetailDto, OrderState } from './types';
 
@@ -60,6 +61,18 @@ export async function getOrder(id: string, userId: string, signal?: AbortSignal)
 /** POST /v1/orders — 주문 생성·재고 확보 (202 접수). requestKey가 같으면 같은 주문을 돌려준다 */
 export function createOrder(b: { productId: string; items: { optionId: string; quantity: number }[]; addressId: string; requestKey?: string }): Promise<OrderCommandDto> {
   return api.post<OrderCommandDto>('/v1/orders', { requestKey: crypto.randomUUID(), ...b }, { service: purchase });
+}
+/** 판매 시작 직후 ORDER_UNAVAILABLE(503, 외부 연동 준비 전)이면 waitMs 뒤 retries번까지 다시 시도한다.
+ * onWait()이 false면(화면을 닫음) 멈추고 undefined. 다른 에러나 재시도 소진은 그대로 던진다 */
+export async function retryWhileUnavailable<T>(run: () => Promise<T>, onWait: () => boolean, retries = 2, waitMs = 2500): Promise<T | undefined> {
+  for (let attempt = 0; ; attempt++) {
+    try { return await run(); }
+    catch (e) {
+      if (!isApiError(e, 'ORDER_UNAVAILABLE') || attempt >= retries || !onWait()) throw e;
+      await new Promise(r => setTimeout(r, waitMs));
+      if (!onWait()) return undefined;
+    }
+  }
 }
 /** GET /v1/orders/{id}/checkout — 결제 화면 진입·새로고침·결과 확인 (Command 원본) */
 export const getCheckout = (id: string, signal?: AbortSignal) => api.get<OrderCommandDto>(`/v1/orders/${enc(id)}/checkout`, { service: purchase, signal });

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { api } from './client';
-import { changeShippingAddress, confirmPayment, createOrder, getCheckout, getCheckoutTerms, getOrder, getPaymentClientKey, holdFromApi, holdStatus, listOrders, mergeCheckout, mergeOrderList, orderFromCommand, requestPayment } from './orders';
+import { api, ApiError } from './client';
+import { changeShippingAddress, confirmPayment, createOrder, getCheckout, getCheckoutTerms, getOrder, getPaymentClientKey, holdFromApi, holdStatus, listOrders, mergeCheckout, mergeOrderList, orderFromCommand, requestPayment, retryWhileUnavailable } from './orders';
 import { emptyState } from '../domain';
 import type { OrderCommandDto, OrderListItemDto } from './types';
 
@@ -87,4 +87,24 @@ describe('API 호출', () => {
     const seen: string[] = []; const d = await confirmPayment('o1', { paymentKey: 'pk', termsVersion: 'v1' }, x => seen.push(x.state));
     expect(d.state).toBe('CONFIRMED'); expect(seen).toEqual(['VERIFYING_PAYMENT', 'CONFIRMED']);
   }, 10_000);
+});
+
+describe('판매 시작 직후 ORDER_UNAVAILABLE 재시도', () => {
+  const unavailable = () => new ApiError('외부 연동 설정이나 응답이 준비되지 않았습니다', 503, 'ORDER_UNAVAILABLE');
+  it('두 번까지 다시 시도해 성공하면 결과를 돌려준다', async () => {
+    const run = vi.fn().mockRejectedValueOnce(unavailable()).mockRejectedValueOnce(unavailable()).mockResolvedValue('o1');
+    const onWait = vi.fn(() => true);
+    await expect(retryWhileUnavailable(run, onWait, 2, 0)).resolves.toBe('o1');
+    expect(run).toHaveBeenCalledTimes(3);
+  });
+  it('재시도를 다 쓰면 ORDER_UNAVAILABLE을 그대로 던지고, 다른 에러는 바로 던진다', async () => {
+    await expect(retryWhileUnavailable(vi.fn().mockRejectedValue(unavailable()), () => true, 2, 0)).rejects.toMatchObject({ code: 'ORDER_UNAVAILABLE' });
+    const other = vi.fn().mockRejectedValue(new ApiError('x', 409, 'ORDER_DUPLICATE'));
+    await expect(retryWhileUnavailable(other, () => true, 2, 0)).rejects.toMatchObject({ code: 'ORDER_DUPLICATE' }); expect(other).toHaveBeenCalledTimes(1);
+  });
+  it('기다리는 사이 화면을 닫으면 멈춘다', async () => {
+    let open = true; const run = vi.fn().mockRejectedValue(unavailable());
+    await expect(retryWhileUnavailable(run, () => { const o = open; open = false; return o; }, 2, 0)).resolves.toBeUndefined();
+    expect(run).toHaveBeenCalledTimes(1);
+  });
 });
