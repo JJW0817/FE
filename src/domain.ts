@@ -91,6 +91,12 @@ export const uid = (prefix = '') => `${prefix}${globalThis.crypto?.randomUUID?.(
 export const localDateTime = (n: number) => { const d = new Date(n); return new Date(n - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16); };
 export const nowOf = (s: State) => Date.now() + s.clockOffset;
 export const activeUser = (s: State) => s.users.find(u => u.id === s.activeUserId)!;
+/** 구매할 수 없는 계정: 운영자, 또는 이 상품의 판매자 본인. 서버가 403(COMMON_FORBIDDEN)으로 거절할 때도 같은 안내를 쓴다 */
+export function purchaseBlock(s: State, p: Pick<Product, 'sellerId'>): 'admin' | 'own' | null {
+  const u = s.users.find(x => x.id === s.activeUserId);
+  return u?.admin ? 'admin' : p.sellerId && p.sellerId === s.activeUserId ? 'own' : null;
+}
+export const PURCHASE_BLOCK_TEXT = { admin: '운영자 계정은 구매할 수 없어요', own: '내가 판매하는 상품이에요' } as const;
 export const defaultAddress: Address = { name: '김서윤', phone: '010-1234-5678', address: '서울시 성동구 연무장길 00', detail: '501호', request: '문 앞에 놓아 주세요.' };
 export function blankDraft(now = Date.now()): Draft {
   return { step: 1, name: '', brand: '', description: '', images: [], category: '', originalUrl: '', extras: [{ key: '', value: '' }], reason: '', dimensions: [{ name: '색상', values: '' }], noOptions: false, options: [], price: 0, shipping: 3000, dispatchDays: 2, maxPerAccount: 2, startsAt: localDateTime(now + 3_600_000), faqs: [], ai: { status: 'before', signature: '', category: '', reason: '' } };
