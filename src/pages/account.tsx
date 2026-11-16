@@ -208,6 +208,63 @@ function UrlCard({ url, viewed, onView }: { url: string; viewed: boolean; onView
     </div>
   );
 }
+/** 두 심사를 한눈에 구분: 입점 심사(판매자 신청)=파랑, 판매 심사(상품)=주황 */
+export const REVIEW_KIND = { store: { label: '입점 심사', cls: 'bg-[#EAF1FF] text-[#2F6FED]', bar: 'border-l-[#2F6FED]' }, sale: { label: '판매 심사', cls: 'bg-[#FFF1E5] text-[#D9730D]', bar: 'border-l-[#D9730D]' } } as const;
+export function ReviewKindBadge({ kind }: { kind: keyof typeof REVIEW_KIND }) { return <span className={`inline-flex h-[20px] shrink-0 items-center rounded-[4px] px-2 text-[11px] font-bold ${REVIEW_KIND[kind].cls}`}>{REVIEW_KIND[kind].label}</span>; }
+/** 판매 심사 대기: 승인·반려 전 상품 */
+const salePending = (p: { published: boolean; rejectionReason?: string; reviewStatus?: string }) => USE_MOCK ? !p.published && !p.rejectionReason : p.reviewStatus === 'IN_REVIEW';
+/** 운영자 마이페이지 — 운영자 계정은 구매자 홈·판매 일정·주문 없이 이 화면에서 시작한다 */
+export function AdminMyPage() {
+  const s = useStore(), user = activeUser(s);
+  const apps = useLive(sig => user.admin ? listAdminApplications({}, sig) : Promise.resolve([]), mergeAdminApplications, [user.admin]);
+  const reviews = useLive(sig => user.admin ? listAdminProductReviews('IN_REVIEW', sig) : Promise.resolve([]), mergeAdminProductList, [user.admin]);
+  if (!user.admin) return <Unavailable message="운영자만 사용할 수 있습니다."/>;
+  const storeWaiting = s.applications.filter(a => a.status === 'pending').length, saleWaiting = s.products.filter(salePending).length;
+  const count = (n: number, kind: keyof typeof REVIEW_KIND) => <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${n ? REVIEW_KIND[kind].cls : 'bg-[var(--soft)] text-[var(--muted)]'}`}>대기 {n}건</span>;
+  return <div className="space-y-5">
+    <Header title="운영자 마이페이지" subtitle="입점 심사와 판매 심사를 처리해 주세요." back={false}/>
+    <div className="flex items-center gap-3 pb-1"><div className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-[4px] bg-[var(--ink)] text-[16px] font-bold text-[var(--surface)]">OP</div><div className="min-w-0 flex-1"><h2 className="break-words text-[17px] font-bold">{user.name}</h2><p className="muted mt-1 break-all text-[12px]">{user.email}</p></div></div>
+    <LiveStatus state={apps.error ? apps : reviews}/>
+    <div>
+      <MenuRow to="/admin/applications" label="입점 심사">{count(storeWaiting, 'store')}</MenuRow>
+      <MenuRow to="/admin/products" label="판매 심사">{count(saleWaiting, 'sale')}</MenuRow>
+      <MenuRow to="/admin/sellers" label="판매자 목록"/>
+      <MenuRow to="/admin/inquiries" label="문의 관리"/>
+    </div>
+    <div className="text-center"><LogoutButton/></div>
+  </div>;
+}
+/** 판매자 목록 — TODO(api-gap): 운영자 판매자 목록 API가 명세에 없다. 승인된 입점 신청(GET /admin/seller-applications?status=APPROVED)으로 대신 보여 준다(판매 제한 여부 등은 없음) */
+export function AdminSellersPage() {
+  const s = useStore(), user = activeUser(s);
+  const live = useLive(sig => user.admin ? listAdminApplications({ status: 'APPROVED' }, sig) : Promise.resolve([]), mergeAdminApplications, [user.admin]);
+  if (!user.admin) return <Unavailable message="운영자만 사용할 수 있습니다."/>;
+  const sellers = s.applications.filter(a => a.status === 'approved').sort((a, b) => (b.approvedAt ?? 0) - (a.approvedAt ?? 0));
+  return <div>
+    <Header title="판매자 목록" subtitle={`입점 심사를 통과한 판매자 ${sellers.length}명`}/>
+    {sellers.map(a => <Link key={a.id} to={`/admin/${a.id}`} className="divider flex items-center gap-3 py-4"><div className="grid h-11 w-11 shrink-0 place-items-center rounded-[4px] bg-[#F5F5F5]"><Store size={20} className="text-[#7B7B7B]"/></div><div className="min-w-0 flex-1"><p className="text-[14px] font-bold">{a.displayName || `${a.name}의 스토어`}</p><p className="muted mt-0.5 text-[12px]">{a.name} · {a.email}</p>{a.approvedAt && <p className="muted text-[11px]">{dateTime(a.approvedAt)} 승인</p>}</div><span className="muted">›</span></Link>)}
+    <LiveStatus state={live}/>
+    {!live.loading && !live.error && !sellers.length && <Empty title="승인된 판매자가 없어요"/>}
+  </div>;
+}
+/** 문의 관리(StockDrop 1:1 문의) — TODO(api-gap): 운영자 문의 조회·답변 API가 명세에 없어 mock(이 기기 저장) 유지 */
+export function AdminInquiriesPage() {
+  const s = useStore(), user = activeUser(s), toast = useToast(); const [open, setOpen] = useState(''), [answer, setAnswer] = useState('');
+  if (!user.admin) return <Unavailable message="운영자만 사용할 수 있습니다."/>;
+  const items = s.inquiries.filter(q => q.sellerId === 'stockdrop').sort((a, b) => Number(!!a.answer) - Number(!!b.answer) || b.createdAt - a.createdAt);
+  return <div>
+    <Header title="문의 관리" subtitle={`답변 대기 ${items.filter(q => !q.answer).length}건 · 1:1 문의`}/>
+    {!USE_MOCK && <Note title="준비 중">운영자 문의 API가 아직 없어 이 기기에 있는 문의만 보여요.</Note>}
+    {items.map(q => <div key={q.id} className="divider space-y-2 py-4">
+      <button className="w-full space-y-1 text-left" aria-expanded={open === q.id} onClick={() => { setOpen(open === q.id ? '' : q.id); setAnswer(''); }}>
+        <div className="flex items-center justify-between gap-2"><span className={`rounded px-2 py-0.5 text-[10px] font-semibold ${q.answer ? 'bg-[#EEF8F3] text-[#3FB181]' : 'bg-[var(--soft)] text-[var(--muted)]'}`}>{q.answer ? '답변 완료' : '답변 대기'}</span><span className="muted text-[10px]">{q.kind} · {dateTime(q.createdAt)}</span></div>
+        <p className={`text-[13px] ${open === q.id ? 'whitespace-pre-line' : 'truncate'}`}>{q.question}</p>
+      </button>
+      {open === q.id && (q.answer ? <div className="rounded-[6px] border border-[var(--line)] p-3 text-[12px] leading-relaxed whitespace-pre-line">{q.answer}</div> : <div className="space-y-2"><textarea aria-label="문의 답변" className="field field-box w-full" rows={3} maxLength={1000} value={answer} onChange={e => setAnswer(e.target.value)} placeholder="답변을 입력해 주세요"/><Button className="w-full" disabled={!answer.trim()} onClick={() => { mutate(st => { const it = st.inquiries.find(x => x.id === q.id); if (it) it.answer = answer.trim(); }); setOpen(''); toast('답변을 등록했습니다.'); }}>답변 등록</Button></div>)}
+    </div>)}
+    {!items.length && <Empty title="받은 문의가 없어요"/>}
+  </div>;
+}
 export function AdminListPage() {
   const s = useStore(), user = activeUser(s); const [tab, setTab] = useState<'pending' | 'approved'>('pending');
   const live = useLive(sig => user.admin ? listAdminApplications({}, sig) : Promise.resolve([]), mergeAdminApplications, [user.admin]);
@@ -216,9 +273,8 @@ export function AdminListPage() {
   const apps = all.filter(a => a.status === tab).sort((a, b) => a.submittedAt - b.submittedAt);
   const reviewDeadline = (sub: number) => sub + 2 * 86_400_000;
   return (
-    <>
-      <Header title="판매자 신청 검토" subtitle="운영자 전용 · 사업자등록증과 판매 URL을 확인하고 승인해 주세요." back={false}/>
-      <Link className="btn btn-outline w-full mb-4" to="/admin/products">상품 심사 목록 →</Link>
+    <div className={`border-l-4 ${REVIEW_KIND.store.bar} -ml-4 pl-3`}>
+      <Header title="입점 심사 목록" subtitle="판매자 신청 · 사업자등록증과 판매 URL을 확인하고 승인해 주세요." action={<ReviewKindBadge kind="store"/>}/>
       <div className="mb-3 flex gap-5 border-b border-[var(--line)]">
         {(['pending', 'approved'] as const).map(t => (
           <button key={t} onClick={() => setTab(t)} className={`border-b-2 py-3 text-[14px] ${tab === t ? 'border-[var(--ink)] font-bold text-[var(--ink)]' : 'border-transparent text-[#949494]'}`}>
@@ -260,7 +316,7 @@ export function AdminListPage() {
         <p className="text-[13px] font-bold">첨부된 사업자등록증 PDF와 판매 URL을 검토합니다.</p>
         <p className="text-[12px] text-[#7B7B7B]">신청 상세에서 PDF와 타 플랫폼 판매 페이지를 모두 열람한 뒤<br/>승인하거나 반려해 주세요.</p>
       </div>
-    </>
+    </div>
   );
 }
 export function AdminDetailPage() {
@@ -275,8 +331,9 @@ export function AdminDetailPage() {
   const dDay = Math.ceil((reviewDeadline - Date.now()) / 86_400_000);
   const bothViewed = pdfViewed && (urlViewed || !app.salesUrl);
   return (
-    <div className="pb-32">
-      <Header title="입점 심사" back={true} action={<span className="text-[11px] font-bold text-[#949494]">{app.id}</span>}/>
+    <div className={`pb-32 border-l-4 ${REVIEW_KIND.store.bar} -ml-4 pl-3`}>
+      <Header title="입점 심사 상세" back={true} action={<ReviewKindBadge kind="store"/>}/>
+      <p className="-mt-3 mb-3 text-[11px] font-bold text-[#949494]">판매자 신청 · {app.id}</p>
       {/* Meta */}
       <div className="mb-4 flex items-center gap-2">
         <span className="inline-flex h-[18px] items-center rounded-[4px] bg-[var(--soft)] px-2 text-[11px] font-bold text-[#7B7B7B]">심사 대기</span>
@@ -344,9 +401,9 @@ export function AdminDetailPage() {
       </div>
       <ErrorBox message={error}/>
       {app.status === 'approved'
-        ? <><div className="rounded-[4px] bg-[#EEF8F3] p-4"><p className="text-[13px] font-bold text-[#3FB181]">판매자 권한 추가 완료</p><p className="mt-1 text-[12px] text-[#7B7B7B]">승인 일시 {dateTime(app.approvedAt!)} · 처리자 운영자</p></div><Link className="btn w-full mt-4" to="/admin">신청 목록으로</Link></>
+        ? <><div className="rounded-[4px] bg-[#EEF8F3] p-4"><p className="text-[13px] font-bold text-[#3FB181]">판매자 권한 추가 완료</p><p className="mt-1 text-[12px] text-[#7B7B7B]">승인 일시 {dateTime(app.approvedAt!)} · 처리자 운영자</p></div><Link className="btn w-full mt-4" to="/admin/applications">신청 목록으로</Link></>
         : app.status === 'rejected'
-        ? <><Note title="반려 처리됨">{app.rejectionItems?.map(i => i.reason).join(' ') || '반려 사유가 판매자에게 전달됐어요.'}</Note><Link className="btn btn-outline mt-4 w-full" to="/admin">신청 목록으로</Link></>
+        ? <><Note title="반려 처리됨">{app.rejectionItems?.map(i => i.reason).join(' ') || '반려 사유가 판매자에게 전달됐어요.'}</Note><Link className="btn btn-outline mt-4 w-full" to="/admin/applications">신청 목록으로</Link></>
         : <div className="fixed bottom-0 left-1/2 w-full max-w-[390px] -translate-x-1/2 bg-white px-4 pb-8 pt-3">
             <p className="mb-2 text-center text-[12px] text-[#949494]">{bothViewed ? '사업자등록증과 판매 URL을 모두 열람했어요' : '사업자등록증 PDF와 판매 URL을 먼저 열람해 주세요.'}</p>
             <div className="flex gap-2">
@@ -365,7 +422,7 @@ export function AdminDetailPage() {
             <ErrorBox message={error}/>
             <div className="flex gap-2">
               <Button outline className="w-[86px]" onClick={() => setRejecting(false)} disabled={busy}>취소</Button>
-              <Button className="flex-1" disabled={busy || !rejectReason.trim()} onClick={async () => { setBusy(true); setError(''); try { if (!USE_MOCK) { await rejectSellerApplication(app.id, rejectReason); mutate(state => markApplication(state, app.id, 'rejected', Date.now(), rejectReason.trim())); } else await atomic(state => { if (!activeUser(state).admin) throw new Error('운영자만 반려할 수 있습니다.'); const item = state.applications.find(a => a.id === app.id); if (!item || item.status !== 'pending') throw new Error('이미 처리된 신청입니다.'); item.status = 'rejected'; item.rejectedAt = nowOf(state); item.reviewedAt = nowOf(state); item.rejectionItems = [{ field: '입점 심사', reason: rejectReason.trim() }]; }); toast('입점 신청을 반려했습니다.'); navigate('/admin'); } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); } }}>{busy ? '처리 중…' : '반려하기'}</Button>
+              <Button className="flex-1" disabled={busy || !rejectReason.trim()} onClick={async () => { setBusy(true); setError(''); try { if (!USE_MOCK) { await rejectSellerApplication(app.id, rejectReason); mutate(state => markApplication(state, app.id, 'rejected', Date.now(), rejectReason.trim())); } else await atomic(state => { if (!activeUser(state).admin) throw new Error('운영자만 반려할 수 있습니다.'); const item = state.applications.find(a => a.id === app.id); if (!item || item.status !== 'pending') throw new Error('이미 처리된 신청입니다.'); item.status = 'rejected'; item.rejectedAt = nowOf(state); item.reviewedAt = nowOf(state); item.rejectionItems = [{ field: '입점 심사', reason: rejectReason.trim() }]; }); toast('입점 신청을 반려했습니다.'); navigate('/admin/applications'); } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); } }}>{busy ? '처리 중…' : '반려하기'}</Button>
             </div>
           </div>
         </div>
@@ -384,7 +441,7 @@ export function AdminDetailPage() {
             <ErrorBox message={error}/>
             <div className="flex gap-2">
               <Button outline className="w-[86px]" onClick={() => setConfirm(false)} disabled={busy}>취소</Button>
-              <Button className="flex-1" disabled={busy} onClick={async () => { setBusy(true); try { if (!USE_MOCK) { await approveSellerApplication(app.id); mutate(state => markApplication(state, app.id, 'approved', Date.now())); } else await atomic(state => approveApplication(state, state.activeUserId, app.id, nowOf(state))); setConfirm(false); toast('판매자로 승인했습니다.'); navigate('/admin'); } catch (e) { setError(errorMessage(e)); setConfirm(false); } finally { setBusy(false); } }}>{busy ? '승인 중…' : '승인하기'}</Button>
+              <Button className="flex-1" disabled={busy} onClick={async () => { setBusy(true); try { if (!USE_MOCK) { await approveSellerApplication(app.id); mutate(state => markApplication(state, app.id, 'approved', Date.now())); } else await atomic(state => approveApplication(state, state.activeUserId, app.id, nowOf(state))); setConfirm(false); toast('판매자로 승인했습니다.'); navigate('/admin/applications'); } catch (e) { setError(errorMessage(e)); setConfirm(false); } finally { setBusy(false); } }}>{busy ? '승인 중…' : '승인하기'}</Button>
             </div>
           </div>
         </div>
@@ -400,8 +457,8 @@ export function AdminProductListPage() {
   const pendingCount = s.products.filter(p => !p.published).length;
   const approvedCount = s.products.filter(p => p.published).length;
   return (
-    <div>
-      <Header title="판매 심사 목록" subtitle="운영자 전용 · 판매 심사 요청 목록입니다." back={true}/>
+    <div className={`border-l-4 ${REVIEW_KIND.sale.bar} -ml-4 pl-3`}>
+      <Header title="판매 심사 목록" subtitle="상품 · 판매 정보와 물품 상태를 확인하고 승인해 주세요." back={true} action={<ReviewKindBadge kind="sale"/>}/>
       <div className="mb-4 flex gap-5 border-b border-[var(--line)]">
         {([['pending', '심사 대기', pendingCount], ['approved', '승인 완료', approvedCount]] as [string, string, number][]).map(([t, label, cnt]) => (
           <button key={t} onClick={() => setTab(t as 'pending' | 'approved')} className={`border-b-2 py-3 text-[14px] ${tab === t ? 'border-[var(--ink)] font-bold text-[var(--ink)]' : 'border-transparent text-[#949494]'}`}>
@@ -477,7 +534,7 @@ export function AdminProductDetailPage() {
       <div className="pb-8">
         <div className="mb-4 flex items-center gap-3">
           <button aria-label="이전 화면" onClick={() => setReject(false)} className="-ml-1 flex h-8 w-8 items-center justify-center"><ArrowLeft size={22}/></button>
-          <h1 className="text-[18px] font-bold">판매 반려</h1>
+          <h1 className="flex-1 text-[18px] font-bold">판매 심사 반려</h1><ReviewKindBadge kind="sale"/>
         </div>
         {/* Product card */}
         <div className="mb-6 flex items-center gap-3 rounded-[6px] bg-[var(--soft)] px-4 py-3">
@@ -531,8 +588,9 @@ export function AdminProductDetailPage() {
   }
   // 상품 승인 화면
   return (
-    <div className="pb-32">
-      <Header title="판매 심사" back={true} action={<span className="text-[11px] font-bold text-[#949494]">{p.id}</span>}/>
+    <div className={`pb-32 border-l-4 ${REVIEW_KIND.sale.bar} -ml-4 pl-3`}>
+      <Header title="판매 심사 상세" back={true} action={<ReviewKindBadge kind="sale"/>}/>
+      <p className="-mt-3 mb-3 text-[11px] font-bold text-[#949494]">상품 · {p.id}</p>
       {/* Meta */}
       {p.published
         ? <div className="mb-4 inline-flex h-[18px] items-center rounded-[4px] bg-[#EEF8F3] px-2 text-[11px] font-bold text-[#3FB181]">승인 완료</div>

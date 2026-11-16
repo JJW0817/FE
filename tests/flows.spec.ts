@@ -72,9 +72,9 @@ test('사업자 PDF 신청 후 운영자 승인 시 기존 구매 권한과 주�
   const orderCount = (await state(page)).orders.length;
   await editState(page, s => { s.applications.push({ id: 'SP-E2E-1', userId: 'buyer', displayName: '나의 상점', name: '김서윤', email: 'buyer@example.com', phone: '01012345678', document: { id: 'doc-e2e', name: '사업자등록증.pdf', size: 1, uploadedAt: Date.now() }, bank: '신한은행', account: '110123456789', shippingAddress: '서울시 성동구 성수이로 10', returnAddress: '서울시 성동구 성수이로 10', status: 'pending', submittedAt: Date.now() }); });
   const app = { id: 'SP-E2E-1', displayName: '나의 상점' };
-  await actor(page, 'admin'); await page.goto('/#/admin'); await page.getByRole('link', { name: new RegExp(app.displayName) }).click(); await expect(page).toHaveURL(new RegExp(`#/admin/${app.id}$`));
+  await actor(page, 'admin'); await page.goto('/#/admin/applications'); await page.getByRole('link', { name: new RegExp(app.displayName) }).click(); await expect(page).toHaveURL(new RegExp(`#/admin/${app.id}$`));
   await expect(page.getByRole('button', { name: '승인하기', exact: true })).toBeDisabled(); await page.getByRole('button', { name: '열람하기' }).click();
-  await page.getByRole('button', { name: '승인하기', exact: true }).click(); await page.getByRole('button', { name: '승인하기', exact: true }).last().click(); await expect(page).toHaveURL(/#\/admin$/); expect((await state(page)).applications.find((a: any) => a.id === app.id).status).toBe('approved');
+  await page.getByRole('button', { name: '승인하기', exact: true }).click(); await page.getByRole('button', { name: '승인하기', exact: true }).last().click(); await expect(page).toHaveURL(/#\/admin\/applications$/); expect((await state(page)).applications.find((a: any) => a.id === app.id).status).toBe('approved');
   await actor(page, 'buyer'); await page.goto('/#/my'); await expect(page.getByRole('button', { name: '판매자 모드로 전환' })).toBeVisible(); expect((await state(page)).orders).toHaveLength(orderCount); await page.getByRole('button', { name: '판매자 모드로 전환' }).click(); await expect(page).toHaveURL(/#\/seller$/);
   await page.goto('/#/seller/my'); await page.getByRole('button', { name: '구매자 모드로 전환' }).click(); await expect(page).toHaveURL(/#\/$/); await expect(page.getByRole('navigation', { name: '구매자 하단 메뉴' })).toBeVisible();
 });
@@ -83,7 +83,7 @@ test('운영자 입점 반려는 확인창을 거쳐 목록으로 돌아간다',
   await editState(page, s => { s.applications.push({ id: 'SP-TEST-1', userId: 'buyer', displayName: '반려 테스트 상점', name: '김서윤', email: 'buyer@example.com', phone: '01012345678', document: { id: 'doc-x', name: '사업자등록증.pdf', size: 1, uploadedAt: Date.now() }, bank: '신한은행', account: '110123456789', shippingAddress: '서울', returnAddress: '서울', salesUrl: 'https://coupang.com/vp/products/7348215906', status: 'pending', submittedAt: Date.now() }); });
   await actor(page, 'admin'); await page.goto('/#/admin/SP-TEST-1'); await page.getByRole('button', { name: '열람하기' }).click(); await expect(page.getByRole('button', { name: '반려', exact: true })).toBeDisabled(); const popup = page.waitForEvent('popup'); await page.getByRole('link', { name: '열기', exact: true }).click(); await (await popup).close();
   await page.getByRole('button', { name: '반려', exact: true }).click(); await expect(page.getByRole('button', { name: '반려하기' })).toBeDisabled(); await page.getByLabel('입점 반려 사유').fill('사업자등록증 상호와 표시 이름이 달라요.'); await page.getByRole('button', { name: '반려하기' }).click();
-  await expect(page).toHaveURL(/#\/admin$/); expect((await state(page)).applications.find((a: any) => a.id === 'SP-TEST-1').status).toBe('rejected');
+  await expect(page).toHaveURL(/#\/admin\/applications$/); expect((await state(page)).applications.find((a: any) => a.id === 'SP-TEST-1').status).toBe('rejected');
 });
 
 test('비PDF 업로드·운영자 접근·승인 전 상품 등록 차단', async ({ page }) => {
