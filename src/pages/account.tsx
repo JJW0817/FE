@@ -15,6 +15,7 @@ import { changePassword, restoreSession, validPassword } from '../auth';
 import { USE_MOCK } from '../config';
 import { ApiError, apiPut, apiDelete, approveSellerApplication, decideProductReview, errorMessage, getAdminApplication, getAdminProductReviewWithImages, listAdminApplications, listAdminProductReviews, markApplication, mergeAdminApplications, mergeAdminProductList, mergeProducts, rejectSellerApplication, reviewCertificate, fetchMyApplication, mergeApplication, resubmitApplication, submitApplication, updateMyName, addInquiryMessage, getInquiryImageUrl, getOrderInquiry, listInquiryInbox, mergeInquiries, useLive } from '../api';
 import { failTab, getPdf, openPendingTab } from '../files';
+import { RevisionList, useRevisionQueue } from './revisions';
 function ProfileEditModal({ userId, name: initialName, phone: initialPhone, onClose }: { userId: string; name: string; phone: string; onClose: () => void }) {
   const [name, setName] = useState(initialName), [phone, setPhone] = useState(initialPhone), [error, setError] = useState(''), [busy, setBusy] = useState(false); const toast = useToast();
   return <Modal title="내 정보 수정" onClose={onClose}><form className="space-y-4" onSubmit={async e => { e.preventDefault(); if (!name.trim()) { setError('이름을 입력해 주세요.'); return; } setBusy(true); setError(''); try { if (!USE_MOCK) await updateMyName(name.trim()); /* TODO(api-gap): 연락처 수정 API 없음 — 연락처는 이 기기에만 저장 */ mutate(s => { const u = s.users.find(u => u.id === userId); if (u) { u.name = name.trim(); u.phone = phone.trim(); } }); toast('정보를 수정했습니다.'); onClose(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }}><Field label="이름" required><input aria-label="이름" className="field" value={name} onChange={e => setName(e.target.value)} required/></Field><Field label="연락처"><input aria-label="연락처" className="field" value={phone} onChange={e => setPhone(e.target.value)} type="tel"/></Field><p className="muted text-[11px]">이메일은 변경할 수 없습니다.</p><ErrorBox message={error}/><Button type="submit" className="w-full" disabled={busy}>{busy ? '저장 중…' : '저장하기'}</Button></form></Modal>;
@@ -451,6 +452,8 @@ export function AdminDetailPage() {
 }
 export function AdminProductListPage() {
   const s = useStore(), user = activeUser(s); const [tab, setTab] = useState<'pending' | 'approved'>('pending');
+  const [params, setParams] = useSearchParams(); const kind = params.get('kind') === 'revision' ? 'revision' : 'new'; // 신규 / 수정 심사 탭
+  const revisions = useRevisionQueue(user.admin);
   const live = useLive(async sig => user.admin ? (await Promise.all((['IN_REVIEW', 'REJECTED', 'APPROVED'] as const).map(st => listAdminProductReviews(st, sig)))).flat() : [], mergeAdminProductList, [user.admin]);
   if (!user.admin) return <Unavailable message="운영자만 사용할 수 있습니다."/>;
   const products = s.products.filter(p => tab === 'pending' ? !p.published : p.published);
@@ -459,6 +462,12 @@ export function AdminProductListPage() {
   return (
     <div className={`border-l-4 ${REVIEW_KIND.sale.bar} -ml-4 pl-3`}>
       <Header title="판매 심사 목록" subtitle="상품 · 판매 정보와 물품 상태를 확인하고 승인해 주세요." back={true} action={<ReviewKindBadge kind="sale"/>}/>
+      <div className="mb-3 grid grid-cols-2 gap-1 rounded-[6px] bg-[var(--soft)] p-1 text-[13px]" role="tablist">
+        {([['new', '신규', pendingCount], ['revision', '수정', revisions.data?.length ?? 0]] as [string, string, number][]).map(([k, label, cnt]) => (
+          <button key={k} role="tab" aria-selected={kind === k} onClick={() => setParams(k === 'new' ? {} : { kind: k })} className={`rounded-[4px] py-2 ${kind === k ? 'bg-[var(--surface)] font-bold' : 'text-[#7B7B7B]'}`}>{label} 대기 {cnt}건</button>
+        ))}
+      </div>
+      {kind === 'revision' ? <><RevisionList items={revisions.data ?? []}/><LiveStatus state={{ loading: revisions.loading, error: revisions.error, reload: revisions.reload }}/></> : <>
       <div className="mb-4 flex gap-5 border-b border-[var(--line)]">
         {([['pending', '심사 대기', pendingCount], ['approved', '승인 완료', approvedCount]] as [string, string, number][]).map(([t, label, cnt]) => (
           <button key={t} onClick={() => setTab(t as 'pending' | 'approved')} className={`border-b-2 py-3 text-[14px] ${tab === t ? 'border-[var(--ink)] font-bold text-[var(--ink)]' : 'border-transparent text-[#949494]'}`}>
@@ -494,6 +503,7 @@ export function AdminProductListPage() {
       })}
       <LiveStatus state={live}/>
       {!live.loading && !live.error && !products.length && <Empty title={tab === 'pending' ? '심사 대기 중인 상품이 없어요' : '승인한 상품이 없어요'}/>}
+      </>}
     </div>
   );
 }

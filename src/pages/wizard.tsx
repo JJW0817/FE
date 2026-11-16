@@ -425,7 +425,7 @@ export function WizardPage() {
     <ErrorBox message={error}/>
     <div className="space-y-3 pt-4">
       <p className="text-center text-[12px] text-[var(--meta)]">{editId ? '수정 내용은 판매 심사 후 반영돼요 · 영업일 기준 1일 이내' : '판매 심사(물품 확인 포함)는 영업일 기준 1일 이내에 완료돼요'}</p>
-      <Button className="w-full text-[15px]!" disabled={busy || uploading || blocked} onClick={submit}>{busy ? '요청 중…' : editId ? (editing?.reviewStatus === 'REJECTED' ? '수정하고 재심사 요청' : '수정 내용 저장') : '판매 심사 요청하기'}</Button>
+      <Button className="w-full text-[15px]!" disabled={busy || uploading || blocked} onClick={submit}>{busy ? '요청 중…' : editId ? (editing?.reviewStatus === 'REJECTED' ? '수정하고 재심사 요청' : '수정 심사 요청') : '판매 심사 요청하기'}</Button>
     </div>
 
     {photo !== null && d.images[photo] && <Modal title={`상품 사진 ${photo + 1}`} onClose={() => setPhoto(null)}><div className="space-y-3"><ProductImage src={d.images[photo]} alt="선택한 사진" className="aspect-square w-full"/>{photo > 0 && <Button className="w-full" onClick={() => void coverPhoto(photo)}>대표 사진으로 지정</Button>}<Button outline className="w-full" onClick={() => void removePhoto(photo)}>삭제</Button></div></Modal>}
