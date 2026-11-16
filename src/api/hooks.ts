@@ -18,7 +18,6 @@ export function useApi<T>(load: (signal: AbortSignal) => Promise<T>, deps: reado
       error => { if (!controller.signal.aborted) setState(s => ({ data: s.data, loading: false, error: errorMessage(error) })); },
     );
     return () => controller.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, tick]);
   return { ...state, reload: useCallback(() => setTick(n => n + 1), []) };
 }
@@ -30,7 +29,6 @@ export function useAction<A extends unknown[], R>(action: (...args: A) => Promis
   const run = useCallback(async (...args: A) => {
     setBusy(true); setError('');
     try { return await action(...args); } catch (e) { setError(errorMessage(e)); return undefined; } finally { setBusy(false); }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [action]);
   return { run, busy, error, clear: () => setError('') };
 }

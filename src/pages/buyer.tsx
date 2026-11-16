@@ -95,12 +95,12 @@ export function ProductPage() {
   useEffect(() => { if (rebuy) navigate(loc.pathname, { replace: true, state: null }); }, []);
   const [resume] = useState<Record<string, number> | undefined>(() => { try { const v = JSON.parse(sessionStorage.getItem(PENDING_BUY) || 'null'); sessionStorage.removeItem(PENDING_BUY); return v?.productId === id ? v.quantities : undefined; } catch { return undefined; } });
   useEffect(() => { if (resume) setOptionsOpen(true); }, []);
+  const [notified, setNotified] = useState(() => { try { return JSON.parse(localStorage.getItem('stockdrop:notified-products') || '[]').includes(id); } catch { return false; } }); // Hook은 early return 위에 둔다(조건부 호출 금지)
   // 목록에서 받은 요약(옵션 없음)만 있으면 상세가 올 때까지 기다린다
   if (!p || !p.published || (p.live && !p.options.length)) return live.loading || live.error ? <LiveStatus state={live}/> : <Empty title="상품을 찾을 수 없어요"><Link to="/" className="btn">홈으로</Link></Empty>;
   const status = saleState(p, now), qty = stockLeft(s, p, now), saved = s.bookmarks.includes(`${s.activeUserId}:${p.id}`);
   // TODO(api-gap): 찜(관심 상품) API가 명세에 없어 로컬 저장(mock) 유지
   const bookmark = () => mutate(state => { const key = `${state.activeUserId}:${p.id}`; state.bookmarks = saved ? state.bookmarks.filter(k => k !== key) : [...state.bookmarks, key]; });
-  const [notified, setNotified] = useState(() => { try { return JSON.parse(localStorage.getItem('stockdrop:notified-products') || '[]').includes(p.id); } catch { return false; } });
   const toggleNotify = () => { setNotified((v: boolean) => { const next = !v; try { const all = JSON.parse(localStorage.getItem('stockdrop:notified-products') || '[]'); localStorage.setItem('stockdrop:notified-products', JSON.stringify(next ? [...all, p.id] : all.filter((x: string) => x !== p.id))); } catch {} return next; }); };
   const soldOut = status !== '판매 예정' && qty <= 0; const hms = (t: number) => new Date(t).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
   const headerTitle = status === '판매 예정' ? '판매 대기' : soldOut ? '구매 결과' : '상품 상세';
