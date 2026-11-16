@@ -63,6 +63,7 @@ export interface Draft {
   category: string; originalUrl: string; extras: Extra[]; reason: string; dimensions: Dimension[];
   noOptions: boolean; options: Option[]; price: number; shipping: number; dispatchDays: number;
   maxPerAccount: number; startsAt: string; faqs: Faq[];
+  /** 물품 검수에서 체크한 항목(INSPECTION_CHECKS 순서 번호). 화면 시연용 — 서버로 보내지 않는다 */ inspection?: number[];
   /** 택배사·반품 배송비·교환 배송비 입력(숫자는 문자열, 빈 값 = 미입력)과 이 값으로 만든 shippingNotice(판매자가 직접 고칠 수 있다) */ carrier?: string; returnFee?: string; exchangeFee?: string; shippingNotice?: string;
   ai: { status: AiStatus; signature: string; category: string; reason: string; result?: AiAnalysis; /** 분석 전 단계에서 막힌 칸별 문구(등록 화면 칸 아래 표시) */ fields?: Record<string, string> };
   /** 단일 화면 등록(Figma 판매 상품 등록): 옵션 축, 색상·사이즈, 조합별 수량, 추가 URL, 타 플랫폼 확인 결과 */
@@ -99,6 +100,10 @@ export function purchaseBlock(s: State, p: Pick<Product, 'sellerId'>): 'admin' |
 /** 판매 심사 반려 사유 — 운영자 화면은 항목별로 `[항목] 사유`를 줄마다 보낸다. 물품 확인(검수) 항목은 `[물품 확인 · 상품 상태]`처럼 보낸다.
  * 서버는 사유 텍스트 하나만 주므로(검수 항목 필드 없음) 이 형식을 풀어 보여 주고, 형식이 아니면 통째로 '심사 의견' 한 항목 */
 export const INSPECTION_PREFIX = '물품 확인 · ';
+/** 물품 검수 — 판매자가 심사 요청 전에 확인하는 상태 체크. 서버 심사 요청에는 검수 필드가 없어(review-submissions는 expectedVersion뿐) 화면 시연용으로만 쓰고 보내지 않는다 */
+export const INSPECTION_CHECKS = ['새 상품이에요 (중고·전시·하자 상품이 아니에요)', '구성품이 모두 들어 있어요', '사용한 흔적이 없어요', '등록한 사진이 지금 상품 상태와 같아요'] as const;
+/** 검수용 사진 안내 */
+export const INSPECTION_PHOTOS = ['정면 전체', '라벨·택·바코드', '구성품 전체', '하자나 흠집이 있다면 그 부위'] as const;
 export function parseRejection(reason: string | undefined): { field: string; reason: string; inspection: boolean }[] {
   const text = (reason ?? '').trim(); if (!text) return [];
   const items = text.split('\n').map(l => /^\[(.+?)\]\s*(.*)$/.exec(l.trim())).filter((m): m is RegExpExecArray => !!m).map(m => ({ field: m[1].replace(INSPECTION_PREFIX, ''), reason: m[2], inspection: m[1].startsWith(INSPECTION_PREFIX) }));

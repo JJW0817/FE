@@ -16,6 +16,7 @@ import { USE_MOCK } from '../config';
 import { ApiError, apiPut, apiDelete, approveSellerApplication, decideProductReview, errorMessage, getAdminApplication, getAdminProductReviewWithImages, listAdminApplications, listAdminProductReviews, markApplication, mergeAdminApplications, mergeAdminProductList, mergeProducts, rejectSellerApplication, reviewCertificate, fetchMyApplication, mergeApplication, resubmitApplication, submitApplication, updateMyName, addInquiryMessage, getInquiryImageUrl, getOrderInquiry, listInquiryInbox, mergeInquiries, useLive } from '../api';
 import { failTab, getPdf, openPendingTab } from '../files';
 import { RevisionList, useRevisionQueue } from './revisions';
+import { PhotoViewer } from '../components/PhotoViewer';
 function ProfileEditModal({ userId, name: initialName, phone: initialPhone, onClose }: { userId: string; name: string; phone: string; onClose: () => void }) {
   const [name, setName] = useState(initialName), [phone, setPhone] = useState(initialPhone), [error, setError] = useState(''), [busy, setBusy] = useState(false); const toast = useToast();
   return <Modal title="내 정보 수정" onClose={onClose}><form className="space-y-4" onSubmit={async e => { e.preventDefault(); if (!name.trim()) { setError('이름을 입력해 주세요.'); return; } setBusy(true); setError(''); try { if (!USE_MOCK) await updateMyName(name.trim()); /* TODO(api-gap): 연락처 수정 API 없음 — 연락처는 이 기기에만 저장 */ mutate(s => { const u = s.users.find(u => u.id === userId); if (u) { u.name = name.trim(); u.phone = phone.trim(); } }); toast('정보를 수정했습니다.'); onClose(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }}><Field label="이름" required><input aria-label="이름" className="field" value={name} onChange={e => setName(e.target.value)} required/></Field><Field label="연락처"><input aria-label="연락처" className="field" value={phone} onChange={e => setPhone(e.target.value)} type="tel"/></Field><p className="muted text-[11px]">이메일은 변경할 수 없습니다.</p><ErrorBox message={error}/><Button type="submit" className="w-full" disabled={busy}>{busy ? '저장 중…' : '저장하기'}</Button></form></Modal>;
@@ -509,6 +510,8 @@ export function AdminProductListPage() {
 }
 // Rejection reasons matching Figma "상품 반려" screen
 // 물품 검수는 판매 심사에 포함: 검수 미통과 항목도 같은 반려 사유로 보낸다(판매자 화면이 '물품 확인'으로 묶어 보여 준다)
+/** 운영자가 사진으로 확인하는 검수 항목 — 미통과면 반려 사유의 '물품 확인' 항목으로 보낸다 */
+const INSPECTION_ITEMS: [string, string][] = [['정품 여부', '라벨·택·바코드'], ['상품 상태', '정면·하자 부위'], ['구성품', '구성품 전체 사진'], ['수량', '옵션별 수량']];
 const REJECT_REASONS = ['한정 판매가', '판매 일정', '타 플랫폼 상품과 다름', '상품 사진 · 정보', ...['정품 여부', '상품 상태', '구성품', '수량'].map(i => INSPECTION_PREFIX + i), '기타'];
 export function AdminProductDetailPage() {
   const { id } = useParams(); const s = useStore(), user = activeUser(s), toast = useToast(), navigate = useNavigate();
@@ -519,6 +522,7 @@ export function AdminProductDetailPage() {
   const [approveConfirm, setApproveConfirm] = useState(false);
   const [urlViewed, setUrlViewed] = useState(false);
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const [viewer, setViewer] = useState<number | null>(null), [inspected, setInspected] = useState<string[]>([]); // 전체 화면 사진 + 검수 확인 표시
   const seller = s.users.find(u => u.id === p?.sellerId);
   const live = useLive(sig => user.admin && id ? getAdminProductReviewWithImages(id, sig) : Promise.resolve(null), (st, x) => { if (x) mergeProducts(st, [x]); }, [id, user.admin]);
   if (!user.admin) return <Unavailable message="운영자만 사용할 수 있습니다."/>;
@@ -629,9 +633,11 @@ export function AdminProductDetailPage() {
         <h2 className="text-[15px] font-bold">판매 정보</h2>
         <div className="flex gap-2">
           {p.images.slice(0, 4).map((img, i) => (
-            <ProductImage key={i} src={img} alt={p.name} className="h-[72px] w-[72px] rounded-[4px]"/>
+            <button key={i} type="button" aria-label={`사진 ${i + 1} 크게 보기`} onClick={() => setViewer(i)}><ProductImage src={img} alt={p.name} className="h-[72px] w-[72px] rounded-[4px]"/></button>
           ))}
+          {p.images.length > 4 && <button type="button" onClick={() => setViewer(4)} className="muted grid h-[72px] w-[72px] place-items-center rounded-[4px] bg-[var(--soft)] text-[12px]">+{p.images.length - 4}</button>}
         </div>
+        <p className="muted text-[11px]">사진을 누르면 크게 보고 검수 항목을 확인할 수 있어요.</p>
       </div>
       {/* Product info */}
       <div className="mb-4 space-y-2 border-b border-[#F2F2F2] pb-4">
@@ -648,6 +654,11 @@ export function AdminProductDetailPage() {
       </div>
       {p.rejectionReason && <Note title="반려 사유">반려 사유 · {p.rejectionReason}</Note>}
       <ErrorBox message={error}/>
+      {viewer !== null && <PhotoViewer images={p.images.filter(Boolean)} start={viewer} onClose={() => setViewer(null)} panel={<div className="space-y-2">
+        <p className="text-[13px] font-bold">물품 검수 확인</p>
+        {INSPECTION_ITEMS.map(([k, hint]) => <label key={k} className="flex items-start gap-2 text-[12px]"><input type="checkbox" className="mt-0.5 h-4 w-4" checked={inspected.includes(k)} onChange={() => setInspected(v => (v.includes(k) ? v.filter(x => x !== k) : [...v, k]))}/><span><b>{k}</b> <span className="muted">{hint}</span></span></label>)}
+        {!p.published && !p.rejectionReason && <div className="flex gap-2 pt-1"><Button outline className="w-[96px]" onClick={() => { setViewer(null); setReject(true); }}>반려</Button><Button className="flex-1" onClick={() => { setViewer(null); setApproveConfirm(true); }}>승인하기</Button></div>}
+      </div>}/>}
       {/* CTA */}
       {p.published
         ? <Link className="btn btn-outline w-full" to="/admin/products">심사 목록으로</Link>

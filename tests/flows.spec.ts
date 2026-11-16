@@ -139,3 +139,14 @@ test('판매 심사 반려는 반려 사유와 물품 확인 미통과 항목을
   await expect(page.getByRole('heading', { name: '판매 심사 결과' })).toBeVisible(); await expect(page.getByText('판매 심사 반려')).toBeVisible();
   await expect(page.getByText('더 낮춰 주세요')).toBeVisible(); await expect(page.getByRole('heading', { name: '물품 확인' })).toBeVisible(); await expect(page.getByText('1개 항목 미통과')).toBeVisible(); await expect(page.getByText('설명서가 빠졌어요')).toBeVisible();
 });
+
+test('운영자는 판매 심사 상세에서 사진을 크게 열어 넘겨 보고 검수 항목을 보며 반려로 이어갈 수 있다', async ({ page }) => {
+  await editState(page, s => { const p = s.products.find((x: any) => x.id === 'ecobag'); p.published = false; p.rejectionReason = undefined; p.images = [p.images[0], p.images[0], p.images[0]]; });
+  await actor(page, 'admin'); await page.goto('/#/admin/products/ecobag');
+  await page.getByRole('button', { name: '사진 1 크게 보기' }).click();
+  const viewer = page.getByRole('dialog', { name: '사진 크게 보기' }); await expect(viewer).toBeVisible(); await expect(viewer.getByText('1 / 3')).toBeVisible();
+  await viewer.getByRole('button', { name: '다음 사진' }).click(); await expect(viewer.getByText('2 / 3')).toBeVisible();
+  await viewer.getByRole('button', { name: '확대' }).click(); await expect(viewer.getByText('150%')).toBeVisible();
+  await expect(viewer.getByRole('checkbox', { name: /정품 여부/ })).toBeVisible();
+  await viewer.getByRole('button', { name: '반려' }).click(); await expect(viewer).toHaveCount(0); await expect(page.getByRole('heading', { name: '판매 심사 반려' })).toBeVisible();
+});

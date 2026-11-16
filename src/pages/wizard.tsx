@@ -10,6 +10,7 @@ import { imageData } from '../files';
 import { Button, Empty, ErrorBox, Header, LiveStatus, Modal, Note, ProductImage, Unavailable, useToast } from '../components/ui';
 import { useClock } from '../hooks';
 import { categoryTree } from '../categoryTree';
+import { INSPECTION_CHECKS, INSPECTION_PHOTOS } from '../domain';
 import { IMAGE_EXPIRED, QUICK_SCHEDULE, USE_MOCK } from '../config';
 import { getProductImageUrl, FIELD_LABELS, StageError, sourceUrlProblem, MOCK_REGISTRATION_METADATA, PRODUCT_STATE_MESSAGE, SHIPPING_NOTICE_MAX, ATTRIBUTE_VALUE_MAX, attributeName, composeShippingNotice, warnCriteria, analysisProblems, analyzeDraft, criteriaFor, listAddressBook, listingProblems, createProductDraft, deleteProductImage, errorMessage, fieldErrors, isApiError, getRegistrationMetadata, getSellerProductWithImages, mergeProducts, reorderProductImages, submitListing, submitRevisionFromDraft, uploadProductImage, useApi, useLive } from '../api';
 
@@ -244,6 +245,7 @@ export function WizardPage() {
     // 서버는 업무 규칙 오류(PRODUCT_INVALID)에 violations를 주지 않으므로 제출 전에 같은 규칙으로 먼저 막는다
     const settings = s.sellerSettings[user.id];
     const problems = listingProblems(d, { categories: meta.data?.categories ?? [], now, dispatch: USE_MOCK ? !!settings?.shippingAddress : !!book.data?.[0].length, return: USE_MOCK ? !!settings?.returnAddress : !!book.data?.[1].length });
+    if (!editId && (d.inspection?.length ?? 0) < INSPECTION_CHECKS.length) problems.inspection = '물품 검수 항목을 모두 확인해 주세요.';
     if (Object.keys(problems).length) { showProblems(problems); setError('빠진 정보를 확인해 주세요.'); return; }
     setBusy(true);
     try {
@@ -414,12 +416,16 @@ export function WizardPage() {
       <Link to="/seller/settings/addresses" className="text-[12px] text-[var(--aux)] underline">출고지·반품지 관리</Link>
     </section>
 
-    {!editId && <section className="space-y-3">
-      <div><Label hint="· 판매 심사에 포함">물품 확인</Label><p className="mt-1 text-[12px] text-[var(--aux)]">판매 심사 때 운영팀이 실제 상품을 직접 확인해요</p></div>
+    {!editId && <section data-field="inspection" className="space-y-3">
+      <div><Label hint="· 판매 심사에 포함">물품 검수</Label><p className="mt-1 text-[12px] text-[var(--aux)]">심사 때 운영팀이 사진으로 실제 상품 상태를 확인해요</p></div>
       <div className="space-y-3 rounded-[6px] bg-[var(--soft)] p-4">
-        {([[ShieldCheck, '정품 여부', '브랜드 정품인지 확인해요'], [ImageIcon, '상품 상태', '등록 사진과 실제 상태가 같은지 봐요'], [Package, '구성품', '설명서·보증서 등 빠진 게 없는지 봐요'], [Hash, '수량', '옵션별 한정 수량과 맞는지 세어요']] as const).map(([Icon, title, desc]) => <div key={title} className="flex items-center gap-2.5"><Icon size={16} className="shrink-0"/><span className="w-[60px] shrink-0 text-[13px] font-bold">{title}</span><span className="text-[12px] text-[var(--aux)]">{desc}</span></div>)}
-        <p className="flex items-start gap-1.5 border-t border-[var(--line)] pt-3 text-[12px] text-[var(--meta)]"><Info size={14} className="mt-[2px] shrink-0"/>미통과 시 알림으로 사유를 알려드리고 재등록할 수 있어요.</p>
+        <p className="text-[13px] font-bold">검수용 사진 안내</p>
+        <ul className="space-y-1.5 text-[12px] text-[var(--aux)]">{INSPECTION_PHOTOS.map((t, n) => <li key={t} className="flex items-center gap-2"><span className="grid h-4 w-4 place-items-center rounded-full bg-[var(--ink)] text-[10px] text-[var(--surface)]">{n + 1}</span>{t}</li>)}</ul>
+        <p className="flex items-start gap-1.5 text-[12px] text-[var(--meta)]"><Info size={14} className="mt-[2px] shrink-0"/>위 사진을 위의 상품 사진으로 올려 주세요. 사진은 상품 사진과 같은 곳에 올라가요.</p>
       </div>
+      <div className="space-y-1">{INSPECTION_CHECKS.map((t, n) => { const on = !!d.inspection?.includes(n); return <label key={t} className="flex min-h-11 cursor-pointer items-center gap-3 border-b border-[var(--line)] text-[13px]"><input type="checkbox" className="h-5 w-5" checked={on} onChange={() => patch({ inspection: on ? (d.inspection ?? []).filter(x => x !== n) : [...(d.inspection ?? []), n] })}/>{t}</label>; })}</div>
+      <FieldError name="inspection"/>
+      <p className="flex items-start gap-1.5 text-[12px] text-[var(--meta)]"><Info size={14} className="mt-[2px] shrink-0"/>미통과 시 알림으로 사유를 알려드리고 재등록할 수 있어요.</p>
     </section>}
 
     {blocked && <ErrorBox message="지원하지 않는 상품은 등록할 수 없습니다."/>}
