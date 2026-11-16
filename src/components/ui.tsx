@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Bell, Timer, X, Home, CalendarDays, Package, UserRound, LayoutDashboard, Shirt, MessageSquare, ClipboardList, ChevronRight, Info, Copy } from 'lucide-react';
+import { ArrowLeft, Bell, Timer, X, Home, CalendarDays, Package, UserRound, ChevronRight, Info, Copy } from 'lucide-react';
 import type { Product, Order } from '../domain';
 import { money, saleState } from '../domain';
 const ToastContext = createContext<(message: string) => void>(() => {});
@@ -69,7 +69,7 @@ export function Modal({ title, children, onClose }: { title: string; children: R
   return <dialog ref={ref} aria-label={title} onCancel={event => { event.preventDefault(); onClose(); }} onClick={event => { if (event.target === event.currentTarget) onClose(); }} className="fixed inset-x-0 bottom-0 top-auto m-0 mx-auto max-h-[92dvh] w-full max-w-[390px] overflow-y-auto rounded-t-[16px] border-0 bg-[var(--surface)] p-5 text-[var(--ink)] backdrop:bg-[var(--overlay)]"><div className="mx-auto mb-5 h-1 w-9 rounded-full bg-[var(--line)]"/><div className="mb-5 flex items-center justify-between gap-4"><h2 className="text-[18px] font-bold">{title}</h2><button aria-label="닫기" onClick={onClose} className="grid h-9 w-9 shrink-0 place-items-center"><X size={20}/></button></div>{children}</dialog>;
 }
 export function BottomNav({ mode }: { mode: 'buyer' | 'seller' }) {
-  const items = mode === 'seller' ? [['/seller', '운영', LayoutDashboard], ['/seller/products', '상품 관리', Shirt], ['/seller/inquiries', '문의', MessageSquare], ['/seller/orders', '주문', ClipboardList], ['/seller/my', '마이', UserRound]] as const : [['/', '홈', Home], ['/schedule', '판매 일정', CalendarDays], ['/orders', '주문', Package], ['/my', '마이', UserRound]] as const;
+  const items = mode === 'seller' ? [['/seller', '홈', Home], ['/schedule', '판매 일정', CalendarDays], ['/orders', '주문', Package], ['/seller/my', '마이', UserRound]] as const : [['/', '홈', Home], ['/schedule', '판매 일정', CalendarDays], ['/orders', '주문', Package], ['/my', '마이', UserRound]] as const;
   return <nav aria-label={mode === 'buyer' ? '구매자 하단 메뉴' : '판매자 하단 메뉴'} className="fixed bottom-0 left-1/2 z-30 w-full max-w-[390px] -translate-x-1/2 border-t border-[var(--line)] bg-[var(--surface)] px-1 pb-[max(14px,env(safe-area-inset-bottom))] pt-2"><div className="flex">{items.map(([to, label, Icon]) => <NavLink end key={to} to={to} className={({ isActive }) => `flex min-h-11 flex-1 flex-col items-center justify-center gap-1 text-[9px] ${isActive ? 'font-bold text-[var(--ink)]' : 'text-[var(--muted)]'}`}><Icon size={20} strokeWidth={1.5}/>{label}</NavLink>)}</div></nav>;
 }
 export async function copyText(text: string) { if (!navigator.clipboard) throw new Error('클립보드를 사용할 수 없습니다. 번호를 길게 눌러 복사해 주세요.'); await navigator.clipboard.writeText(text); }

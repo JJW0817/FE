@@ -25,6 +25,7 @@ export interface AuthData {
   challenges: Record<string, { email: string; code: string; purpose: 'signup' | 'reset'; expiresAt: number; sentAt: number; attempts: number; verified: boolean; challengeId?: string; token?: string }>;
   loginFailures: Record<string, { count: number; until: number }>;
   consents: Record<string, { acceptedAt: number; marketing: boolean }>;
+  /** 데모 로그인(VITE_DEMO_LOGIN)으로 시작한 세션 */ demo?: boolean;
 }
 export const initialAuth = (): AuthData => ({ onboarded: false, userId: null, credentials: {}, challenges: {}, loginFailures: {}, consents: {} });
 export interface Address { name: string; phone: string; address: string; detail: string; request: string; postalCode?: string }
@@ -36,6 +37,7 @@ export interface Application {
   rejectedAt?: number; reviewedAt?: number; deadlineAt?: number;
   /** 사업자 정보(상호·대표자·등록번호·업태) — 백엔드 요청 필드 (docs/backend-api-requests.md) */ business?: BusinessInfo;
   rejectionItems?: { field: string; reason: string; fixed?: boolean }[];
+  /** 타 플랫폼 판매 URL — 신청 API 필드 확인 필요 (docs/backend-api-requests.md) */ salesUrl?: string;
 }
 export interface Line { optionId: string; name: string; quantity: number }
 export interface Hold { id: string; userId: string; productId: string; lines: Line[]; createdAt: number; expiresAt: number; status: 'reserved' | 'pending' | 'consumed' | 'released'; orderId?: string }

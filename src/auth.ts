@@ -2,6 +2,7 @@ import { initialAuth } from './domain';
 import type { State } from './domain';
 import { atomic, getState, mutate } from './store';
 import { apiPost, apiGet, fetchCSRF, setAccessToken, ApiError } from './api';
+import { DEMO_ACCOUNT_IDS, DEMO_LOGIN } from './config';
 export const DEMO_PASSWORD = 'Stockdrop123!';
 export const normalizeEmail = (value: string) => value.trim().toLowerCase();
 export const validEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizeEmail(value));
@@ -11,7 +12,9 @@ export function safeNext(value: string | null | undefined) { return value && /^\
 export const loginHref = (next: string) => `/login?next=${encodeURIComponent(safeNext(next))}`;
 function ensure(s: State) { return s.auth ??= initialAuth(); }
 export function selectProfile(s: State, id: string) { const user = s.users.find(u => u.id === id); if (!user) throw new Error('계정을 찾을 수 없습니다.'); const a = ensure(s); a.userId = id; a.onboarded = true; s.activeUserId = id; s.mode = user.admin ? 'admin' : 'buyer'; }
-export function endSession(s: State) { ensure(s).userId = null; s.activeUserId = ''; s.mode = 'buyer'; }
+/** 데모 로그인 — 서버 없이 목업 계정으로 로그인 (VITE_DEMO_LOGIN일 때만) */
+export function demoLogin(id: string) { if (!DEMO_LOGIN) throw new Error('데모 로그인을 사용할 수 없습니다.'); mutate(s => { selectProfile(s, id); ensure(s).demo = true; }); }
+export function endSession(s: State) { ensure(s).demo = false; ensure(s).userId = null; s.activeUserId = ''; s.mode = 'buyer'; }
 export async function logout() {
   try { const { token, headerName } = await fetchCSRF(); await apiPost('/auth/logout', {}, { [headerName]: token }); } catch {}
   setAccessToken(null);
@@ -42,6 +45,7 @@ export async function verifyCode(email: string, purpose: 'signup' | 'reset', cod
 }
 export async function login(emailValue: string, password: string) {
   const email = normalizeEmail(emailValue);
+  if (DEMO_LOGIN) { const demo = getState().users.find(u => DEMO_ACCOUNT_IDS.includes(u.id) && normalizeEmail(u.email) === email); if (demo) { if (password !== DEMO_PASSWORD) throw new Error('이메일 또는 비밀번호를 확인해 주세요.'); demoLogin(demo.id); return; } }
   const { token, headerName } = await fetchCSRF();
   const data = await apiPost('/auth/login', { email, password }, { [headerName]: token }) as { accessToken: string; accountId: string; roles: string[] };
   setAccessToken(data.accessToken);
