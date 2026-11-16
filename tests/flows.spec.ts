@@ -108,3 +108,34 @@ test('마이페이지에서 연 화면: 알림 설정은 설정 모드, 주문·
   await page.getByRole('link', { name: /전체 보기/ }).click();
   await expect(page.getByRole('heading', { name: '자주 묻는 질문' })).toBeVisible(); await expect(page.getByRole('heading', { name: '고객 지원' })).toHaveCount(0);
 });
+
+test('운영자는 운영자 마이페이지만: 구매자 주소는 돌려보내고 하단 메뉴 없음, 상품 상세는 구매 불가', async ({ page }) => {
+  await actor(page, 'admin'); await page.goto('/#/');
+  await expect(page).toHaveURL(/#\/admin$/); await expect(page.getByRole('heading', { name: '운영자 마이페이지' })).toBeVisible();
+  for (const name of ['입점 심사', '판매 심사', '판매자 목록', '문의 관리']) await expect(page.getByRole('link', { name: new RegExp(name) })).toBeVisible();
+  await expect(page.getByRole('button', { name: '로그아웃' })).toBeVisible(); await expect(page.getByRole('navigation')).toHaveCount(0);
+  await page.goto('/#/orders'); await expect(page).toHaveURL(/#\/admin$/);
+  await page.getByRole('link', { name: /입점 심사/ }).click(); await expect(page.getByRole('heading', { name: '입점 심사 목록' })).toBeVisible();
+  await page.goto('/#/admin/products'); await expect(page.getByRole('heading', { name: '판매 심사 목록' })).toBeVisible();
+  await page.goto('/#/product/ecobag'); await expect(page.getByText('운영자 계정은 구매할 수 없어요')).toBeVisible(); await expect(page.getByRole('button', { name: /선착순 구매하기/ })).toHaveCount(0);
+});
+
+test('판매자는 본인 상품을 구매할 수 없고 판매 현황으로 간다', async ({ page }) => {
+  await actor(page, 'seller'); await page.goto('/#/product/ecobag');
+  await expect(page.getByText('내가 판매하는 상품이에요')).toBeVisible(); await expect(page.getByRole('button', { name: /선착순 구매하기/ })).toHaveCount(0);
+  await page.getByRole('link', { name: '판매 현황 보기' }).click(); await expect(page).toHaveURL(/#\/seller\/product\/ecobag$/);
+});
+
+test('결제 단계 실패(PAYMENT_NOT_COMPLETED)는 결제 실패 화면, 재고 실패가 아니다', async ({ page }) => {
+  await editState(page, s => { s.holds.push({ id: 'h-fail', userId: 'buyer', productId: 'ecobag', lines: [{ optionId: 'natural', name: '내추럴', quantity: 1 }], status: 'released', failureCode: 'PAYMENT_NOT_COMPLETED' }); });
+  await page.goto('/#/checkout/h-fail');
+  await expect(page.getByRole('heading', { name: '결제가 완료되지 않았어요' })).toBeVisible(); await expect(page.getByText('결제가 승인되지 않았어요')).toBeVisible(); await expect(page.getByText('확보한 재고를 반환했어요')).toBeVisible();
+  await expect(page).toHaveURL(/#\/checkout\/h-fail$/); await expect(page.getByText('재고를 확보하지 못했어요')).toHaveCount(0);
+});
+
+test('판매 심사 반려는 반려 사유와 물품 확인 미통과 항목을 한 화면에', async ({ page }) => {
+  await editState(page, s => { const p = s.products.find((x: any) => x.id === 'ecobag'); p.published = false; p.rejectionReason = '[한정 판매가] 더 낮춰 주세요' + String.fromCharCode(10) + '[물품 확인 · 구성품] 설명서가 빠졌어요'; });
+  await actor(page, 'seller'); await page.goto('/#/seller/published/ecobag');
+  await expect(page.getByRole('heading', { name: '판매 심사 결과' })).toBeVisible(); await expect(page.getByText('판매 심사 반려')).toBeVisible();
+  await expect(page.getByText('더 낮춰 주세요')).toBeVisible(); await expect(page.getByRole('heading', { name: '물품 확인' })).toBeVisible(); await expect(page.getByText('1개 항목 미통과')).toBeVisible(); await expect(page.getByText('설명서가 빠졌어요')).toBeVisible();
+});
