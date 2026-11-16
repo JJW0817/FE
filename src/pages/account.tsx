@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Search } from 'lucide-react';
+import { ChevronDown, Search } from 'lucide-react';
 import { ArrowLeft, Building2, CalendarCheck, Check, Store, UserRound, CheckCircle2, FileText } from 'lucide-react';
 import { activeUser, approveApplication, money, nowOf, saleState, uid } from '../domain';
 import type { Address, Application, DocumentFile } from '../domain';
@@ -626,8 +626,7 @@ export function AdminProductDetailPage() {
 export function SupportPage() {
   const s = useStore(); const [tab, setTab] = useState('전체'); const faqTabs = ['전체', '구매·선착순', '배송·반품', '결제', '판매자'];
   const recentOrder = s.orders.filter(o => o.userId === s.activeUserId).sort((a, b) => b.createdAt - a.createdAt)[0];
-  const faqs: [string, string, string][] = [['구매·선착순', '선착순 재고는 어떻게 확보하나요?', '판매가 열리는 순간 결제를 먼저 완료한 순서대로 재고가 확보돼요. 장바구니에 담거나 결제 화면에 들어간 것만으로는 재고가 잡히지 않아요. 판매 30분 전 알림을 켜두고 배송지와 결제 수단을 미리 등록해 두면 더 빠르게 결제할 수 있어요.'], ['구매·선착순', '결제 중에 품절되면 어떻게 되나요?', '재고 확보에 실패하면 결제가 진행되지 않으며 금액이 청구되지 않아요. 다음 판매 일정을 확인해 주세요.'], ['구매·선착순', '1인당 몇 개까지 살 수 있나요?', '상품마다 계정당 구매 상한이 설정되어 있어요. 상품 상세에서 확인할 수 있습니다.'], ['구매·선착순', '다른 쇼핑몰보다 정말 저렴한가요?', '미판매 새 상품을 정리하는 판매자가 직접 가격을 설정해요. 기존 판매처보다 저렴한 경우가 많지만, 상품마다 다를 수 있어요.'], ['배송·반품', '판매 알림은 언제 오나요?', '판매 시작 30분 전과 시작 직후에 알림이 발송돼요. 알림 설정에서 원하는 알림을 켜거나 끌 수 있어요.'], ['결제', '어떤 결제 수단을 사용할 수 있나요?', '신용카드·체크카드 결제를 지원합니다. 결제 수단은 마이페이지에서 미리 등록할 수 있어요.'], ['판매자', '판매자가 되려면 어떻게 하나요?', '사업자등록증 PDF와 담당자 정보를 제출하고 운영자 승인을 받으면 판매자가 될 수 있어요.']];
-  const filtered = faqs.filter(([cat]) => tab === '전체' || cat === tab);
+  const filtered = FAQ_ITEMS.filter(f => tab === '전체' || f.category === tab);
   const newAnswerCount = s.inquiries.filter(q => q.userId === s.activeUserId && q.sellerId === 'stockdrop' && q.answer).length;
   return (
     <div className="space-y-0">
@@ -673,15 +672,7 @@ export function SupportPage() {
             <button key={t} onClick={() => setTab(t)} className={`inline-flex h-8 items-center rounded-full px-3.5 text-[13px] transition-colors ${tab === t ? 'bg-[var(--ink)] font-bold text-[var(--surface)]' : 'border border-[#DEDEDE] text-[var(--muted)]'}`}>{t}</button>
           ))}
         </div>
-        {filtered.map(([, q], i) => (
-          <div key={i} className="flex items-center justify-between gap-3 border-b border-[#F2F2F2] py-4">
-            <div className="flex items-start gap-3">
-              <span className="text-[14px] font-bold text-[var(--muted)]">Q</span>
-              <span className="text-[14px]">{q}</span>
-            </div>
-            <span className="shrink-0 text-[12px] text-[var(--muted)]">›</span>
-          </div>
-        ))}
+        <FaqList items={filtered.slice(0, 3)}/>
       </section>
       {/* 1:1 문의 + 내 문의 내역 */}
       <div className="flex gap-3">
@@ -821,7 +812,8 @@ export function AddressManagePage() {
   );
 }
 
-const FAQ_ITEMS = [
+type FaqItem = { category?: string; question: string; answer: string };
+const FAQ_ITEMS: FaqItem[] = [
   { category: '구매·선착순', question: '선착순 재고는 어떻게 확보하나요?', answer: '판매가 열리는 순간 결제를 먼저 완료한 순서대로 재고가 확보돼요. 장바구니에 담거나 결제 화면에 들어간 것만으로는 재고가 잡히지 않아요. 판매 30분 전 알림을 켜두고 배송지와 결제 수단을 미리 등록해 두면 더 빠르게 결제할 수 있어요.' },
   { category: '구매·선착순', question: '결제 중에 품절되면 어떻게 되나요?', answer: '재고 확보에 실패하면 결제가 진행되지 않으며 금액이 청구되지 않아요. 다음 판매 일정을 확인해 주세요.' },
   { category: '구매·선착순', question: '1인당 몇 개까지 살 수 있나요?', answer: '상품마다 계정당 구매 상한이 설정되어 있어요. 상품 상세에서 확인할 수 있습니다.' },
@@ -830,29 +822,43 @@ const FAQ_ITEMS = [
   { category: '결제', question: '어떤 결제 수단을 사용할 수 있나요?', answer: '신용카드·체크카드 결제를 지원합니다. 결제 수단은 마이페이지에서 미리 등록할 수 있어요.' },
   { category: '판매자', question: '판매자가 되려면 어떻게 하나요?', answer: '사업자등록증 PDF와 담당자 정보를 제출하고 운영자 승인을 받으면 판매자가 될 수 있어요.' },
 ];
+/** 판매자 이용안내 FAQ (목업) */
+export const SELLER_FAQ_ITEMS: FaqItem[] = [
+  { question: '정산은 언제 입금되나요?', answer: '구매 확정된 주문은 정산 주기에 맞춰 등록한 정산 계좌로 입금돼요. 정산 계좌는 마이페이지 › 정산 계좌 관리에서 확인할 수 있어요.' },
+  { question: '출고 마감 시간을 넘기면 어떻게 되나요?', answer: '상품에 설정한 출고 기한 안에 송장을 등록해 주세요. 기한을 넘기면 구매자에게 지연 안내가 가고, 반복되면 운영 정책에 따라 판매가 제한될 수 있어요.' },
+  { question: '검수에서 반려되면 다시 신청할 수 있나요?', answer: '네. 반려 사유를 확인하고 내용을 고친 뒤 판매 상품 관리에서 다시 심사를 요청할 수 있어요.' },
+  { question: '구매자가 반품을 요청하면?', answer: '주문 문의로 반품 요청이 들어와요. 판매자 문의함에서 내용을 확인하고 반품지 안내와 함께 답변해 주세요.' },
+];
 
+/** FAQ 펼침 목록 — 질문을 누르면 답이 펼쳐진다. FAQ API가 없어 내용은 목업(TODO(api-gap)) */
+export function FaqList({ items, accent }: { items: FaqItem[]; accent?: boolean }) {
+  const [open, setOpen] = useState<number | null>(null);
+  if (!items.length) return <p className="muted py-4 text-[12px]">해당하는 질문이 없어요.</p>;
+  return <div>{items.map((f, i) => <div key={f.question} className="border-b border-[var(--line)]">
+    <button type="button" aria-expanded={open === i} onClick={() => setOpen(open === i ? null : i)} className="flex w-full items-center justify-between gap-3 py-4 text-left">
+      <span className="flex items-start gap-3"><span className={`text-[14px] font-bold ${accent ? 'text-[var(--green)]' : 'text-[var(--muted)]'}`}>Q</span><span className="text-[14px]">{f.question}</span></span>
+      <ChevronDown size={16} className={`muted shrink-0 transition-transform ${open === i ? 'rotate-180' : ''}`}/>
+    </button>
+    {open === i && <p className="muted whitespace-pre-line pb-4 pl-[26px] text-[13px] leading-[1.7]">{f.answer}</p>}
+  </div>)}</div>;
+}
+/** 자주 묻는 질문 전체 — Figma "faq". ?for=seller면 판매자 FAQ */
 export function FaqPage() {
+  const [params] = useSearchParams(); const seller = params.get('for') === 'seller';
   const [category, setCategory] = useState('전체');
   const categories = ['전체', '구매·선착순', '배송·반품', '결제', '판매자'];
-  const filtered = category === '전체' ? FAQ_ITEMS : FAQ_ITEMS.filter(f => f.category === category);
+  const items = seller ? SELLER_FAQ_ITEMS : category === '전체' ? FAQ_ITEMS : FAQ_ITEMS.filter(f => f.category === category);
   return (
     <div className="space-y-4">
-      <Header title="자주 묻는 질문" subtitle="궁금한 내용을 검색해 보세요" back={true}/>
-      <div className="divider flex gap-2 overflow-x-auto pb-2">
-        {categories.map(c => (
-          <button key={c} onClick={() => setCategory(c)} className={`shrink-0 rounded-[4px] px-2.5 py-1.5 text-[11px] ${category === c ? 'bg-[var(--ink)] text-[var(--surface)] font-semibold' : 'muted'}`}>{c}</button>
-        ))}
-      </div>
-      {filtered.map((f, i) => (
-        <details key={i} className="divider py-3">
-          <summary className="cursor-pointer text-[13px] font-semibold"><span className="mr-2 text-[var(--muted)]">Q</span>{f.question}</summary>
-          <p className="muted mt-3 text-[12px] leading-[1.8] whitespace-pre-line">{f.answer}</p>
-        </details>
-      ))}
-      <div className="rounded-[6px] bg-[var(--blue-soft)] p-4 space-y-2">
+      <Header title={seller ? '판매자 자주 묻는 질문' : '자주 묻는 질문'} bare/>
+      {!seller && <div className="flex flex-wrap gap-2">
+        {categories.map(c => <button key={c} onClick={() => setCategory(c)} className={`inline-flex h-8 items-center rounded-full px-3.5 text-[13px] ${category === c ? 'bg-[var(--ink)] font-bold text-[var(--surface)]' : 'border border-[#DEDEDE] text-[var(--muted)]'}`}>{c}</button>)}
+      </div>}
+      <FaqList items={items} accent={seller}/>
+      <div className="rounded-[6px] bg-[var(--soft)] p-4 space-y-2">
         <p className="text-[13px] font-bold">원하는 답을 찾지 못했나요?</p>
         <div className="flex gap-2">
-          <Link to="/support" className="btn btn-outline flex-1 text-[12px]">1:1 문의하기</Link>
+          <Link to="/inquiries/compose" className="btn btn-outline flex-1 text-[12px]">1:1 문의하기</Link>
           <Link to="/inquiries" className="btn btn-outline flex-1 text-[12px]">내 문의 내역</Link>
         </div>
       </div>

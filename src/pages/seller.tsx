@@ -1,4 +1,5 @@
 import { LogoutButton, SETTINGS_HREF } from './auth';
+import { FaqList, SELLER_FAQ_ITEMS } from './account';
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Plus, Check, ChevronRight, FileText, Info, Rocket, ScanSearch, Share2, Truck } from 'lucide-react';
@@ -841,12 +842,6 @@ export function SellerSettingsPage() {
   );
 }
 export function SellerSupportPage() {
-  const faqs: [string, string][] = [
-    ['정산', '정산은 언제 입금되나요?'],
-    ['출고', '출고 마감 시간을 넘기면 어떻게 되나요?'],
-    ['검수', '검수에서 반려되면 다시 신청할 수 있나요?'],
-    ['반품', '구매자가 반품을 요청하면?'],
-  ];
   return (
     <div className="space-y-0">
       <Header title="이용 안내 · 고객지원"/>
@@ -868,17 +863,9 @@ export function SellerSupportPage() {
       <section className="mb-5 space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-[15px] font-bold">판매자 자주 묻는 질문</h2>
-          <button className="muted text-[12px]">전체보기</button>
+          <Link to="/faq?for=seller" className="muted text-[12px]">전체보기</Link>
         </div>
-        {faqs.map(([, q], i) => (
-          <div key={i} className="flex items-center justify-between gap-3 border-b border-[var(--line)] py-4">
-            <div className="flex items-start gap-3">
-              <span className="text-[14px] font-bold text-[var(--green)]">Q</span>
-              <span className="text-[14px]">{q}</span>
-            </div>
-            <span className="shrink-0 muted text-[12px]">›</span>
-          </div>
-        ))}
+        <FaqList items={SELLER_FAQ_ITEMS} accent/>
       </section>
       <div className="mb-5 h-px bg-[var(--line)]"/>
       <section className="mb-5 space-y-3">
