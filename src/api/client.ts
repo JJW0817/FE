@@ -112,6 +112,8 @@ export function createApiClient(initial: ClientConfig = {}) {
 
   async function request<T>(method: string, path: string, o: RequestOptions = {}): Promise<T> {
     if (cfg.mock) throw new ApiError('mock 모드에서는 서버를 호출하지 않아요.', 0, MOCK_CODE);
+    // 로그인 확인(새로고침 직후 재발급)이 진행 중이면 끝난 뒤 보낸다 — 토큰 없이 먼저 나가 401을 받지 않게
+    if (o.auth !== false && refreshing) await refreshing.catch(() => {});
     let res = await send(method, path, o);
     // CSRF가 거절되면 한 번만 재시도(send가 토큰을 새로 받는다)
     if (res.status === 403 && o.csrf) { const err = await toError(res.clone()); if (err.code === 'COMMON_CSRF_REJECTED') res = await send(method, path, o); }

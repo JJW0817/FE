@@ -75,6 +75,14 @@ describe('401 재발급·재시도', () => {
     expect(client.getAccessToken()).toBe('new-token');
     expect(onRefreshed).toHaveBeenCalledWith(expect.objectContaining({ accessToken: 'new-token' }));
   });
+  it('새로고침 직후 재발급이 진행 중이면 다른 요청은 끝난 뒤 새 토큰으로 보낸다 (401 없음)', async () => {
+    const { client, calls } = setup(c => path(c) === '/v1/auth/csrf' ? csrf() : path(c) === '/v1/auth/refresh' ? tokens('new') : c.headers.Authorization === 'Bearer new' ? ok({}) : fail(401, 'AUTH_UNAUTHORIZED'));
+    const restore = client.refresh();
+    await Promise.all([restore, client.get('/v1/accounts/me/addresses'), client.get('/v1/products/p1')]);
+    const others = calls.filter(c => !path(c).startsWith('/v1/auth/'));
+    expect(others).toHaveLength(2); expect(others.every(c => c.headers.Authorization === 'Bearer new')).toBe(true);
+    expect(calls.filter(c => path(c) === '/v1/auth/refresh')).toHaveLength(1);
+  });
   it('동시에 401을 받은 요청이 여러 개여도 재발급은 한 번만 한다', async () => {
     const { client, calls } = setup(call => {
       if (path(call) === '/v1/auth/csrf') return csrf();
