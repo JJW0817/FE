@@ -6,6 +6,7 @@ import { CodeInput } from '../components/CodeInput';
 import { Button, ErrorBox, Field, Header, Modal, Note, useToast } from '../components/ui';
 import { getState, mutate, useStore } from '../store';
 import { initialAuth } from '../domain';
+import { enrollAnalytics, syncAnalyticsIdentity, withdrawAnalytics } from '../analytics';
 import type { ApiError } from '../api';
 import { errorMessage, fieldErrors, fetchMySettings, saveInterests, saveMarketingConsent, saveNotificationSettings } from '../api';
 import { SignupLoginError, ensureSession, flushPendingPrefs, setPendingPrefs, loginHref, homePath, login, logout, normalizeEmail, resetPassword, safeNext, sendCode, signedIn, signup, validEmail, validPassword, verifyCode, demoLogin } from '../auth';
@@ -266,11 +267,21 @@ export function NotificationSettingsPage() {
   const NOTIFS = [{ id: 'sale_start', title: '판매 시작 알림', desc: '관심 상품 판매 시작 즉시 알려드려요' }, { id: 'price_change', title: '관심 상품 가격 변동', desc: '찜한 상품 가격 변동 시 알려드려요' }, { id: 'low_stock', title: '한정 수량 임박 알림', desc: '재고가 5개 이하 남으면 알려드려요' }, { id: 'recommendation', title: '개인 맞춤 상품 추천', desc: '취향에 맞는 새 상품 등록 시 알려드려요' }];
   const [enabled, setEnabled] = useState<Record<string, boolean>>(() => { try { return JSON.parse(localStorage.getItem('stockdrop:notifications') || '{}'); } catch { return {}; } });
   const [marketing, setMarketing] = useState(false); const toast = useToast(); const s = useStore();
+  const [analytics, setAnalytics] = useState(false), [analyticsBusy, setAnalyticsBusy] = useState(false);
   const toggle = (id: string) => setEnabled(e => ({ ...e, [id]: !e[id] }));
   const pushReady = USE_MOCK || canSubscribePush(); // mock은 기존 화면 그대로. 실제 모드는 홈 화면에 추가된 iOS 앱에서만 구독 버튼
   // 알림 설정 조회 전용 API가 없어 GET /accounts/me로 읽는다. price_change·low_stock은 API가 없어 이 기기에만 저장 (TODO(api-gap))
   const logged = !USE_MOCK && signedIn(s);
-  useEffect(() => { if (logged) fetchMySettings().then(m => { setEnabled(e => ({ ...e, sale_start: m.saleStart, recommendation: m.personalizedRecommendation })); setMarketing(m.marketing); }).catch(() => {}); }, [logged]);
+  useEffect(() => { if (logged) { fetchMySettings().then(m => { setEnabled(e => ({ ...e, sale_start: m.saleStart, recommendation: m.personalizedRecommendation })); setMarketing(m.marketing); }).catch(() => {}); syncAnalyticsIdentity().then(id => setAnalytics(!!id)).catch(() => {}); } }, [logged]); // 분석 참여 여부도 서버 값으로
+  // 분석 참여는 이 토글을 켠 순간에만 등록하고(동의 없이 호출 금지), 끄면 바로 철회한다. 가입 2단계·마이페이지 공통
+  const toggleAnalytics = async () => {
+    if (analyticsBusy) return;
+    if (USE_MOCK) { setAnalytics(v => !v); return; }
+    if (!logged || !(await ensureSession())) { toast('로그인한 뒤 설정할 수 있어요.'); return; }
+    setAnalyticsBusy(true);
+    try { if (analytics) { await withdrawAnalytics(); setAnalytics(false); } else { await enrollAnalytics(); setAnalytics(true); } }
+    catch (e) { toast(errorMessage(e)); } finally { setAnalyticsBusy(false); }
+  };
   const proceed = async (push = false) => {
     setSaving(true); try { await save(push); } finally { setSaving(false); }
   };
@@ -311,6 +322,11 @@ export function NotificationSettingsPage() {
         <input type="checkbox" checked={marketing} onChange={e => setMarketing(e.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 rounded-[4px]"/>
         <div><p>광고성 정보 수신 동의 (선택)</p><p className="muted mt-1 text-[11px] font-normal leading-relaxed">개인 맞춤 알림 서비스를 위해 마케팅 정보 수신에 동의합니다.</p></div>
       </label>
+      <div className="divider flex items-center justify-between gap-4 py-4">
+        <div className="flex-1"><p className="text-[14px] font-bold">관심 상품 알림을 위한 조회 기록 분석</p><p className="muted mt-0.5 text-[12px]">상품 조회 기록을 Google Analytics로 분석해 관심 상품 알림에 사용해요</p></div>
+        <button role="switch" aria-label="관심 상품 알림을 위한 조회 기록 분석" aria-checked={analytics} disabled={analyticsBusy} onClick={toggleAnalytics} className={`relative h-[28px] w-[48px] shrink-0 rounded-full transition-colors ${analytics ? 'bg-[var(--ink)]' : 'bg-[var(--line)]'}`}><span className={`absolute top-[3px] h-[22px] w-[22px] rounded-full bg-white shadow-sm transition-all ${analytics ? 'left-[23px]' : 'left-[3px]'}`}/></button>
+      </div>
+      <p className="muted text-[12px]">맞춤 알림을 받으려면 분석 동의와 마케팅 수신 동의가 모두 필요해요</p>
       {!pushReady && <Note title="푸시 알림"><p>홈 화면에 추가하면 알림을 받을 수 있어요. 사파리 공유 버튼 → ‘홈 화면에 추가’ 후 홈 화면의 STOCKDROP 앱으로 열어 주세요.</p></Note>}
     </div>
     <div className="pb-6 pt-4"><Button className="w-full" disabled={saving} onClick={() => proceed(pushReady)}>{settingsMode ? (saving ? '저장 중…' : '저장') : pushReady ? '알림 받기 시작' : '설정 저장하고 시작'}</Button></div>
