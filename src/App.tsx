@@ -13,6 +13,7 @@ import { LoginPage, OnboardingPage, WelcomePage, SignupPage, SignupVerifyPage, S
 import { loginHref, restoreSession, signedIn } from './auth';
 import { getAccessToken, getNotification, markNotificationRead, notificationPath } from './api';
 import { USE_MOCK } from './config';
+import { markAuthReady } from './splash';
 const PreviewTools = () => null;
 function ExternalProductPage() { const { id } = useParams(); const [params] = useSearchParams(); const s = useStore(); const p = s.products.find(p => p.id === id) ?? (id === 'draft' && s.drafts[s.activeUserId] ? { ...s.drafts[s.activeUserId], id: 'draft' } : undefined); return <div className="mx-auto min-h-screen max-w-[640px] bg-[var(--surface)] p-6"><p className="muted mb-8 border-b border-[var(--line)] pb-4 text-[11px]">외부 판매처 열기 동작을 위한 로컬 목업 페이지 · 실제 판매처와 연결되지 않습니다.</p>{p ? <div className="space-y-5"><h1 className="text-[22px] font-bold">{p.brand}</h1><ProductImage src={p.images[0]} alt={p.name} className="mx-auto aspect-square w-full max-w-[390px]"/><h2 className="text-[24px]">{p.name}</h2><p className="text-[13px] leading-relaxed">{p.description}</p>{p.extras.map(e => <p key={e.key} className="muted text-[12px]">{e.key} · {e.value}</p>)}<Note title="기존 판매 상품 URL"><p className="break-all">{params.get('url') || p.originalUrl}</p>외부 판매처의 가격과 판매조건은 직접 확인해 주세요.</Note><Link className="btn w-full" to={p.id === 'draft' ? '/seller/new' : `/product/${p.id}`}>STOCKDROP 상품으로 돌아가기</Link></div> : <><p>상품 주소를 확인해 주세요.</p><Link to="/" className="btn mt-6">STOCKDROP으로</Link></>}</div>; }
 function AppContent() {
@@ -20,6 +21,7 @@ function AppContent() {
   // 새로고침 직후엔 Access JWT가 없다. 화면이 요청을 보내기 전에 재발급을 한 번 끝내 401 → 재발급 → 재시도 지연을 없앤다
   const [restoring, setRestoring] = useState(() => !USE_MOCK && signedIn(s) && !s.auth?.demo && !getAccessToken());
   useEffect(() => { if (restoring) restoreSession().finally(() => setRestoring(false)); }, []);
+  useEffect(() => { if (!restoring) markAuthReady(); }, [restoring]); // 시작 화면은 로그인 확인이 끝날 때까지 유지
   // 푸시 클릭은 /?notificationId=UUID로 들어온다(명세) → 로그인 확인 → 알림 상세로 이동 대상을 찾는다. 토큰이 없으면 client가 401 뒤 재발급한다
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get('notificationId');
