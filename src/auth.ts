@@ -1,6 +1,7 @@
 import { initialAuth } from './domain';
 import type { State } from './domain';
 import { atomic, getState, mutate } from './store';
+import { applyAnalyticsId, syncAnalyticsIdentity } from './analytics';
 import { api, ApiError, errorMessage, getAccessToken, homePathFor, parseServerTime, rolesToFlags, saveInterests, saveMarketingConsent, saveNotificationSettings } from './api';
 import type { AccountDto, AuthTokens, ChallengeDto, LoginDto, ResetTokenDto, VerificationTokenDto } from './api';
 import { DEMO_ACCOUNT_IDS, DEMO_LOGIN, USE_MOCK } from './config';
@@ -22,7 +23,7 @@ export function endSession(s: State) { ensure(s).demo = false; ensure(s).userId 
 
 /* ── 세션 연동: 재발급 실패 시 로그아웃(보호된 화면은 App이 로그인으로 보낸다), 재발급 시 역할 갱신 ── */
 api.configure({
-  onSessionExpired: () => { if (signedIn(getState())) mutate(endSession); },
+  onSessionExpired: () => { applyAnalyticsId(null); if (signedIn(getState())) mutate(endSession); },
   onRefreshed: syncRoles,
 });
 /** 토큰의 roles를 현재 계정의 판매자·운영자 플래그에 반영한다 (판매자 승인 직후 재발급 등) */
@@ -62,6 +63,7 @@ export async function logout() {
   if (!USE_MOCK) await disablePush(); // 명세: 로그아웃 전에 푸시 구독 해제(JWT 필요) 후 브라우저 unsubscribe
   try { await api.post('/v1/auth/logout', undefined, { csrf: true, auth: false }); } catch { /* 서버에 닿지 않아도 이 기기의 세션은 끝낸다 */ }
   api.setAccessToken(null);
+  applyAnalyticsId(null); // 분석만 끊는다. 참여 철회(DELETE)는 사용자가 토글을 끌 때만
   mutate(endSession);
 }
 export { parseServerTime } from './api/mappers';
@@ -119,6 +121,7 @@ export async function login(emailValue: string, password: string): Promise<strin
   });
   // 표시 이름은 서버 값으로 맞춘다 (실패해도 로그인은 유지)
   api.get<AccountDto>('/v1/accounts/me').then(me => { if (me?.name) mutate(s => { const u = s.users.find(u => u.id === data.accountId); if (u) u.name = me.name; }); }).catch(() => {});
+  syncAnalyticsIdentity().catch(() => {}); // 분석 참여 상태는 로그인할 때마다 서버에서 다시 받는다
   await flushPendingPrefs(); // 로그인 전에 고른 관심 카테고리·알림 설정이 있으면 지금 저장
   return homePath();
 }
@@ -143,7 +146,7 @@ export async function signup(input: { email: string; password: string; name: str
 }
 /** 앱을 다시 열었을 때 Refresh 쿠키로 Access JWT를 복원한다. 서버가 거절(401·403)하면 이 기기의 로그인을 끝낸다 */
 export async function restoreSession(): Promise<boolean> {
-  try { await api.refresh(); return true; }
+  try { await api.refresh(); syncAnalyticsIdentity().catch(() => {}); return true; }
   catch (e) {
     // 네트워크 오류·서버 오류·mock 모드에서는 저장된 세션을 그대로 둔다
     if (e instanceof ApiError && (e.status === 401 || e.status === 403)) mutate(endSession);
