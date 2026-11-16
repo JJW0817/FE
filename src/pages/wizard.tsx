@@ -10,7 +10,7 @@ import { imageData } from '../files';
 import { Button, Empty, ErrorBox, Header, LiveStatus, Modal, Note, ProductImage, Unavailable, useToast } from '../components/ui';
 import { useClock } from '../hooks';
 import { USE_MOCK } from '../config';
-import { MOCK_REGISTRATION_METADATA, PRODUCT_STATE_MESSAGE, SHIPPING_NOTICE_MAX, ATTRIBUTE_VALUE_MAX, attributeName, composeShippingNotice, warnCriteria, analysisProblems, analyzeDraft, categoriesForCode, criteriaFor, listAddressBook, listingProblems, createProductDraft, deleteProductImage, errorMessage, fieldErrors, isApiError, getRegistrationMetadata, getSellerProductWithImages, mergeProducts, reorderProductImages, submitListing, submitRevisionFromDraft, uploadProductImage, useApi, useLive } from '../api';
+import { FIELD_LABELS, StageError, sourceUrlProblem, MOCK_REGISTRATION_METADATA, PRODUCT_STATE_MESSAGE, SHIPPING_NOTICE_MAX, ATTRIBUTE_VALUE_MAX, attributeName, composeShippingNotice, warnCriteria, analysisProblems, analyzeDraft, categoriesForCode, criteriaFor, listAddressBook, listingProblems, createProductDraft, deleteProductImage, errorMessage, fieldErrors, isApiError, getRegistrationMetadata, getSellerProductWithImages, mergeProducts, reorderProductImages, submitListing, submitRevisionFromDraft, uploadProductImage, useApi, useLive } from '../api';
 
 /* ── 초안 ─────────────────────────────────────────────────────────────────────── */
 const SWATCH: Record<string, string> = { 차콜: '#3F3F3F', 오트밀: '#E6DCC6', 크림: '#F3EBDC', 네이비: '#2B3A55', 블랙: '#222222', 화이트: '#FFFFFF', 내추럴: '#E8DCC8', 그레이: '#9A9A9A', 베이지: '#E3D3B8' };
@@ -83,7 +83,7 @@ async function analyzeReal(userId: string, token: string) {
     const id = await ensureServerDraft(userId), d = getState().drafts[userId];
     // TODO(api-gap): 점검 질문 → FAQ(suggestionId) 저장 흐름
     done(aiStateOf(token, await analyzeDraft(d, id), d.images.length));
-  } catch (e) { done({ ...failed, reason: isApiError(e, 'PRODUCT_STATE') ? PRODUCT_STATE_MESSAGE : errorMessage(e) }); }
+  } catch (e) { done({ ...failed, reason: isApiError(e, 'PRODUCT_STATE') ? PRODUCT_STATE_MESSAGE : errorMessage(e), fields: e instanceof StageError && Object.keys(e.fields).length ? e.fields : undefined }); }
 }
 /** 화면을 떠나도 계속되는 AI 분석(mock은 목업) */
 const ANALYSIS_MS = 2500;
@@ -144,8 +144,11 @@ export function WizardPage() {
     const m = st.products.find(x => x.id === p.id)!;
     if (canEdit(m, nowOf(st))) st.drafts[user.id] = fromProduct(m);
   }, [editId]);
-  const [error, setError] = useState(''), [uploading, setUploading] = useState(false), [progress, setProgress] = useState(''), [photoError, setPhotoError] = useState(''), [fieldErr, setFieldErr] = useState<Record<string, string>>({}), [busy, setBusy] = useState(false), [photo, setPhoto] = useState<number | null>(null), [activeColor, setActiveColor] = useState(0);
+  const [error, setError] = useState(''), [uploading, setUploading] = useState(false), [progress, setProgress] = useState(''), [photoError, setPhotoError] = useState(''), [retryFiles, setRetryFiles] = useState<File[]>([]), [fieldErr, setFieldErr] = useState<Record<string, string>>({}), [busy, setBusy] = useState(false), [photo, setPhoto] = useState<number | null>(null), [activeColor, setActiveColor] = useState(0);
   const picking = params.get('pick') === 'category', meta = useRegistrationMeta();
+  // AI 분석이 저장·조건 단계에서 막혔으면 해당 칸 아래에 표시한다
+  const aiFields = d?.ai.status === 'failed' ? d.ai.fields : undefined;
+  useEffect(() => { if (aiFields) setFieldErr(aiFields); }, [aiFields && JSON.stringify(aiFields)]);
   // 출고지·반품지: 실제 모드는 판매자 주소록, mock은 판매자 설정의 주소
   const book = useApi(async signal => (USE_MOCK ? null : Promise.all([listAddressBook('DISPATCH', signal), listAddressBook('RETURN', signal)])), []);
   if (!user.seller) return <Unavailable message="승인된 판매자만 상품을 등록할 수 있습니다."/>;
@@ -175,7 +178,7 @@ export function WizardPage() {
 
   async function upload(picked: File[]) {
     // input.value를 비우면 FileList도 비워지므로 호출한 쪽에서 배열로 복사해 넘긴다
-    if (!picked.length) return; setUploading(true); setPhotoError('');
+    if (!picked.length) return; setUploading(true); setPhotoError(''); setRetryFiles([]); let left = picked, started = false; // started: 형식 검사를 지나 실제 업로드 중 실패(같은 파일로 다시 시도 가능)
     try {
       if (d.images.length + picked.length > 10) throw new Error('상품 사진은 최대 10장까지 등록할 수 있습니다.');
       for (const f of picked) {
@@ -188,13 +191,13 @@ export function WizardPage() {
         setProgress('준비 중…');
         const id = await ensureServerDraft(user.id), images = [...d.images], ids = [...(d.imageIds ?? [])], sizes = [...(d.imageSizes ?? [])];
         for (const [n, f] of picked.entries()) {
-          setProgress(`${n + 1}/${picked.length}장 올리는 중…`);
+          setProgress(`${n + 1}/${picked.length}장 올리는 중…`); left = picked.slice(n); started = true;
           const u = await uploadProductImage(id, f);
           images.push(u.url || URL.createObjectURL(f)); ids.push(u.id); sizes.push(f.size); patch({ images: [...images], imageIds: [...ids], imageSizes: [...sizes] }); // 열람 URL을 못 받아도 선택한 파일로 미리보기
         }
       }
     }
-    catch (e) { setPhotoError(errorMessage(e)); } finally { setUploading(false); setProgress(''); }
+    catch (e) { setPhotoError(errorMessage(e)); if (started) setRetryFiles(left); } finally { setUploading(false); setProgress(''); }
   }
   const serverId = d.editingId ?? d.serverId;
   /** 사진 삭제·대표 지정: 실제 모드는 서버에도 반영 */
@@ -248,15 +251,15 @@ export function WizardPage() {
       mutate(st => { mergeProducts(st, [product]); delete st.drafts[user.id]; }); navigate(`/seller/published/${product.id}`, { replace: true });
     }
     catch (e) {
-      const f = fieldErrors(e);
+      const f = e instanceof StageError ? e.fields : fieldErrors(e);
       // 화면 검사를 통과했는데 PRODUCT_INVALID면 그사이 서버 값이 바뀐 것: 상품을 다시 받아 화면을 새로 그린다
-      if (!Object.keys(f).length && isApiError(e, 'PRODUCT_INVALID') && serverId) {
+      if (!Object.keys(f).length && (isApiError(e, 'PRODUCT_INVALID') || e instanceof StageError && e.code === 'PRODUCT_INVALID') && serverId) {
         try {
           const fresh = await getSellerProductWithImages(serverId);
           mutate(st => { mergeProducts(st, [fresh]); const m = st.products.find(x => x.id === fresh.id)!; st.drafts[user.id] = { ...fromProduct(m), editingId: d.editingId, serverId: d.serverId, ai: d.ai }; });
         } catch { /* 다시 받기 실패: 안내만 */ }
         setError('그사이 정보가 바뀌었어요. 확인 후 다시 요청해 주세요');
-      } else { setFieldErr(f); setError(errorMessage(e)); }
+      } else { showProblems(f); setError(errorMessage(e)); }
     } finally { setBusy(false); }
   }
   const FieldError = ({ name }: { name: string }) => fieldErr[name] ? <p role="alert" className="mt-1.5 text-[12px] text-[var(--red)]">{fieldErr[name]}</p> : null;
@@ -283,7 +286,7 @@ export function WizardPage() {
         {d.images.map((src, i) => <button type="button" key={src.slice(-24) + i} onClick={() => setPhoto(i)} className="relative shrink-0"><ProductImage src={src} alt={`상품 사진 ${i + 1}`} className="h-20 w-20"/>{i === 0 && <span className="absolute bottom-1.5 left-1.5 rounded-[3px] bg-black/70 px-1.5 py-0.5 text-[10px] font-bold text-white">대표</span>}</button>)}
       </div>
       {progress && <p role="status" className="text-[12px] text-[var(--aux)]">{progress}</p>}
-      <ErrorBox message={photoError}/>
+      <ErrorBox message={photoError}/>{retryFiles.length > 0 && !uploading && <button type="button" onClick={() => void upload(retryFiles)} className="h-9 rounded-[6px] border border-[var(--border)] px-3 text-[12px] font-bold">남은 사진 {retryFiles.length}장 다시 올리기</button>}
       <p className="text-[11px] text-[var(--meta)]">JPG·PNG·WEBP · 장당 10MB 이하 · 첫 번째 사진이 대표예요</p>
       <FieldError name="images"/>
     </section>
@@ -327,7 +330,7 @@ export function WizardPage() {
       {reference && <div className="flex items-center gap-3 rounded-[6px] bg-[var(--soft)] p-3">{reference.image && <ProductImage src={reference.image} alt={reference.title} className="h-12 w-12 shrink-0"/>}<div className="min-w-0 flex-1"><p className="text-[11px] font-bold text-[var(--meta)]">{reference.platform}</p><p className="truncate text-[13px]">{reference.title}</p><p className="text-[14px] font-bold">{money(reference.price)}</p></div><span className="flex shrink-0 items-center gap-1 text-[12px] font-bold text-[var(--positive)]"><Check size={14}/>확인됨</span></div>}
       {(d.extraUrls ?? []).map((url, i) => <label key={i} className="flex h-12 items-center gap-2 border-b border-[var(--line)]"><Link2 size={17} className="shrink-0 text-[var(--aux)]"/><input aria-label={`추가 URL ${i + 1}`} className="min-w-0 flex-1 bg-transparent text-[15px] outline-none" value={url} placeholder="https://" onChange={e => patch({ extraUrls: (d.extraUrls ?? []).map((u, j) => j === i ? e.target.value : u) })}/></label>)}
       <button type="button" onClick={() => patch({ extraUrls: [...(d.extraUrls ?? []), ''] })} className="flex items-center gap-1 text-[13px] text-[var(--aux)]"><Plus size={14}/>다른 플랫폼 URL 추가</button>
-      <FieldError name="sourceUrl"/>
+      {fieldErr.sourceUrl ? <FieldError name="sourceUrl"/> : d.originalUrl.trim() && sourceUrlProblem(d.originalUrl) ? <p className="mt-1.5 text-[12px] text-[var(--red)]">{sourceUrlProblem(d.originalUrl)}</p> : null}
     </section>
 
     <section className="space-y-2.5" data-field="price"><Label hint="· 필수">한정 판매가</Label>
@@ -485,6 +488,7 @@ export function AiFailedPage() {
   return <AiFrame footer={<div className="flex gap-2"><Button outline className="w-[128px] text-[15px]!" onClick={() => navigate(`/seller/new${suffix}${suffix ? '&' : '?'}pick=category`, { replace: true })}>직접 입력하기</Button><Button className="flex-1 text-[15px]!" onClick={() => { startAnalysis(user.id); navigate(`/seller/new/ai/analyzing${suffix}`, { replace: true }); }}>다시 분석</Button></div>}>
     <Thumbs images={d.images}/>
     <span className="grid h-11 w-11 place-items-center rounded-full bg-[var(--red-soft)]"><AlertCircle size={18} className="text-[var(--action)]"/></span>
+    {d.ai.fields && <div role="alert" className="space-y-2 rounded-[6px] bg-[var(--red-soft)] p-4"><p className="text-[13px] font-bold text-[var(--red)]">분석 요청 전에 확인할 정보가 있어요</p>{Object.entries(d.ai.fields).map(([k, v]) => <p key={k} className="text-[12px] text-[var(--red)]">{FIELD_LABELS[k] ?? k} · {v}</p>)}<Button outline className="w-full" onClick={() => navigate(`/seller/new${suffix}`, { replace: true })}>입력 정보 확인하기</Button></div>}
     <div className="space-y-2"><h1 className="text-[24px] font-bold tracking-[-.7px]">사진을 분석하지 못했어요</h1><p className="text-[13px] text-[var(--aux)]">{d.ai.reason ? d.ai.reason : '사진이 흐리거나 상품이 잘 보이지 않으면 분석이 어려워요.'}</p></div>
     <div className="space-y-2 rounded-[6px] bg-[var(--infobar)] p-4"><p className="text-[13px] font-bold">이렇게 하면 더 잘 분석돼요</p><p className="whitespace-pre-line text-[12px] leading-[1.7] text-[var(--aux)]">{'· 상품 전체가 보이도록 밝은 곳에서 촬영\n· 라벨·택이 보이는 사진을 함께 등록\n· 한 사진에 상품 하나만'}</p></div>
     <div className="flex gap-2 rounded-[6px] bg-[var(--soft)] p-4"><Info size={15} className="mt-[2px] shrink-0 text-[var(--aux)]"/><p className="text-[12px] leading-[1.6] text-[var(--aux)]">AI 분석 없이 카테고리를 직접 선택해도 판매 심사를 요청할 수 있어요. 입력한 내용은 그대로 저장돼 있어요.</p></div>

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from './client';
-import { ATTRIBUTE_NAMES, MOCK_REGISTRATION_METADATA, MAX_ANALYSIS_BYTES, attributeName, attributeProblem, composeShippingNotice, PRODUCT_STATE_MESSAGE, addProductFaq, analysisBlocker, listingProblems, categoriesForCode, categoryForCode, criteriaFor, analysisProblems, analyzeDraft, answerProductInquiry, basicInfoOf, createProductDraft, deleteProductFaq, deleteProductImage, getAiAnalysis, getProductImageUrl, getRegistrationMetadata, getSalesSummary, getSellerProduct, getSellerProductWithImages, listProductImages, listRevisions, listSellerProductInquiries, listSellerProducts, optionPayload, pollAiAnalysis, reorderProductImages, requestAiAnalysis, saveBasicInfo, saveDetails, saveOptions, savePricingShipping, saveRegistrationFaqs, saveSchedule, sellerProductFromApi, submitListing, submitReview, submitRevision, submitRevisionFromDraft, updateProductFaq, uploadProductImage } from './sellerProducts';
+import { StageError, sourceUrlProblem, ATTRIBUTE_NAMES, MOCK_REGISTRATION_METADATA, MAX_ANALYSIS_BYTES, attributeName, attributeProblem, composeShippingNotice, PRODUCT_STATE_MESSAGE, addProductFaq, analysisBlocker, listingProblems, categoriesForCode, categoryForCode, criteriaFor, analysisProblems, analyzeDraft, answerProductInquiry, basicInfoOf, createProductDraft, deleteProductFaq, deleteProductImage, getAiAnalysis, getProductImageUrl, getRegistrationMetadata, getSalesSummary, getSellerProduct, getSellerProductWithImages, listProductImages, listRevisions, listSellerProductInquiries, listSellerProducts, optionPayload, pollAiAnalysis, reorderProductImages, requestAiAnalysis, saveBasicInfo, saveDetails, saveOptions, savePricingShipping, saveRegistrationFaqs, saveSchedule, sellerProductFromApi, submitListing, submitReview, submitRevision, submitRevisionFromDraft, updateProductFaq, uploadProductImage } from './sellerProducts';
 import { blankDraft, optionKey } from '../domain';
 import type { Draft } from '../domain';
 import type { SellerProductDto } from './types';
@@ -38,8 +38,8 @@ describe('변환', () => {
     expect(o.dimensions).toEqual([{ name: '색상', values: ['크림'] }, { name: '사이즈', values: ['S', 'M'] }]);
     expect(optionPayload({ ...blankDraft(), axes: { size: false, color: false }, stock: { [optionKey('', '')]: 4 } })).toEqual({ dimensions: [{ name: '옵션', values: ['기본'] }], variants: [{ selections: { 옵션: '기본' }, initialQuantity: 4 }] });
   });
-  it('기본 정보: URL 스킴 보정, 빈 설명·서버 목록에 없는 카테고리는 보내지 않는다', () => {
-    const d = { ...blankDraft(), name: ' 상품 ', originalUrl: 'coupang.com/p', category: '패션 › 상의' };
+  it('기본 정보: URL은 고치지 않고 그대로, 빈 설명·서버 목록에 없는 카테고리는 보내지 않는다', () => {
+    const d = { ...blankDraft(), name: ' 상품 ', originalUrl: ' https://coupang.com/p ', category: '패션 › 상의' };
     expect(basicInfoOf(d, ['의류'])).toMatchObject({ name: '상품', description: undefined, sourceUrl: 'https://coupang.com/p', category: undefined });
     expect(basicInfoOf({ ...d, category: '의류' }, ['의류']).category).toBe('의류');
   });
@@ -139,10 +139,12 @@ describe('AI 분석', () => {
     fake(() => ({ status: 'RUNNING', result: null }));
     await expect(pollAiAnalysis('r1', { interval: 0, tries: 2 })).rejects.toThrow('지연');
   });
+  const img = { id: 'i1', objectKey: 'k', contentType: 'image/png', sizeBytes: 100, position: 0, representative: true };
   it('analyzeDraft: 기본 정보 저장 → 요청(새 version) → 폴링, 코드는 점검 기준 이름으로', async () => {
+    let saved = dto({ version: 5 });
     const calls = fake(c => c.url.includes('registration-metadata') ? { categories: ['의류'], categoryCriteria: [{ code: 'CLOTHING', name: '의류', checks: [] }] }
       : c.url.includes('/ai-analyses') ? { requestId: 'r1' } : c.url.includes('/ai/product-analyses/') ? { status: 'COMPLETED', result: { outcome: 'RECOMMENDED', recommendedCategory: 'CLOTHING', questions: [{ suggestionId: 's', checkCode: 'c', question: 'q', reason: 'r' }] } }
-      : c.method === 'PUT' ? dto({ version: 6 }) : dto({ version: 5 }));
+      : c.url.endsWith('/images') ? [img] : c.method === 'PUT' ? (saved = dto({ version: 6, name: '상품', description: '설명', disposalReason: '재고' })) : saved);
     const r = await analyzeDraft({ ...blankDraft(), name: '상품', description: '설명', reason: '재고', images: ['x'] }, 'p1', { interval: 0 });
     expect(r).toMatchObject({ outcome: 'RECOMMENDED', category: '의류' }); expect(r.questions).toHaveLength(1);
     expect(calls.find(c => c.url.includes('basic-info'))!.body.expectedVersion).toBe(5); expect(calls.find(c => c.url.includes('/ai-analyses'))!.body.expectedVersion).toBe(6);
@@ -150,10 +152,27 @@ describe('AI 분석', () => {
   it('analyzeDraft: 서버 값과 같으면 기본 정보·상세를 다시 저장하지 않는다(재분석마다 version이 오르지 않게)', async () => {
     const calls = fake(c => c.url.includes('registration-metadata') ? { categories: ['의류'], categoryCriteria: [] }
       : c.url.includes('/ai-analyses') ? { requestId: 'r1' } : c.url.includes('/ai/product-analyses/') ? { status: 'COMPLETED', result: { outcome: 'NOT_APPLICABLE', recommendedCategory: null, questions: [] } }
-      : dto({ version: 9, name: '상품', description: '설명', disposalReason: '재고 정리' }));
+      : c.url.endsWith('/images') ? [img] : dto({ version: 9, name: '상품', description: '설명', disposalReason: '재고 정리' }));
     await analyzeDraft({ ...blankDraft(), name: '상품', description: '설명', reason: '재고 정리', images: ['x'] }, 'p1', { interval: 0 });
     expect(calls.filter(c => c.method === 'PUT')).toHaveLength(0);
     expect(calls.find(c => c.url.includes('/ai-analyses'))!.body.expectedVersion).toBe(9);
+  });
+  it('analyzeDraft: 요청 직전 서버 값이 조건에 안 맞으면 요청하지 않고 어느 칸인지 알려 준다', async () => {
+    const calls = fake(c => c.url.includes('registration-metadata') ? { categories: [], categoryCriteria: [] } : c.url.endsWith('/images') ? [] : dto({ version: 9, name: '상품', description: '설명', disposalReason: '재고 정리' }));
+    const e = await analyzeDraft({ ...blankDraft(), name: '상품', description: '설명', reason: '재고 정리', images: ['x'] }, 'p1').catch(x => x);
+    expect(e).toBeInstanceOf(StageError); expect(Object.keys(e.fields)).toEqual(['images']);
+    expect(calls.some(c => c.url.includes('/ai-analyses'))).toBe(false);
+  });
+  it('기본 정보 저장 400은 단계·칸 이름과 violations를 칸별로 준다', async () => {
+    api.configure({ mock: false, fetch: (async (u: RequestInfo | URL, init?: RequestInit) => init?.method === 'PUT' ? new Response(JSON.stringify({ code: 'COMMON_INVALID_REQUEST', message: '요청 값을 확인해 주세요.', violations: [{ field: 'sourceUrl', message: '올바른 URL이 아닙니다' }] }), { status: 400, headers: { 'content-type': 'application/json' } }) : new Response(JSON.stringify({ success: true, data: String(u).includes('registration-metadata') ? { categories: [], categoryCriteria: [] } : dto({ version: 1 }) }), { headers: { 'content-type': 'application/json' } })) as typeof fetch });
+    const e = await analyzeDraft({ ...blankDraft(), name: '상품', description: '설명', reason: '재고', images: ['x'], originalUrl: 'https://a.com' }, 'p1').catch(x => x);
+    expect(e.message).toBe('기본 정보 저장 실패: 타 플랫폼 판매 URL — 올바른 URL이 아닙니다'); expect(e.fields).toEqual({ sourceUrl: '올바른 URL이 아닙니다' });
+  });
+  it('원본 URL 검사: http(s)로 시작, 띄어쓰기·줄바꿈 없음, 2000자 이하', () => {
+    expect(sourceUrlProblem('https://shop.com/p/1')).toBeNull(); expect(sourceUrlProblem('')).toBeNull();
+    expect(sourceUrlProblem('shop.com/p')).toContain('http'); expect(sourceUrlProblem('https://shop.com/a b')).toContain('띄어쓰기');
+    expect(sourceUrlProblem('https://shop.com/\nx')).toContain('줄바꿈'); expect(sourceUrlProblem(`https://shop.com/${'a'.repeat(2000)}`)).toContain('2,000');
+    expect(sourceUrlProblem('https://localhost')).toContain('형식');
   });
 });
 
@@ -215,7 +234,7 @@ describe('attributes 항목명', () => {
 
 describe('심사 제출 전 검사', () => {
   const now = Date.parse('2030-01-01T00:00:00Z');
-  const ok: Draft = { ...blankDraft(), name: '상품', description: '새 상품', reason: '재고 정리', images: ['x'], imageIds: ['i1'], category: '의류', originalUrl: 'coupang.com/p/1', price: 5000, shipping: 0, dispatchDays: 2, maxPerAccount: 1, startsAt: '2030-01-02T10:00', axes: { size: false, color: false }, stock: { [optionKey('', '')]: 3 } };
+  const ok: Draft = { ...blankDraft(), name: '상품', description: '새 상품', reason: '재고 정리', images: ['x'], imageIds: ['i1'], category: '의류', originalUrl: 'https://coupang.com/p/1', price: 5000, shipping: 0, dispatchDays: 2, maxPerAccount: 1, startsAt: '2030-01-02T10:00', axes: { size: false, color: false }, stock: { [optionKey('', '')]: 3 } };
   const o = { categories: ['의류'], now, dispatch: true, return: true };
   it('모두 갖추면 통과(배송비 0 허용)', () => expect(listingProblems(ok, o)).toEqual({}));
   it('빠진 칸마다 문구, 화면 순서대로', () => {
