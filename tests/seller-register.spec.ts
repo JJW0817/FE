@@ -35,6 +35,8 @@ test('판매 상품 등록 단일 화면 → AI 분석 적용 → 판매 심사 
   await expect(page.getByText('패션 › 상의 › 니트/스웨터')).toBeVisible();
 
   await page.getByLabel('타 플랫폼 판매 URL').fill('coupang.com/vp/products/7348215906');
+  await expect(page.getByText('http:// 또는 https://로 시작하는 주소를 입력해 주세요.')).toBeVisible();
+  await page.getByLabel('타 플랫폼 판매 URL').fill('https://coupang.com/vp/products/7348215906');
   await expect(page.getByText('확인됨')).toBeVisible();
   await page.getByLabel('한정 판매가').fill('49000');
   await expect(page.getByText('45% 저렴')).toBeVisible();

@@ -90,3 +90,21 @@ test('비PDF 업로드·운영자 접근·승인 전 상품 등록 차단', asyn
   await page.goto('/#/apply'); await page.getByLabel('사업자등록증 PDF 첨부').setInputFiles({ name: '가짜.pdf', mimeType: 'application/pdf', buffer: Buffer.from('not a pdf') }); await expect(page.getByRole('alert')).toContainText('올바른 PDF'); await expect(page.getByRole('button', { name: '입점 심사 요청하기' })).toBeDisabled();
   await page.goto('/#/admin'); await expect(page.getByText('운영자만 사용할 수 있습니다.')).toBeVisible(); await page.goto('/#/seller/new'); await expect(page.getByText('승인된 판매자만 상품을 등록할 수 있습니다.')).toBeVisible();
 });
+
+test('마이페이지에서 연 화면: 알림 설정은 설정 모드, 주문·배송은 뒤로 가기, FAQ는 펼침·전체 목록 분리', async ({ page }) => {
+  await page.goto('/#/my');
+  await page.getByRole('button', { name: /알림 설정/ }).click();
+  await expect(page.getByRole('heading', { name: '알림 설정' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '건너뛰기' })).toHaveCount(0); await expect(page.getByText('/ 2')).toHaveCount(0);
+  await page.getByRole('button', { name: '저장', exact: true }).click();
+  await expect(page).toHaveURL(/#\/my$/);
+  await page.getByRole('navigation', { name: '구매자 하단 메뉴' }).getByRole('link', { name: '주문' }).click();
+  await expect(page.getByRole('heading', { name: '주문 · 배송' })).toBeVisible(); await expect(page.getByRole('button', { name: '이전 화면' })).toHaveCount(0);
+  await page.goto('/#/my'); await page.getByText('주문 · 배송 조회').first().click();
+  await expect(page.getByRole('button', { name: '이전 화면' })).toBeVisible();
+  await page.goto('/#/support');
+  await page.getByRole('button', { name: /선착순 재고는 어떻게 확보하나요/ }).click();
+  await expect(page.getByText(/결제를 먼저 완료한 순서대로/)).toBeVisible();
+  await page.getByRole('link', { name: /전체 보기/ }).click();
+  await expect(page.getByRole('heading', { name: '자주 묻는 질문' })).toBeVisible(); await expect(page.getByRole('heading', { name: '고객 지원' })).toHaveCount(0);
+});
