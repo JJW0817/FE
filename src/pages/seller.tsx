@@ -1,4 +1,4 @@
-import { LogoutButton } from './auth';
+import { LogoutButton, SETTINGS_HREF } from './auth';
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Plus, Check, ChevronRight, FileText, Info, Rocket, ScanSearch, Share2, Truck } from 'lucide-react';
@@ -442,7 +442,7 @@ export function SellerMyPage() {
   return (
     <div className="space-y-0">
       <Header title="판매자 마이페이지" subtitle="스토어 정보와 판매 설정을 관리하세요." back={false}/>
-      <div className="divider flex items-center gap-3 pb-5">
+      <Link to="/seller/settings/account" aria-label="계정 설정" className="divider flex items-center gap-3 pb-5">
         <div className="grid h-[48px] w-[48px] shrink-0 place-items-center rounded-[8px] bg-[var(--ink)] text-[18px] font-bold text-white">{initial}</div>
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex items-center gap-2">
@@ -452,7 +452,7 @@ export function SellerMyPage() {
           <p className="muted text-[12px]">{user.name} · {user.email}</p>
         </div>
         <ChevronRight size={17} className="muted shrink-0"/>
-      </div>
+      </Link>
       <div className="mb-4 flex rounded-[4px] bg-[var(--canvas)]">
         {([['진행 중 드롭', `${activeDrops}건`, '/seller/products'], ['이번 달 정산 예정', money(settlement), '/seller/settings/bank'], ['미답변 문의', `${unanswered}건`, '/seller/inquiries', unanswered > 0]] as [string, string, string, boolean?][]).map(([label, value, to, red], i) => (
           <Link key={label} to={to} className={`flex flex-1 flex-col items-center gap-1 py-4 ${i > 0 ? 'border-l border-[var(--line)]' : ''}`}>
@@ -476,7 +476,7 @@ export function SellerMyPage() {
       <div className="h-2 bg-[var(--canvas)]"/>
       <section className="mb-4">
         <p className="muted mb-2 mt-4 text-[13px] font-bold">설정</p>
-        <MenuRow to="/seller/settings/account" label="알림 설정"/>
+        <MenuRow to={SETTINGS_HREF('/seller/my')} label="알림 설정"/>
         <MenuRow to="/seller/support" label="이용 안내 · 고객지원"/>
         <button className="divider flex min-h-[52px] w-full items-center gap-3 text-left" onClick={() => { mutate(state => { state.mode = 'buyer'; }); navigate('/'); }}><span className="min-w-0 flex-1 text-[13px]">구매자 모드로 전환</span><ChevronRight size={17} className="muted"/></button>
       </section>

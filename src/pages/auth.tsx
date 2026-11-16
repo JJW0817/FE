@@ -254,8 +254,11 @@ export function CategorySelectionPage() {
     <div className="pb-6 pt-4"><Button className="w-full" onClick={() => proceed(selected)} disabled={!selected.length}>{selected.length ? `${selected.length}개 선택 · 다음으로` : '카테고리를 선택해주세요'}</Button></div>
   </div>;
 }
+/** 마이페이지(구매자·판매자)에서 여는 알림 설정 — 가입 단계 화면을 설정 모드로 연다(건너뛰기·진행 막대 없음, 저장 후 돌아감) */
+export const SETTINGS_HREF = (back: string) => `/notifications/settings?mode=settings&next=${encodeURIComponent(back)}`;
 export function NotificationSettingsPage() {
-  const navigate = useNavigate(); const [params] = useSearchParams(); const next = safeNext(params.get('next'));
+  const navigate = useNavigate(); const [params] = useSearchParams(); const next = safeNext(params.get('next')); const settingsMode = params.get('mode') === 'settings';
+  const [saving, setSaving] = useState(false);
   const NOTIFS = [{ id: 'sale_start', title: '판매 시작 알림', desc: '관심 상품 판매 시작 즉시 알려드려요' }, { id: 'price_change', title: '관심 상품 가격 변동', desc: '찜한 상품 가격 변동 시 알려드려요' }, { id: 'low_stock', title: '한정 수량 임박 알림', desc: '재고가 5개 이하 남으면 알려드려요' }, { id: 'recommendation', title: '개인 맞춤 상품 추천', desc: '취향에 맞는 새 상품 등록 시 알려드려요' }];
   const [enabled, setEnabled] = useState<Record<string, boolean>>(() => { try { return JSON.parse(localStorage.getItem('stockdrop:notifications') || '{}'); } catch { return {}; } });
   const [marketing, setMarketing] = useState(false); const toast = useToast(); const s = useStore();
@@ -265,20 +268,25 @@ export function NotificationSettingsPage() {
   const logged = !USE_MOCK && signedIn(s);
   useEffect(() => { if (logged) fetchMySettings().then(m => { setEnabled(e => ({ ...e, sale_start: m.saleStart, recommendation: m.personalizedRecommendation })); setMarketing(m.marketing); }).catch(() => {}); }, [logged]);
   const proceed = async (push = false) => {
+    setSaving(true); try { await save(push); } finally { setSaving(false); }
+  };
+  const save = async (push: boolean) => {
     try { localStorage.setItem('stockdrop:notifications', JSON.stringify({ ...enabled, marketing })); } catch {}
     if (logged) { try { await Promise.all([saveNotificationSettings(!!enabled['sale_start'], !!enabled['recommendation']), saveMarketingConsent(marketing)]); } catch (e) { toast(errorMessage(e)); return; } }
     // 서버 Web Push 구독은 '알림 받기 시작'(사용자 동작)에서만. 실패해도 설정 저장은 끝났으니 다음 화면으로 간다
     if (push && logged) { try { const r = await enablePush(); if (r === 'denied') toast('브라우저 알림이 차단되어 있어요. 설정에서 허용해 주세요.'); else if (r === 'unsupported') toast('이 브라우저는 푸시 알림을 지원하지 않아요. iPhone은 홈 화면에 추가한 뒤 이용해 주세요.'); } catch (e) { toast(errorMessage(e)); } }
+    if (settingsMode) toast('알림 설정을 저장했어요.');
     navigate(next, { replace: true });
   };
   return <div className="flex min-h-[calc(100dvh-60px)] flex-col">
+    {settingsMode ? <Header title="알림 설정"/> : <>
     <header className="flex items-center justify-between py-3">
       <button className="muted" aria-label="이전 화면" onClick={() => navigate(-1)}><ArrowLeft size={18}/></button>
       <span className="text-[17px] font-bold">알림 설정</span>
       <button className="muted py-2 text-[13px]" onClick={() => proceed()}>건너뛰기</button>
     </header>
     <div className="mb-1 h-[3px] w-full bg-[var(--line)]"><div className="h-[3px] w-full rounded-r-full bg-[var(--ink)]"/></div>
-    <div className="flex justify-end py-2 text-[11px] text-[var(--muted)]"><span className="font-bold text-[var(--ink)]">2</span><span> / 2</span></div>
+    <div className="flex justify-end py-2 text-[11px] text-[var(--muted)]"><span className="font-bold text-[var(--ink)]">2</span><span> / 2</span></div></>}
     <div className="flex-1 space-y-5 pt-2">
       <div className="flex flex-col items-center gap-3 py-6">
         <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--line)]"><Bell size={22} strokeWidth={1.5}/></div>
@@ -297,7 +305,7 @@ export function NotificationSettingsPage() {
       </label>
       {!pushReady && <Note title="푸시 알림"><p>홈 화면에 추가하면 알림을 받을 수 있어요. 사파리 공유 버튼 → ‘홈 화면에 추가’ 후 홈 화면의 STOCKDROP 앱으로 열어 주세요.</p></Note>}
     </div>
-    <div className="pb-6 pt-4"><Button className="w-full" onClick={() => proceed(pushReady)}>{pushReady ? '알림 받기 시작' : '설정 저장하고 시작'}</Button></div>
+    <div className="pb-6 pt-4"><Button className="w-full" disabled={saving} onClick={() => proceed(pushReady)}>{settingsMode ? (saving ? '저장 중…' : '저장') : pushReady ? '알림 받기 시작' : '설정 저장하고 시작'}</Button></div>
   </div>;
 }
 export function LogoutButton() { const [open, setOpen] = useState(false), [busy, setBusy] = useState(false), navigate = useNavigate(), toast = useToast(); return <><button className="muted py-4 text-[12px] underline underline-offset-4" onClick={() => setOpen(true)}>로그아웃</button>{open && <Modal title="로그아웃할까요?" onClose={() => setOpen(false)}><Note>주문과 신청 내역은 유지됩니다. 진행 중인 재고 확보 시간은 로그아웃해도 멈추거나 연장되지 않습니다.</Note><div className="mt-6 flex gap-3"><Button outline className="flex-1" onClick={() => setOpen(false)}>취소</Button><Button className="flex-1" disabled={busy} onClick={async () => { setBusy(true); await logout(); navigate('/', { replace: true }); toast('로그아웃했습니다.'); }}>로그아웃하기</Button></div></Modal>}</>; }
