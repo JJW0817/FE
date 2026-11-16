@@ -37,3 +37,14 @@ export async function imageData(file: File): Promise<string> {
   context.drawImage(bitmap, 0, 0, canvas.width, canvas.height); bitmap.close();
   return canvas.toDataURL('image/webp', .72);
 }
+/** PDF 새 탭: 클릭 직후 열어(모바일 사파리 팝업 차단 회피) 빈 화면(about:blank) 대신 불러오는 중 안내를 먼저 보여 준다 */
+export function openPendingTab(): Window | null {
+  const tab = window.open('', '_blank');
+  if (tab) { try { tab.document.title = '서류 열람 · STOCKDROP'; tab.document.body.style.cssText = 'margin:0;padding:32px 24px;font:15px/1.6 -apple-system,system-ui,sans-serif;color:#333'; tab.document.body.textContent = '서류를 불러오고 있어요…'; } catch { /* 안내 없이 진행 */ } }
+  return tab;
+}
+/** 불러오기 실패를 그 탭에 표시한다(사유는 글자로만 넣는다) */
+export function failTab(tab: Window | null, reason: string) {
+  if (!tab || tab.closed) return;
+  try { const b = tab.document.body; b.textContent = ''; const h = tab.document.createElement('p'); h.style.fontWeight = '700'; h.textContent = '서류를 불러오지 못했어요.'; const p = tab.document.createElement('p'); p.textContent = `${reason} 이 탭을 닫고 다시 시도해 주세요.`; b.append(h, p); } catch { tab.close(); }
+}
