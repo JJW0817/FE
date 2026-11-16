@@ -1,5 +1,6 @@
 import { LogoutButton, SETTINGS_HREF } from './auth';
 import { FaqList, SELLER_FAQ_ITEMS } from './account';
+import { BankField } from '../components/BankField';
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Plus, Check, ChevronRight, FileText, Info, Rocket, ScanSearch, Share2, Truck } from 'lucide-react';
@@ -616,7 +617,7 @@ export function SellerSettingsPage() {
       </div>}
       <div className="-mx-4 h-px bg-[var(--line)]"/>
       <h2 className="text-[13px] font-bold text-[var(--muted)]">계좌 변경</h2>
-      <Field label="은행" required><select aria-label="은행" value={form.bank || ''} onChange={e => change('bank', e.target.value)} className="field-line"><option value="">은행을 선택해 주세요</option>{['KB국민은행','신한은행','우리은행','하나은행','IBK기업은행','NH농협은행','카카오뱅크','토스뱅크'].map(b => <option key={b}>{b}</option>)}</select></Field>
+      <Field label="은행" required><BankField label="은행" value={form.bank || ''} onChange={v => change('bank', v)}/></Field>
       <Field label="계좌번호" required><input aria-label="계좌번호" className="field-line" inputMode="numeric" value={form.account ?? ''} onChange={e => change('account', e.target.value)} placeholder="'-' 없이 숫자만 입력"/></Field>
       <Field label="예금주" hint="사업자등록증의 상호 또는 대표자명과 같아야 해요"><input aria-label="예금주" className="field-line" value={form.holder ?? ''} onChange={e => change('holder', e.target.value)}/></Field>
       <div className="flex gap-2 rounded-[6px] bg-[var(--canvas)] p-4 text-[12px] text-[#7B7B7B]"><Info size={15} className="mt-px shrink-0"/><p>1원 입금으로 본인 계좌를 확인해요. 변경한 계좌는 다음 정산부터 적용돼요.</p></div>

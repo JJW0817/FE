@@ -154,3 +154,11 @@ test('운영자는 판매 심사 상세에서 사진을 크게 열어 넘겨 보
   await expect(viewer.getByRole('checkbox', { name: /정품 여부/ })).toBeVisible();
   await viewer.getByRole('button', { name: '반려' }).click(); await expect(viewer).toHaveCount(0); await expect(page.getByRole('heading', { name: '판매 심사 반려' })).toBeVisible();
 });
+
+test('정산 은행은 직접 입력이 아니라 아래에서 올라오는 선택 시트로 고른다', async ({ page }) => {
+  await actor(page, 'buyer'); await page.goto('/#/apply');
+  await page.getByRole('button', { name: '정산 은행' }).click();
+  const list = page.getByRole('listbox', { name: '은행 목록' }); await expect(list.getByRole('option')).toHaveCount(20);
+  await list.getByRole('option', { name: '카카오뱅크' }).click(); await expect(list).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '정산 은행' })).toContainText('카카오뱅크');
+});
