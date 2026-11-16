@@ -1,9 +1,10 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
-import { Link, NavLink, useNavigate } from 'react-router-dom';
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Bell, Timer, X, Home, CalendarDays, Package, UserRound, ChevronRight, Info, Copy } from 'lucide-react';
 import type { Product, Order } from '../domain';
-import { money, saleState } from '../domain';
+import { money, saleState, stockTotal } from '../domain';
+import { IMAGE_EXPIRED } from '../config';
 const ToastContext = createContext<(message: string) => void>(() => {});
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [message, setMessage] = useState('');
@@ -12,9 +13,14 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 }
 export const useToast = () => useContext(ToastContext);
 export function Button({ children, outline, buy, className = '', ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { outline?: boolean; buy?: boolean }) { return <button type="button" className={`btn ${outline ? 'btn-outline' : ''} ${buy ? 'btn-buy' : ''} ${className}`} {...props}>{children}</button>; }
-export function Field({ label, hint, required, children }: { label: string; hint?: string; required?: boolean; children: ReactNode }) { return <div><span className="label">{label}{required && <span className="muted ml-1 text-[10px]">· 필수</span>}</span>{children}{hint && <p className="muted mt-2 text-[10px] leading-relaxed">{hint}</p>}</div>; }
+export function Field({ label, hint, required, error, children }: { label: string; hint?: string; required?: boolean; error?: string; children: ReactNode }) { return <div><span className="label">{label}{required && <span className="muted ml-1 text-[10px]">· 필수</span>}</span>{children}{error && <p role="alert" className="mt-2 text-[12px] text-[var(--red)]">{error}</p>}{hint && <p className="muted mt-2 text-[10px] leading-relaxed">{hint}</p>}</div>; }
 export function Note({ title, children, green = false }: { title?: string; children: ReactNode; green?: boolean }) { return <div className={`note ${green ? 'bg-[var(--green-soft)]!' : ''}`}>{title && <h3 className="mb-1 font-bold">{title}</h3>}<div className="muted">{children}</div></div>; }
 export function ErrorBox({ message }: { message: string }) { return message ? <div role="alert" className="rounded-[4px] bg-[var(--red-soft)] p-3 text-[12px] leading-relaxed text-[var(--red)]">{message}</div> : null; }
+/** 서버 조회 상태(useLive): 불러오는 중 / 실패 + 다시 시도. 둘 다 아니면 아무것도 그리지 않는다 */
+export function LiveStatus({ state, label = '불러오는 중이에요…' }: { state: { loading: boolean; error: string; reload: () => void }; label?: string }) {
+  if (state.error) return <div className="space-y-2 py-4"><ErrorBox message={state.error}/><Button outline className="w-full" onClick={state.reload}>다시 시도</Button></div>;
+  return state.loading ? <p role="status" className="muted py-8 text-center text-[12px]">{label}</p> : null;
+}
 export function Empty({ title, message, children }: { title: string; message?: string; children?: ReactNode }) { return <div className="flex min-h-[260px] flex-col items-center justify-center gap-4 py-12 text-center"><Package size={32} className="muted" strokeWidth={1}/><h2 className="text-[16px] font-bold">{title}</h2>{message && <p className="muted max-w-[280px] text-[12px] leading-relaxed">{message}</p>}{children}</div>; }
 export function Header({ title, subtitle, back = true, action, bare = false }: { title: string; subtitle?: string; back?: boolean; action?: ReactNode; bare?: boolean }) {
   const navigate = useNavigate();
@@ -23,9 +29,15 @@ export function Header({ title, subtitle, back = true, action, bare = false }: {
 export function Badge({ children, live = false, red = false }: { children: ReactNode; live?: boolean; red?: boolean }) { return <span className={`inline-flex w-fit items-center rounded-[3px] px-2 py-1 text-[10px] font-semibold ${live ? 'bg-[var(--green-soft)] text-[var(--green)]' : red ? 'bg-[var(--red-soft)] text-[var(--red)]' : 'bg-[var(--blue-soft)] text-[var(--ink)]'}`}>{children}</span>; }
 export function InfoRow({ label, value, strong = false }: { label: string; value: ReactNode; strong?: boolean }) { return <div className="flex items-start justify-between gap-4 py-1"><span className="muted shrink-0 text-[12px]">{label}</span><span className={`min-w-0 text-right text-[12px] leading-relaxed ${strong ? 'font-bold' : ''}`}>{value}</span></div>; }
 export function MenuRow({ label, to, children }: { label: string; to: string; children?: ReactNode }) { return <Link to={to} className="divider flex min-h-[52px] items-center gap-3"><span className="min-w-0 flex-1 text-[13px]">{label}</span>{children}<ChevronRight size={17} className="muted"/></Link>; }
-export function ProductImage({ src, alt, className = '' }: { src: string; alt: string; className?: string }) { return <img src={typeof src === 'string' && src.startsWith('/images/') ? `.${src}` : src || './images/generated.png'} alt={alt} className={`block rounded-[4px] bg-[var(--blue-soft)] object-cover ${className}`} loading="lazy"/>; }
+const signedUrl = (u: string) => /[?&]X-Amz-(Expires|Signature)=/i.test(u);
+export function ProductImage({ src, alt, className = '' }: { src: string; alt: string; className?: string }) {
+  const reported = useRef('');
+  const onError = () => { if (typeof src === 'string' && signedUrl(src) && reported.current !== src) { reported.current = src; window.dispatchEvent(new Event(IMAGE_EXPIRED)); } };
+  return <img src={typeof src === 'string' && src.startsWith('/images/') ? `.${src}` : src || './images/generated.png'} alt={alt} onError={onError} className={`block rounded-[4px] bg-[var(--blue-soft)] object-cover ${className}`} loading="lazy"/>;
+}
 export function ProductSummary({ product, option, amount }: { product: { name: string; brand: string; image: string }; option?: ReactNode; amount?: number }) { return <div className="divider flex items-center gap-3 pb-4"><ProductImage src={product.image} alt={product.name} className="h-[86px] w-[76px] shrink-0"/><div className="min-w-0 flex-1 space-y-1.5"><p className="muted text-[10px]">{product.brand}</p><p className="text-[14px] font-semibold">{product.name}</p>{option && <div className="muted whitespace-pre-line text-[11px] leading-relaxed">{option}</div>}{amount !== undefined && <p className="font-number text-[14px] font-bold">{money(amount)}</p>}</div></div>; }
-/** 판매 시작 알림 신청 목록 (Notification 연동 전 로컬 저장) */
+/** 판매 시작 알림 신청 목록 — 로컬 저장(mock 유지).
+ * TODO(api-gap): 상품별 판매 시작 알림 신청 API가 명세에 없다. 계정 단위 설정(PUT /v1/accounts/me/notification-settings saleStart)만 있음 */
 const NOTIFY_KEY = 'stockdrop:notified-products';
 export function readNotified(): string[] { try { const v = JSON.parse(localStorage.getItem(NOTIFY_KEY) || 'null'); return Array.isArray(v) ? v : ['basket']; } catch { return []; } }
 export function useNotified() {
@@ -39,7 +51,7 @@ export const openLabel = (t: number, now: number) => { const d = new Date(t), n 
 export const soldOutLabel = (p: Product) => { if (!p.soldOutAt) return '판매 종료'; const m = Math.max(1, Math.round((p.soldOutAt - p.startsAt) / 60_000)); return `${m >= 60 ? `${Math.floor(m / 60)}시간 ${m % 60}분` : `${m}분`} 만에 완판됐어요`; };
 export function ProductCard({ product: p, now, availableCount, notified, onNotify }: { product: Product; now: number; availableCount?: number; notified?: boolean; onNotify?: () => void }) {
   const status = saleState(p, now);
-  const total = p.options.reduce((n, o) => n + o.stock, 0), left = availableCount ?? total;
+  const total = stockTotal(p), left = availableCount ?? total;
   const soldOut = (status === '판매 중' && availableCount === 0) || (status === '판매 종료' && !!p.soldOutAt);
   const urgent = status === '판매 중' && !soldOut && p.endsAt - now <= 3_600_000;
   const pct = total ? Math.min(100, Math.max(0, (1 - left / total) * 100)) : 0;
@@ -68,9 +80,11 @@ export function Modal({ title, children, onClose }: { title: string; children: R
   useEffect(() => { const node = ref.current!; node.showModal(); const alreadyLocked = document.body.classList.contains('overflow-hidden'); document.body.classList.add('overflow-hidden'); return () => { node.close(); if (!alreadyLocked) document.body.classList.remove('overflow-hidden'); }; }, []);
   return <dialog ref={ref} aria-label={title} onCancel={event => { event.preventDefault(); onClose(); }} onClick={event => { if (event.target === event.currentTarget) onClose(); }} className="fixed inset-x-0 bottom-0 top-auto m-0 mx-auto max-h-[92dvh] w-full max-w-[390px] overflow-y-auto rounded-t-[16px] border-0 bg-[var(--surface)] p-5 text-[var(--ink)] backdrop:bg-[var(--overlay)]"><div className="mx-auto mb-5 h-1 w-9 rounded-full bg-[var(--line)]"/><div className="mb-5 flex items-center justify-between gap-4"><h2 className="text-[18px] font-bold">{title}</h2><button aria-label="닫기" onClick={onClose} className="grid h-9 w-9 shrink-0 place-items-center"><X size={20}/></button></div>{children}</dialog>;
 }
+/** 하단 탭으로 들어온 화면인지 — 탭으로 열면 Figma대로 뒤로 가기 없음, 마이페이지·결제 완료·알림 등에서 열면 뒤로 가기 */
+export const useFromTab = () => !!(useLocation().state as { tab?: boolean } | null)?.tab;
 export function BottomNav({ mode }: { mode: 'buyer' | 'seller' }) {
   const items = mode === 'seller' ? [['/seller', '홈', Home], ['/schedule', '판매 일정', CalendarDays], ['/orders', '주문', Package], ['/seller/my', '마이', UserRound]] as const : [['/', '홈', Home], ['/schedule', '판매 일정', CalendarDays], ['/orders', '주문', Package], ['/my', '마이', UserRound]] as const;
-  return <nav aria-label={mode === 'buyer' ? '구매자 하단 메뉴' : '판매자 하단 메뉴'} className="fixed bottom-0 left-1/2 z-30 w-full max-w-[390px] -translate-x-1/2 border-t border-[var(--line)] bg-[var(--surface)] px-1 pb-[max(14px,env(safe-area-inset-bottom))] pt-2"><div className="flex">{items.map(([to, label, Icon]) => <NavLink end key={to} to={to} className={({ isActive }) => `flex min-h-11 flex-1 flex-col items-center justify-center gap-1 text-[9px] ${isActive ? 'font-bold text-[var(--ink)]' : 'text-[var(--muted)]'}`}><Icon size={20} strokeWidth={1.5}/>{label}</NavLink>)}</div></nav>;
+  return <nav aria-label={mode === 'buyer' ? '구매자 하단 메뉴' : '판매자 하단 메뉴'} className="fixed bottom-0 left-1/2 z-30 w-full max-w-[390px] -translate-x-1/2 border-t border-[var(--line)] bg-[var(--surface)] px-1 pb-[max(14px,env(safe-area-inset-bottom))] pt-2"><div className="flex">{items.map(([to, label, Icon]) => <NavLink end key={to} to={to} state={{ tab: true }} className={({ isActive }) => `flex min-h-11 flex-1 flex-col items-center justify-center gap-1 text-[9px] ${isActive ? 'font-bold text-[var(--ink)]' : 'text-[var(--muted)]'}`}><Icon size={20} strokeWidth={1.5}/>{label}</NavLink>)}</div></nav>;
 }
 export async function copyText(text: string) { if (!navigator.clipboard) throw new Error('클립보드를 사용할 수 없습니다. 번호를 길게 눌러 복사해 주세요.'); await navigator.clipboard.writeText(text); }
 export function CopyButton({ value }: { value: string }) { const toast = useToast(); return <button aria-label="복사" className="grid h-8 w-8 place-items-center" onClick={() => copyText(value).then(() => toast('복사했습니다.')).catch(e => toast(e.message))}><Copy size={16} className="muted"/></button>; }

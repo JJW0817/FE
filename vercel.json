@@ -1,0 +1,7 @@
+{
+  "rewrites": [
+    { "source": "/pg/:path*", "destination": "https://pay.stockdrop.cloud/:path*" },
+    { "source": "/api/:path*", "destination": "https://api.stockdrop.cloud/api/:path*" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}

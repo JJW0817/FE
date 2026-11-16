@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { editState } from './session';
+import { blockExternal, editState } from './session';
 // 회원가입·인증번호·비밀번호 재설정·실서버 로그인은 백엔드 API 연결 후 검증한다. 지금은 API 호출 직전 단계와 데모 계정 로그인만 확인
-async function loggedOut(page: Page, onboarded = false) { await page.goto('/#/welcome'); await page.waitForFunction(() => !!localStorage.getItem('stockdrop:v1')); await editState(page, (s, onboarded) => { s.auth = { ...s.auth, userId: null, onboarded, demo: false }; s.activeUserId = ''; s.mode = 'buyer'; }, onboarded); await page.evaluate(() => sessionStorage.clear()); }
+async function loggedOut(page: Page, onboarded = false) { await blockExternal(page); await page.goto('/#/welcome'); await page.waitForFunction(() => !!localStorage.getItem('stockdrop:v1')); await editState(page, (s, onboarded) => { s.auth = { ...s.auth, userId: null, onboarded, demo: false }; s.activeUserId = ''; s.mode = 'buyer'; }, onboarded); await page.evaluate(() => sessionStorage.clear()); }
 async function signIn(page: Page, email: string, password: string) { await page.getByLabel('이메일', { exact: true }).fill(email); await page.getByLabel('비밀번호', { exact: true }).fill(password); await page.getByRole('button', { name: '로그인', exact: true }).click(); }
 
 test('첫 방문 온보딩 3단계·게스트 탐색·재방문 유지·구매 로그인 복귀', async ({ page }) => {

@@ -1,5 +1,6 @@
 import type { DocumentFile } from './domain';
 import { uid } from './domain';
+import { SERVER_DOC, fetchApplicationCertificate } from './api/seller';
 let dbPromise: Promise<IDBDatabase> | undefined;
 function db() { return dbPromise ??= new Promise<IDBDatabase>((resolve, reject) => { const request = indexedDB.open('stockdrop-files', 1); request.onupgradeneeded = () => { request.result.createObjectStore('documents'); }; request.onsuccess = () => resolve(request.result); request.onerror = () => reject(new Error('파일 저장 공간을 열 수 없습니다.')); }); }
 export async function savePdf(file: File): Promise<DocumentFile> {
@@ -20,6 +21,7 @@ export function samplePdf(): Blob {
 }
 export async function getPdf(id: string): Promise<Blob> {
   if (id === 'sample') return samplePdf();
+  if (id.startsWith(SERVER_DOC)) return fetchApplicationCertificate(id.slice(SERVER_DOC.length)); // 서버에 제출된 사업자등록증
   const database = await db();
   return new Promise((resolve, reject) => { const request = database.transaction('documents').objectStore('documents').get(id); request.onsuccess = () => request.result instanceof Blob ? resolve(request.result) : reject(new Error('첨부 파일을 찾을 수 없습니다. 다시 첨부해 주세요.')); request.onerror = () => reject(new Error('파일을 열지 못했습니다.')); });
 }
@@ -34,4 +36,15 @@ export async function imageData(file: File): Promise<string> {
   const context = canvas.getContext('2d'); if (!context) throw new Error('이미지를 처리하지 못했습니다.');
   context.drawImage(bitmap, 0, 0, canvas.width, canvas.height); bitmap.close();
   return canvas.toDataURL('image/webp', .72);
+}
+/** PDF 새 탭: 클릭 직후 열어(모바일 사파리 팝업 차단 회피) 빈 화면(about:blank) 대신 불러오는 중 안내를 먼저 보여 준다 */
+export function openPendingTab(): Window | null {
+  const tab = window.open('', '_blank');
+  if (tab) { try { tab.document.title = '서류 열람 · STOCKDROP'; tab.document.body.style.cssText = 'margin:0;padding:32px 24px;font:15px/1.6 -apple-system,system-ui,sans-serif;color:#333'; tab.document.body.textContent = '서류를 불러오고 있어요…'; } catch { /* 안내 없이 진행 */ } }
+  return tab;
+}
+/** 불러오기 실패를 그 탭에 표시한다(사유는 글자로만 넣는다) */
+export function failTab(tab: Window | null, reason: string) {
+  if (!tab || tab.closed) return;
+  try { const b = tab.document.body; b.textContent = ''; const h = tab.document.createElement('p'); h.style.fontWeight = '700'; h.textContent = '서류를 불러오지 못했어요.'; const p = tab.document.createElement('p'); p.textContent = `${reason} 이 탭을 닫고 다시 시도해 주세요.`; b.append(h, p); } catch { tab.close(); }
 }

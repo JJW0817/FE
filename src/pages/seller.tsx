@@ -1,23 +1,34 @@
-import { LogoutButton } from './auth';
+import { LogoutButton, SETTINGS_HREF } from './auth';
+import { FaqList, SELLER_FAQ_ITEMS } from './account';
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Plus, Check, ChevronRight, FileText, Info, Rocket, ScanSearch, Share2, Truck } from 'lucide-react';
-import { activeUser, feeFor, markDelivered, money, nowOf, saleState, uid } from '../domain';
-import type { Order, SellerSettings } from '../domain';
+import { activeUser, feeFor, markDelivered, money, nowOf, parseRejection, saleState, uid } from '../domain';
+import type { Order, Product, SellerSettings } from '../domain';
 import { atomic, mutate, useStore } from '../store';
-import { dateTime, useClock } from '../hooks';
-import { Badge, Button, CopyButton, copyText, Toggle, Empty, ErrorBox, Field, Header, InfoRow, MenuRow, Modal, Note, ORDER_LABELS, ProductImage, ProductSummary, Unavailable, useToast } from '../components/ui';
+import { endSession } from '../auth';
+import { dateTime, kstShort, kstSlot, useClock } from '../hooks';
+import { Badge, Button, CopyButton, copyText, Toggle, Empty, ErrorBox, Field, Header, InfoRow, LiveStatus, MenuRow, Modal, Note, ORDER_LABELS, ProductImage, ProductSummary, Unavailable, useToast } from '../components/ui';
 import { PdfField } from '../components/PdfField';
-import { apiGet, apiPut } from '../api';
+import { AddressBookFormPage, AddressBookPage } from './sellerAddresses';
+import { answerOrderInquiry, listSellerOrderInquiries, answerProductInquiry, deleteSellerLogo, deliverOrder, errorMessage, getSalesSummary, getSellerOrder, getSellerOrderInquiry, getSellerOrderSummary, getSellerProduct, getSellerProductWithImages, listRevisions, listSellerOrderInquiryInbox, listSellerOrders, listSellerProductInquiries, listSellerProducts, mergeInquiries, mergeOrders, mergeProducts, shipOrder, useLive, fetchSellerLogo, fetchSellerMe, fetchSellerStore, fetchWithdrawalEligibility, updateSellerAddresses, updateSellerBank, updateSellerContact, updateSellerStore, uploadSellerLogo, useApi, withdrawAccount } from '../api';
+import { api } from '../api';
+import { USE_MOCK } from '../config';
 const hm = (t: number) => new Date(t).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
 const md = (t: number) => { const d = new Date(t); return `${d.getMonth() + 1}.${d.getDate()} (${'일월화수목금토'[d.getDay()]})`; };
 export function SellerProductsPage() {
-  const s = useStore(), user = activeUser(s), now = useClock(); const [params, setParams] = useSearchParams(); const tab = params.get('state') ?? '전체'; if (!user.seller) return <Unavailable/>; const settings = s.sellerSettings[user.id]; const allProducts = s.products.filter(p => p.sellerId === user.id); const products = allProducts.filter(p => tab === '전체' || saleState(p, now) === tab); const thisMonth = s.orders.filter(o => o.sellerId === user.id && !['cancelled','refunded'].includes(o.status)).reduce((n, o) => n + o.lines.reduce((a, l) => a + l.quantity, 0), 0); const alarmCount = 226; const soldOutCount = allProducts.filter(p => saleState(p, now) === '판매 종료').length;
-  const chips: [string, number][] = [['전체', allProducts.length], ['판매 중', allProducts.filter(p => saleState(p, now) === '판매 중').length], ['판매 예정', allProducts.filter(p => saleState(p, now) === '판매 예정').length], ['심사 중', 0], ['판매 종료', soldOutCount]];
+  const s = useStore(), user = activeUser(s), now = useClock(); const [params, setParams] = useSearchParams(); const tab = params.get('state') ?? '전체';
+  // 실제 모드: 본인 상품 목록과 이번 달 판매 집계를 서버에서 받는다(mock은 store 목업 그대로)
+  const live = useLive(async signal => listSellerProducts(user.id, {}, signal), (st, items) => mergeProducts(st, items), [user.id]);
+  const month = `${new Date(now).getFullYear()}-${String(new Date(now).getMonth() + 1).padStart(2, '0')}`;
+  const summary = useApi(async signal => (USE_MOCK ? null : getSalesSummary(month, signal)), [month]);
+  if (!user.seller) return <Unavailable/>; const settings = s.sellerSettings[user.id]; const allProducts = s.products.filter(p => p.sellerId === user.id); const products = allProducts.filter(p => tab === '전체' || (tab === '판매 심사 중' ? p.reviewStatus === 'IN_REVIEW' : saleState(p, now) === tab)); const thisMonth = summary.data?.confirmedQuantity ?? s.orders.filter(o => o.sellerId === user.id && !['cancelled','refunded'].includes(o.status)).reduce((n, o) => n + o.lines.reduce((a, l) => a + l.quantity, 0), 0); const alarmCount = 226; /* TODO(api-gap): 알림 신청 인원 API 없음(목업) */ const soldOutCount = allProducts.filter(p => saleState(p, now) === '판매 종료').length;
+  const chips: [string, number][] = [['전체', allProducts.length], ['판매 중', allProducts.filter(p => saleState(p, now) === '판매 중').length], ['판매 예정', allProducts.filter(p => saleState(p, now) === '판매 예정').length], ['판매 심사 중', allProducts.filter(p => p.reviewStatus === 'IN_REVIEW').length], ['판매 종료', soldOutCount]];
   return <div className="space-y-0">
     <Header title="판매 상품 관리" action={<Link to="/seller/new" aria-label="상품 등록"><Plus size={22}/></Link>}/>
     <div className="flex items-center justify-between py-3"><span className="text-[13px] font-bold">{settings?.displayName ?? user.name}</span><span className="muted text-[12px]">{new Date(now).getMonth()+1}월 기준</span></div>
-    <div className="mb-4 flex justify-around rounded-[4px] bg-[var(--canvas)] py-4">{([['이번 달 판매', `${thisMonth}개`], ['알림 신청', `${alarmCount}명`], ['완판', `${soldOutCount}건`]] as [string,string][]).map(([label, value]) => <div key={label} className="text-center"><p className="font-number text-[16px] font-bold">{value}</p><p className="muted mt-1 text-[11px]">{label}</p></div>)}</div>
+    <LiveStatus state={live}/>
+    <div className="mb-4 flex justify-around rounded-[4px] bg-[var(--canvas)] py-4">{([['이번 달 판매', `${thisMonth}개`], ...(USE_MOCK ? [['알림 신청', `${alarmCount}명`]] : []), ['완판', `${soldOutCount}건`]] as [string,string][]).map(([label, value]) => <div key={label} className="text-center"><p className="font-number text-[16px] font-bold">{value}</p><p className="muted mt-1 text-[11px]">{label}</p></div>)}</div>
     <div className="-mx-4 mb-2 flex gap-1.5 overflow-x-auto px-4">{chips.map(([label, count]) => <button key={label} onClick={() => setParams(label === '전체' ? {} : { state: label })} className={`h-[30px] shrink-0 rounded-[4px] px-2.5 text-[12px] ${tab === label ? 'bg-[var(--ink)] font-bold text-[var(--surface)]' : 'muted bg-[var(--soft)]'}`}>{label} {count}</button>)}</div>
     {products.map(p => {
       const status = saleState(p, now); const sold = s.orders.filter(o => o.productId === p.id && !['cancelled','refunded'].includes(o.status)).reduce((n, o) => n + o.lines.reduce((a, l) => a + l.quantity, 0), 0); const total = p.options.reduce((n, o) => n + o.stock, 0); const remaining = Math.max(0, total - sold); const isLive = status === '판매 중', ended = status === '판매 종료'; const secondsLeft = Math.max(0, Math.floor((p.endsAt - now) / 1000)); const hh = String(Math.floor(secondsLeft/3600)).padStart(2,'0'), mm = String(Math.floor(secondsLeft%3600/60)).padStart(2,'0'), ss = String(secondsLeft%60).padStart(2,'0');
@@ -25,66 +36,95 @@ export function SellerProductsPage() {
         <div className="flex gap-3">
           <ProductImage src={p.images[0]} alt={p.name} className="h-[72px] w-[72px] shrink-0"/>
           <div className="min-w-0 flex-1 space-y-1">
-            <div className="flex items-center gap-2"><span className={`rounded-[3px] px-2 py-0.5 text-[11px] font-bold ${isLive ? 'bg-[#EEF8F3] text-[#3FB181]' : 'bg-[var(--soft)] text-[var(--muted)]'}`}>{isLive ? '판매 중' : status}</span><span className="muted text-[11px] font-bold">{isLive ? `오늘 ${hm(p.startsAt)} – ${hm(p.endsAt)}` : ended ? `${md(p.endsAt)} ${hm(p.endsAt)} 종료` : `${md(p.startsAt)} ${hm(p.startsAt)} 오픈`}</span></div>
+            <div className="flex items-center gap-2"><span className={`rounded-[3px] px-2 py-0.5 text-[11px] font-bold ${isLive ? 'bg-[#EEF8F3] text-[#3FB181]' : !USE_MOCK && p.reviewStatus === 'REJECTED' ? 'bg-[var(--red-soft)] text-[var(--red)]' : 'bg-[var(--soft)] text-[var(--muted)]'}`}>{isLive ? '판매 중' : status === '게시 전' && !USE_MOCK && p.reviewStatus ? REVIEW_LABEL[p.reviewStatus] : status}</span><span className="muted text-[11px] font-bold">{isLive ? `오늘 ${hm(p.startsAt)} – ${hm(p.endsAt)}` : ended ? `${md(p.endsAt)} ${hm(p.endsAt)} 종료` : `${md(p.startsAt)} ${hm(p.startsAt)} 오픈`}</span></div>
             <p className="text-[14px]">{p.name}</p>
             <p className="font-number text-[15px] font-bold">{money(p.price)} <span className="muted text-[12px] font-normal">{total}개 한정</span></p>
           </div>
         </div>
         {isLive && <><div className="flex items-center justify-between text-[12px]"><span className="font-bold">{sold} / {total}개 판매</span><span className="muted">{hh}:{mm}:{ss} 남음</span></div><div className="h-1 w-full rounded-full bg-[var(--line)]"><div className="h-1 rounded-full bg-[var(--ink)]" style={{width: total > 0 ? `${(sold/total)*100}%` : '0%'}}/></div></>}
         {ended && <><div className="flex items-center justify-between text-[12px]"><span className="font-bold">{sold} / {total}개 판매</span><span className="muted">{sold >= total ? '완판' : '판매 종료'}</span></div><div className="h-1 w-full rounded-full bg-[var(--line)]"><div className="h-1 rounded-full bg-[var(--muted)]" style={{width: total > 0 ? `${Math.min(100, sold/total*100)}%` : '0%'}}/></div></>}
-        {status === '판매 예정' && <p className="muted text-[12px]">D-{Math.max(0, Math.ceil((p.startsAt - now)/86400000))} · 알림 신청 {alarmCount}명</p>}
+        {status === '판매 예정' && <p className="muted text-[12px]">D-{Math.max(0, Math.ceil((p.startsAt - now)/86400000))}{USE_MOCK && ` · 알림 신청 ${alarmCount}명`}</p>}
         {isLive || ended ? <Link to={`/seller/product/${p.id}`} className="btn btn-outline w-full text-[13px]!">{isLive ? '판매 현황' : '판매 결과'}</Link> : status === '판매 예정' && <Link to={`/seller/new?edit=${p.id}`} className="btn btn-outline w-full text-[13px]!">판매 정보 수정</Link>}
+        {status === '게시 전' && (p.reviewStatus === 'IN_REVIEW' ? <Link to={`/seller/published/${p.id}`} className="btn btn-outline w-full text-[13px]!">심사 상태 보기</Link> : p.reviewStatus === 'REJECTED' && !USE_MOCK ? <RejectedActions p={p}/> : <Link to={`/seller/new?edit=${p.id}`} className="btn btn-outline w-full text-[13px]!">{p.reviewStatus === 'REJECTED' ? '수정하고 다시 요청' : '이어서 등록'}</Link>)}
       </div>;
     })}
-    {!products.length && <Empty title="등록한 상품이 없어요"/>}
+    {!products.length && !live.loading && <Empty title="등록한 상품이 없어요"/>}
     <Link className="btn mt-6 w-full" to="/seller/new"><Plus size={17}/>새 한정 판매 등록</Link>
   </div>;
 }
+/** 서버 심사 status → 목록 배지 (승인은 판매 예정·판매 중·판매 종료로 보인다) */
+const REVIEW_LABEL: Record<NonNullable<Product['reviewStatus']>, string> = { DRAFT: '작성 중', IN_REVIEW: '판매 심사 중', REJECTED: '판매 심사 반려', APPROVED: '승인' };
+/** 반려 상품: 반려 사유 보기(목록엔 사유가 없어 누를 때 상세를 불러온다) + 수정 후 재요청 — 알림의 심사 결과 화면과 같은 정보·같은 이동 */
+function RejectedActions({ p }: { p: Product }) {
+  const [open, setOpen] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState('');
+  async function show() {
+    if (open) { setOpen(false); return; }
+    setError('');
+    if (p.rejectionReason === undefined) {
+      setBusy(true);
+      try { const full = await getSellerProduct(p.id); mutate(st => mergeProducts(st, [full])); } catch (e) { setError(errorMessage(e)); setBusy(false); return; }
+      setBusy(false);
+    }
+    setOpen(true);
+  }
+  return <div className="space-y-2">
+    {open && <Note title="반려 사유">{p.rejectionReason || '반려 사유가 등록되지 않았어요.'}</Note>}
+    <ErrorBox message={error}/>
+    <div className="flex gap-2"><Button outline className="flex-1 text-[13px]!" disabled={busy} onClick={show}>{busy ? '불러오는 중…' : open ? '반려 사유 닫기' : '반려 사유 보기'}</Button><Link to={`/seller/new?edit=${p.id}`} className="btn flex-1 text-[13px]!">수정 후 재요청</Link></div>
+  </div>;
+}
 export function SellerProductPage() {
-  const { id } = useParams(); const s = useStore(), user = activeUser(s), now = useClock(), location = useLocation(), navigate = useNavigate(), toast = useToast(); const p = s.products.find(p => p.id === id && p.sellerId === user.id); if (!user.seller || !p) return <Unavailable/>;
-  const status = saleState(p, now), fee = feeFor(s, p), published = location.pathname.includes('/published/');
+  const { id } = useParams(); const s = useStore(), user = activeUser(s), now = useClock(), location = useLocation(), navigate = useNavigate(), toast = useToast(); const p = s.products.find(p => p.id === id && (!USE_MOCK || p.sellerId === user.id));
+  // 실제 모드: 편집 원본·이미지, 이 상품의 주문, 주문 집계, 수정 심사 이력을 서버에서 받는다(mock은 store 목업 그대로)
+  const live = useLive(async signal => (id && user.seller ? { prod: await getSellerProductWithImages(id, signal), orders: await listSellerOrders(user.id, { productId: id }, signal) } : null), (st, r) => { if (!r) return; mergeProducts(st, [r.prod]); mergeOrders(st, r.orders); }, [id]);
+  const sum = useApi(async signal => (USE_MOCK || !id || !user.seller ? null : getSellerOrderSummary({ productId: id }, signal)), [id]);
+  const revs = useApi(async signal => (USE_MOCK || !id || !user.seller ? null : listRevisions(id, signal)), [id]);
+  if (!user.seller) return <Unavailable/>;
+  if (!p) return live.loading || live.error ? <LiveStatus state={live}/> : <Unavailable/>;
+  const rev = [...(revs.data ?? [])].sort((a, b) => Date.parse(b.submittedAt) - Date.parse(a.submittedAt))[0];
+  // 실제 모드: 심사 중·반려 상품은 (알림에서 /seller/product/:id로 들어와도) 심사 결과 화면을 보여 준다
+  const status = saleState(p, now), fee = feeFor(s, p) /* TODO(api-gap): 정산·수수료 API 없음(목업 계산) */, published = location.pathname.includes('/published/') || (!USE_MOCK && (p.reviewStatus === 'IN_REVIEW' || p.reviewStatus === 'REJECTED'));
   const productOrders = s.orders.filter(o => o.productId === p.id && !['cancelled','refunded'].includes(o.status));
-  const totalSold = fee.sold;
+  const totalSold = sum.data?.confirmedQuantity ?? fee.sold;
   const totalStock = p.options.reduce((n, o) => n + o.stock, 0);
 
   // 심사 대기 / 심사 승인 / 심사 반려
   if (published) {
-    const approved = !!p.published;
-    const rejected = !p.published && !!(p as any).rejectionReason;
+    const approved = USE_MOCK ? !!p.published : p.reviewStatus === 'APPROVED';
+    const rejected = USE_MOCK ? !p.published && !!p.rejectionReason : p.reviewStatus === 'REJECTED';
     const dDay = Math.max(0, Math.ceil((p.startsAt - now) / 86_400_000));
     const steps = ['요청 완료', '판매 심사', '판매 예정', '판매 시작'];
     const filled = approved ? 3 : 1;
 
     // 심사 반려
     if (rejected) {
-      const rejectionReasons: Array<{no: string; field: string; reason: string}> = [
-        { no: '01', field: '한정 판매가', reason: '쿠팡 판매가가 45,900원으로 내려갔어요. 한정 판매가는 URL 판매가보다 낮아야 해요.' },
-        { no: '02', field: '판매 일정', reason: '11월 3일 (화) 21:00 판매 슬롯이 모두 찼어요. 다른 날짜나 시간을 골라 주세요.' },
-      ];
+      // 물품 검수는 판매 심사에 포함 — 검수 미통과 항목도 반려 사유 안에서 '물품 확인'으로 묶어 보여 준다. 서버는 사유 텍스트만 준다
+      const MOCK_REJECTION = '[한정 판매가] 쿠팡 판매가가 45,900원으로 내려갔어요. 한정 판매가는 URL 판매가보다 낮아야 해요.\n[물품 확인 · 상품 상태] 등록 사진과 달리 외박스 모서리에 찍힘이 있어요.';
+      const rejectionReasons = parseRejection(p.rejectionReason || (USE_MOCK ? MOCK_REJECTION : '반려 사유가 등록되지 않았어요.'));
+      const saleItems = rejectionReasons.filter(r => !r.inspection), checkItems = rejectionReasons.filter(r => r.inspection);
+      const card = (r: { field: string; reason: string }, i: number) => <div key={i} className="rounded-[6px] border border-[var(--line)] p-4 space-y-3"><div className="flex items-center gap-3"><span className="muted text-[13px] font-bold">{String(i + 1).padStart(2, '0')}</span><span className="text-[15px] font-bold">{r.field}</span></div><p className="text-[13px] text-[#7B7B7B] whitespace-pre-line">{r.reason}</p></div>;
       return <div className="space-y-5">
         <div className="flex items-center justify-between pt-1">
-          <h1 className="text-[18px] font-bold">심사 요청 결과</h1>
+          <h1 className="text-[18px] font-bold">판매 심사 결과</h1>
           <button onClick={() => navigate('/seller/products')} aria-label="닫기" className="p-1"><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M17 5L5 17M5 5l12 12" stroke="#222" strokeWidth="1.8" strokeLinecap="round"/></svg></button>
         </div>
         <div className="relative overflow-hidden rounded-[8px]">
           <ProductImage src={p.images[0]} alt={p.name} className="h-[180px] w-full object-cover"/>
           <div className="absolute inset-0 flex flex-col items-center justify-end bg-black/65 pb-6 text-white">
             <div className="mb-3 flex h-[54px] w-[54px] items-center justify-center rounded-full border border-[#EF6253]/80"><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M15 7L7 15M7 7l8 8" stroke="#EF6253" strokeWidth="2" strokeLinecap="round"/></svg></div>
-            <p className="text-[20px] font-bold">요청이 접수되지 않았어요</p>
+            <p className="text-[20px] font-bold">판매 심사 반려</p>
             <p className="mt-1 text-[13px] text-white/80">{p.brand} {p.name}</p>
           </div>
         </div>
         <div className="space-y-1">
-          <h2 className="text-[22px] font-bold">2개 항목을</h2>
+          <h2 className="text-[22px] font-bold">{rejectionReasons.length}개 항목을</h2>
           <h2 className="text-[22px] font-bold">확인해 주세요</h2>
           <p className="mt-2 text-[13px] text-[#7B7B7B]">입력한 내용은 그대로 저장돼 있어요.</p>
           <p className="text-[13px] text-[#7B7B7B]">아래 항목만 고치면 바로 다시 요청할 수 있어요.</p>
         </div>
         <div className="space-y-3">
-          {rejectionReasons.map(r => <div key={r.no} className="rounded-[6px] border border-[var(--line)] p-4 space-y-3">
-            <div className="flex items-center gap-3"><span className="muted text-[13px] font-bold">{r.no}</span><span className="text-[15px] font-bold">{r.field}</span></div>
-            <p className="text-[13px] text-[#7B7B7B]">{r.reason}</p>
-          </div>)}
+          {saleItems.map(card)}
+          {checkItems.length > 0 && <><div className="flex items-center justify-between pt-2"><h3 className="text-[15px] font-bold">물품 확인</h3><span className="rounded-[4px] bg-[#FDEFED] px-2 py-0.5 text-[11px] font-bold text-[#E5484D]">{checkItems.length}개 항목 미통과</span></div><p className="text-[12px] text-[#7B7B7B]">운영팀이 상품 상태·구성품 등을 직접 확인한 결과예요.</p>{checkItems.map((r, i) => card(r, saleItems.length + i))}</>}
         </div>
         <div className="flex gap-2"><Button outline className="flex-1" onClick={() => navigate('/seller')}>나중에 하기</Button><Button className="flex-1" onClick={() => navigate(`/seller/new?edit=${p.id}`)}>수정하고 다시 요청</Button></div>
       </div>;
@@ -92,28 +132,28 @@ export function SellerProductPage() {
 
     return <div className="space-y-5">
       <div className="flex items-center justify-between pt-1">
-        <h1 className="text-[18px] font-bold">{approved ? '판매 심사 결과' : '심사 요청 결과'}</h1>
+        <h1 className="text-[18px] font-bold">판매 심사 결과</h1>
         <button onClick={() => navigate('/seller/products')} aria-label="닫기" className="p-1"><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M17 5L5 17M5 5l12 12" stroke="#222" strokeWidth="1.8" strokeLinecap="round"/></svg></button>
       </div>
       <div className="relative overflow-hidden rounded-[8px]">
         <ProductImage src={p.images[0]} alt={p.name} className="h-[220px] w-full object-cover"/>
         <div className="absolute inset-0 flex flex-col items-center justify-end bg-black/60 pb-6 text-white">
-          <p className="text-[20px] font-bold">{approved ? '판매 승인 완료' : '심사 대기 중'}</p>
+          <p className="text-[20px] font-bold">{approved ? '판매 승인 완료' : '판매 심사 중'}</p>
           <p className="mt-1 text-[13px] text-white/80">{p.brand} {p.name}</p>
         </div>
       </div>
       <div className="space-y-1">
         <h2 className="text-[22px] font-bold">{approved ? '축하해요!' : '판매 심사를'}</h2>
         <h2 className="text-[22px] font-bold">{approved ? '판매가 승인됐어요' : '요청했어요'}</h2>
-        <p className="mt-2 text-[13px] text-[#7B7B7B]">{approved ? `11월 3일 (화) 21:00부터 3시간 동안 판매가 열려요.` : '영업일 기준 1일 안에 결과를 알림으로 알려드려요.'}</p>
+        <p className="mt-2 text-[13px] text-[#7B7B7B]">{approved ? (USE_MOCK ? `11월 3일 (화) 21:00부터 3시간 동안 판매가 열려요.` : p.startsAt ? `${kstSlot(p.startsAt)}부터 3시간 동안 판매가 열려요.` : '판매 일정에 맞춰 열려요.') : '영업일 기준 1일 안에 결과를 알림으로 알려드려요.'}</p>
         {approved && <p className="text-[13px] text-[#7B7B7B]">판매 30분 전에 알림으로 한 번 더 알려드릴게요.</p>}
         {!approved && <p className="text-[13px] text-[#7B7B7B]">승인되면 판매 일정에 맞춰 자동으로 오픈돼요.</p>}
       </div>
       <div className="flex justify-around border-t border-b border-[var(--line)] py-5">
-        {([approved ? [`D-${dDay}`, '판매 시작까지'] : ['11.3 21:00', '판매 시작'], ['50개', '한정 수량'], [money(p.price), '한정 판매가']] as [string, string][]).map(([val, lbl]) => <div key={lbl} className="text-center"><p className="text-[16px] font-bold">{val}</p><p className="muted mt-1 text-[11px]">{lbl}</p></div>)}
+        {(USE_MOCK ? [approved ? [`D-${dDay}`, '판매 시작까지'] : ['11.3 21:00', '판매 시작'], ['50개', '한정 수량'], [money(p.price), '한정 판매가']] : [approved ? [`D-${dDay}`, '판매 시작까지'] : [p.startsAt ? kstShort(p.startsAt) : '-', '판매 시작'], [`${totalStock}개`, '한정 수량'], [money(p.price), '한정 판매가']] as [string, string][]).map(([val, lbl]) => <div key={lbl} className="text-center"><p className="text-[16px] font-bold">{val}</p><p className="muted mt-1 text-[11px]">{lbl}</p></div>)}
       </div>
       <div>
-        <div className="mb-3 flex items-center justify-between"><h2 className="text-[16px] font-bold">진행 현황</h2><span className="text-[12px] font-bold text-[#7B7B7B]">{approved ? `11월 3일 (화) 21:00 오픈` : `10월 26일 (월) 결과 안내`}</span></div>
+        <div className="mb-3 flex items-center justify-between"><h2 className="text-[16px] font-bold">진행 현황</h2><span className="text-[12px] font-bold text-[#7B7B7B]">{USE_MOCK ? (approved ? `11월 3일 (화) 21:00 오픈` : `10월 26일 (월) 결과 안내`) : approved && p.startsAt ? `${kstSlot(p.startsAt)} 오픈` : ''}</span></div>
         <div className="rounded-[6px] bg-[var(--soft)] px-6 py-5">
           <div className="flex items-start justify-between">
             {steps.map((step, i) => {
@@ -174,7 +214,7 @@ export function SellerProductPage() {
         </div>
       </div>
       <div className="grid grid-cols-3 gap-2">
-        {([['결제 완료', `${totalSold}건`], ['결제 진행 중', '3명'], ['알림 신청', `${alarmCount}명`]] as [string,string][]).map(([lbl,val]) => <div key={lbl} className="rounded-[6px] border border-[var(--line)] p-3"><p className="muted text-[11px]">{lbl}</p><p className="font-number mt-2 text-[16px] font-bold">{val}</p></div>)}
+        {([['결제 완료', `${totalSold}건`], ...(USE_MOCK ? [['결제 진행 중', '3명'], ['알림 신청', `${alarmCount}명`]] : [])] as [string,string][]).map(([lbl,val]) => <div key={lbl} className="rounded-[6px] border border-[var(--line)] p-3"><p className="muted text-[11px]">{lbl}</p><p className="font-number mt-2 text-[16px] font-bold">{val}</p></div>)}
       </div>
       <section>
         <div className="mb-3 flex items-center justify-between"><h2 className="text-[15px] font-bold">실시간 주문</h2><Link to={`/seller/orders?product=${p.id}`} className="muted text-[12px]">전체 {totalSold}건 ›</Link></div>
@@ -211,8 +251,8 @@ export function SellerProductPage() {
         </div>
       </div>
       <div className="rounded-[8px] bg-[var(--soft)] p-5">
-        <p className="text-[20px] font-bold">{totalSold >= totalStock ? `2시간 14분 만에 완판됐어요` : `${totalSold}개가 판매됐어요`}</p>
-        <p className="muted mt-1 text-[12px]">오픈 후 23:14에 마지막 수량이 판매됐어요</p>
+        <p className="text-[20px] font-bold">{totalSold >= totalStock ? (USE_MOCK ? `2시간 14분 만에 완판됐어요` : '완판됐어요') : `${totalSold}개가 판매됐어요`}</p>
+        {USE_MOCK && <p className="muted mt-1 text-[12px]">오픈 후 23:14에 마지막 수량이 판매됐어요</p>}
         <div className="my-4 h-px bg-[#DEDEDE]"/>
         <div className="flex items-baseline justify-between">
           <div><span className="font-number text-[32px] font-bold">{totalSold}</span><span className="ml-2 text-[14px] font-bold text-[#7B7B7B]">/ {totalStock}개 판매</span></div>
@@ -249,27 +289,52 @@ export function SellerProductPage() {
     <ProductSummary product={{ ...p, image: p.images[0] }} amount={p.price}/>
     <div className="rounded-[4px] bg-[var(--canvas)] p-5"><p className="text-[11px] opacity-70">판매 시작까지</p><p className="font-number my-2 text-[32px] font-bold">{hh2}:{mm2}:{ss2}</p><p className="text-[10px] opacity-70">{dateTime(p.startsAt)} · 자동 시작</p></div>
     <div className="space-y-2"><InfoRow label="판매 시작" value={dateTime(p.startsAt)}/><InfoRow label="판매 종료" value={dateTime(p.endsAt)}/><InfoRow label="최초 판매 수량" value={`${fee.initial}개`}/><InfoRow label="판매가격" value={money(p.price)}/></div>
+    {rev && rev.status !== 'APPROVED' && <Note title={rev.status === 'IN_REVIEW' ? '수정 내용 판매 심사 중' : '판매 심사 반려 (수정 내용)'}>{rev.status === 'IN_REVIEW' ? '승인되면 구매자 화면에 반영돼요.' : rev.reason ?? ''}</Note>}
     {now < p.startsAt ? <Link className="btn btn-outline w-full" to={`/seller/new?edit=${p.id}`}>상품 정보 수정</Link> : <Note title="핵심 정보는 변경할 수 없어요">판매 시작 후 가격·옵션·최초 수량·종료 시각은 변경할 수 없습니다.</Note>}
     <Link className="btn w-full" to={`/seller/orders?product=${p.id}`}>주문 관리</Link>
   </div>;
 }
 
 export function SellerInquiriesPage() {
-  const s = useStore(), user = activeUser(s); const [tab, setTab] = useState<'order' | 'product'>('order'); const [onlyUnanswered, setOnlyUnanswered] = useState(false); if (!user.seller) return <Unavailable/>; const all = s.inquiries.filter(q => q.sellerId === user.id); const byTab = all.filter(q => tab === 'order' ? !!q.orderId : !q.orderId); const items = onlyUnanswered ? byTab.filter(q => !q.answer) : byTab;
-  return <div className="space-y-0"><Header title="문의함" subtitle="고객의 상품·주문 문의에 답변해 주세요."/><div className="divider flex gap-5">{([['order', `주문 문의 ${all.filter(q => !!q.orderId).length}`], ['product', `상품 문의 ${all.filter(q => !q.orderId).length}`]] as [string, string][]).map(([t, label]) => <button key={t} onClick={() => setTab(t as 'order' | 'product')} className={`border-b-2 py-3 text-[11px] ${tab === t ? 'border-[var(--ink)] font-bold' : 'muted border-transparent'}`}>{label}</button>)}</div><div className="flex items-center gap-3 py-3 text-[11px]"><label className="flex items-center gap-2"><input type="checkbox" checked={onlyUnanswered} onChange={e => setOnlyUnanswered(e.target.checked)}/>미답변만 보기</label>{onlyUnanswered && <span className="ml-auto font-bold text-[var(--red)]">미답변 {byTab.filter(q => !q.answer).length}건</span>}</div>{items.map(q => <Link key={q.id} to={`/seller/inquiries/${q.id}`} className="divider block space-y-2 py-4"><div className="flex items-center justify-between"><Badge live={!q.answer}>{q.answer ? '답변 완료' : '답변 대기'}</Badge><span className="muted text-[10px]">{dateTime(q.createdAt)}</span></div><p className="text-[13px] font-bold">{q.productName}</p><p className="muted text-[10px]">{q.kind}{q.orderId ? ` · ${q.orderId}` : ''}</p><p className="line-clamp-2 text-[12px] leading-relaxed">{q.question}</p></Link>)}{!items.length && <Empty title="해당 조건의 문의가 없어요"/>}</div>;
+  const s = useStore(), user = activeUser(s); const [tab, setTab] = useState<'order' | 'product'>('order'); const [onlyUnanswered, setOnlyUnanswered] = useState(false);
+  // 실제 모드: 주문 문의함·상품 문의함(+상품명 채우기용 상품 목록)을 서버에서 받는다
+  const live = useLive(async signal => (user.seller ? await Promise.all([listSellerProducts(user.id, {}, signal), listSellerOrderInquiryInbox(user.id, {}, signal), listSellerProductInquiries(user.id, {}, signal)]) : null), (st, r) => { if (!r) return; mergeProducts(st, r[0]); mergeInquiries(st, [...r[1], ...r[2]]); }, [user.id]);
+  if (!user.seller) return <Unavailable/>; const all = s.inquiries.filter(q => q.sellerId === user.id); const byTab = all.filter(q => tab === 'order' ? !!q.orderId : !q.orderId); const items = onlyUnanswered ? byTab.filter(q => !q.answer) : byTab;
+  return <div className="space-y-0"><Header title="문의함" subtitle="고객의 상품·주문 문의에 답변해 주세요."/><LiveStatus state={live}/><div className="divider flex gap-5">{([['order', `주문 문의 ${all.filter(q => !!q.orderId).length}`], ['product', `상품 문의 ${all.filter(q => !q.orderId).length}`]] as [string, string][]).map(([t, label]) => <button key={t} onClick={() => setTab(t as 'order' | 'product')} className={`border-b-2 py-3 text-[11px] ${tab === t ? 'border-[var(--ink)] font-bold' : 'muted border-transparent'}`}>{label}</button>)}</div><div className="flex items-center gap-3 py-3 text-[11px]"><label className="flex items-center gap-2"><input type="checkbox" checked={onlyUnanswered} onChange={e => setOnlyUnanswered(e.target.checked)}/>미답변만 보기</label>{onlyUnanswered && <span className="ml-auto font-bold text-[var(--red)]">미답변 {byTab.filter(q => !q.answer).length}건</span>}</div>{items.map(q => <Link key={q.id} to={`/seller/inquiries/${q.id}`} className="divider block space-y-2 py-4"><div className="flex items-center justify-between"><Badge live={!q.answer}>{q.answer ? '답변 완료' : '답변 대기'}</Badge><span className="muted text-[10px]">{dateTime(q.createdAt)}</span></div><p className="text-[13px] font-bold">{q.productName}</p><p className="muted text-[10px]">{q.kind}{q.orderId ? ` · ${q.orderId}` : ''}</p><p className="line-clamp-2 text-[12px] leading-relaxed">{q.question}</p></Link>)}{!items.length && !live.loading && <Empty title="해당 조건의 문의가 없어요"/>}</div>;
 }
 export function SellerInquiryDetailPage() {
   const { id } = useParams(); const s = useStore(), user = activeUser(s), toast = useToast(); const q = s.inquiries.find(i => i.id === id && i.sellerId === user.id); const [answer, setAnswer] = useState(q?.answer ?? ''), [publicAnswer, setPublic] = useState(q?.public ?? false), [error, setError] = useState('');
-  if (!user.seller || !q) return <Unavailable message="문의를 찾을 수 없습니다."/>;
+  // 실제 모드: 주문 문의는 메시지 전체를 상세에서, 스토어에 없으면 문의함을 받아 찾는다
+  const live = useLive(async signal => {
+    if (!user.seller || !id) return null;
+    if (q?.orderId) return [await getSellerOrderInquiry(q.orderId, id, user.id, signal)];
+    if (q) return null;
+    return [...await listSellerOrderInquiryInbox(user.id, {}, signal), ...await listSellerProductInquiries(user.id, {}, signal)];
+  }, (st, list) => { if (list) mergeInquiries(st, list); }, [id]);
+  useEffect(() => { if (q && !q.orderId) { setAnswer(q.answer ?? ''); setPublic(q.public); } }, [q?.id]);
+  if (!user.seller) return <Unavailable message="문의를 찾을 수 없습니다."/>;
+  if (!q) return live.loading || live.error ? <LiveStatus state={live}/> : <Unavailable message="문의를 찾을 수 없습니다."/>;
   const buyer = s.users.find(u => u.id === q.userId); const buyerMasked = buyer?.name.replace(/^(.)(.)(.)$/, '$1*$3') ?? buyer?.name.replace(/^(.).+(.)$/, (_, a, z) => `${a}*${z}`) ?? '구매자';
-  return <div className="space-y-4"><Header title="문의 상세"/>{q.orderId && <div className="rounded-[4px] bg-[var(--blue-soft)] p-3.5 space-y-1"><p className="text-[13px] font-bold">{q.productName}</p><p className="muted text-[11px]">주문번호 {q.orderId} · 구매자 {buyerMasked}</p></div>}<div className="divider space-y-3 pb-5"><div className="flex items-center justify-between"><Badge live={!q.answer}>{q.answer ? '답변 완료' : '답변 대기'}</Badge><span className="muted text-[10px]">{dateTime(q.createdAt)}</span></div><p className="text-[12px] font-bold">{q.kind}</p><p className="whitespace-pre-line text-[13px] leading-relaxed">{q.question}</p></div><Note>영업일 기준 1일 안에 답변해 주세요. 2영업일 안에 답변이 없으면 StockDrop이 직접 확인하고 구매자에게 연락해요.</Note><form className="space-y-3" onSubmit={e => { e.preventDefault(); setError(''); try { if (!answer.trim()) throw new Error('답변을 입력해 주세요.'); mutate(state => { const item = state.inquiries.find(i => i.id === id && i.sellerId === user.id); if (!item || !activeUser(state).seller) throw new Error('이 문의에 답변할 권한이 없습니다.'); item.answer = answer.trim(); item.public = !item.orderId && publicAnswer; if (item.public) { const p = state.products.find(p => p.id === item.productId); if (p) { const old = p.faqs.find(f => f.question === item.question); if (old) { old.answer = item.answer; old.confirmed = true; } else p.faqs.push({ id: uid('faq-'), question: item.question, answer: item.answer, confirmed: true }); } } }); toast('답변을 저장했습니다.'); } catch (e) { setError((e as Error).message); } }}><textarea aria-label="답변 입력" value={answer} onChange={e => setAnswer(e.target.value)} className="field field-box" placeholder="답변을 작성해 주세요." maxLength={1500}/>{!q.orderId && <label className="flex items-center gap-2 text-[11px]"><input type="checkbox" checked={publicAnswer} onChange={e => setPublic(e.target.checked)}/>공개 가능한 답변을 상품 FAQ에 반영</label>}<ErrorBox message={error}/><Button type="submit" className="w-full">답변 등록</Button></form><Link className="btn btn-outline w-full" to="/seller/inquiries">문의 목록으로</Link></div>;
+  return <div className="space-y-4"><Header title="문의 상세"/>{q.orderId && <div className="rounded-[4px] bg-[var(--blue-soft)] p-3.5 space-y-1"><p className="text-[13px] font-bold">{q.productName}</p><p className="muted text-[11px]">주문번호 {q.orderId} · 구매자 {buyerMasked}</p></div>}<div className="divider space-y-3 pb-5"><div className="flex items-center justify-between"><Badge live={!q.answer}>{q.answer ? '답변 완료' : '답변 대기'}</Badge><span className="muted text-[10px]">{dateTime(q.createdAt)}</span></div><p className="text-[12px] font-bold">{q.kind}</p>{q.messages?.length ? q.messages.map((m, i) => <p key={i} className={`whitespace-pre-line text-[13px] leading-relaxed ${m.seller ? 'rounded-[4px] bg-[var(--canvas)] p-3' : ''}`}>{m.seller ? '[판매자] ' : ''}{m.body}</p>) : <p className="whitespace-pre-line text-[13px] leading-relaxed">{q.question}</p>}</div><Note>영업일 기준 1일 안에 답변해 주세요. 2영업일 안에 답변이 없으면 StockDrop이 직접 확인하고 구매자에게 연락해요.</Note><form className="space-y-3" onSubmit={async e => { e.preventDefault(); setError(''); try { if (!answer.trim()) throw new Error('답변을 입력해 주세요.');
+    if (!USE_MOCK) { // 주문 문의=답변 메시지 추가, 상품 문의=답변 작성·수정(문의 version, FAQ 반영 선택)
+      const upd = q.orderId ? await answerOrderInquiry(q.orderId, q.id, answer.trim(), user.id) : await answerProductInquiry(user.id, q.productId, q.id, { expectedVersion: q.version ?? 0, answer: answer.trim(), publishToFaq: publicAnswer });
+      mutate(st => mergeInquiries(st, [upd])); if (q.orderId) setAnswer(''); toast('답변을 저장했습니다.'); return;
+    }
+    mutate(state => { const item = state.inquiries.find(i => i.id === id && i.sellerId === user.id); if (!item || !activeUser(state).seller) throw new Error('이 문의에 답변할 권한이 없습니다.'); item.answer = answer.trim(); item.public = !item.orderId && publicAnswer; if (item.public) { const p = state.products.find(p => p.id === item.productId); if (p) { const old = p.faqs.find(f => f.question === item.question); if (old) { old.answer = item.answer; old.confirmed = true; } else p.faqs.push({ id: uid('faq-'), question: item.question, answer: item.answer, confirmed: true }); } } }); toast('답변을 저장했습니다.'); } catch (e) { setError(errorMessage(e)); } }}><textarea aria-label="답변 입력" value={answer} onChange={e => setAnswer(e.target.value)} className="field field-box" placeholder="답변을 작성해 주세요." maxLength={1500}/>{!q.orderId && <label className="flex items-center gap-2 text-[11px]"><input type="checkbox" checked={publicAnswer} onChange={e => setPublic(e.target.checked)}/>공개 가능한 답변을 상품 FAQ에 반영</label>}<ErrorBox message={error}/><Button type="submit" className="w-full">답변 등록</Button></form><Link className="btn btn-outline w-full" to="/seller/inquiries">문의 목록으로</Link></div>;
 }
 
 export function SellerOrdersPage() {
-  const s = useStore(), user = activeUser(s); const [params] = useSearchParams(); const [tab, setTab] = useState('전체'); if (!user.seller) return <Unavailable/>; const allOrders = s.orders.filter(o => o.sellerId === user.id && (!params.get('product') || params.get('product') === o.productId)); const orders = allOrders.filter(o => tab === '전체' || (tab === '결제 완료' && o.status === 'paid') || (tab === '배송 준비' && o.status === 'preparing') || (tab === '배송 중' && o.status === 'shipping') || (tab === '배송 완료' && o.status === 'delivered'));
-  const counts: Record<string, number> = { '전체': allOrders.length, '결제 완료': allOrders.filter(o => o.status === 'paid').length, '배송 준비': allOrders.filter(o => o.status === 'preparing').length, '배송 중': allOrders.filter(o => o.status === 'shipping').length, '배송 완료': allOrders.filter(o => o.status === 'delivered').length };
+  const s = useStore(), user = activeUser(s); const [params] = useSearchParams(); const [tab, setTab] = useState('전체');
+  // 실제 모드: 본인 주문 목록과 상태별 집계를 서버에서 받는다(mock은 store 목업 그대로)
+  const productId = params.get('product') ?? undefined;
+  const live = useLive(async signal => (user.seller ? listSellerOrders(user.id, { productId }, signal) : null), (st, list) => { if (list) mergeOrders(st, list); }, [user.id, productId]);
+  const sum = useApi(async signal => (USE_MOCK || !user.seller ? null : getSellerOrderSummary({ productId }, signal)), [productId]);
+  if (!user.seller) return <Unavailable/>; const allOrders = s.orders.filter(o => o.sellerId === user.id && (!params.get('product') || params.get('product') === o.productId)); const orders = allOrders.filter(o => tab === '전체' || (tab === '결제 완료' && o.status === 'paid') || (tab === '배송 준비' && o.status === 'preparing') || (tab === '배송 중' && o.status === 'shipping') || (tab === '배송 완료' && o.status === 'delivered'));
+  const sd = sum.data; // 추측(명세 없음): 결제 완료 = 확정 주문 − (배송 준비+배송 중+배송 완료)
+  const counts: Record<string, number> = sd ? { '전체': sd.confirmedOrders, '결제 완료': Math.max(0, sd.confirmedOrders - sd.preparingOrders - sd.shippingOrders - sd.deliveredOrders), '배송 준비': sd.preparingOrders, '배송 중': sd.shippingOrders, '배송 완료': sd.deliveredOrders } : { '전체': allOrders.length, '결제 완료': allOrders.filter(o => o.status === 'paid').length, '배송 준비': allOrders.filter(o => o.status === 'preparing').length, '배송 중': allOrders.filter(o => o.status === 'shipping').length, '배송 완료': allOrders.filter(o => o.status === 'delivered').length };
   return <div className="space-y-0">
     <Header title="주문 관리"/>
+    <LiveStatus state={live}/>
     <div className="mb-2 flex flex-wrap gap-2 py-2">{Object.entries(counts).map(([label, count]) => <button key={label} onClick={() => setTab(label)} className={`rounded-full px-3 py-1 text-[13px] font-bold ${tab === label ? 'bg-[var(--ink)] text-[var(--surface)]' : 'muted border border-[var(--line)] bg-[var(--surface)]'}`}>{label} {count}</button>)}</div>
     {orders.map(o => {
       const statusLabel = ORDER_LABELS[o.status]; const needsAction = o.status === 'paid'; const time = dateTime(o.createdAt);
@@ -290,12 +355,15 @@ export function SellerOrdersPage() {
         </div>
       </Link>;
     })}
-    {!orders.length && <Empty title="해당 상태의 주문이 없어요"/>}
+    {!orders.length && !live.loading && <Empty title="해당 상태의 주문이 없어요"/>}
   </div>;
 }
 export function SellerOrderPage() {
   const { id } = useParams(); const s = useStore(), user = activeUser(s), toast = useToast(), now = useClock(); const order = s.orders.find(o => o.id === id && o.sellerId === user.id); const [showTracking, setShowTracking] = useState(false), [confirm, setConfirm] = useState(false), [error, setError] = useState(''), [busy, setBusy] = useState(false);
-  if (!user.seller || !order) return <Unavailable message="판매자 주문을 찾을 수 없습니다."/>;
+  // 실제 모드: 주문 상세(배송지·송장)와 이 주문의 문의를 서버에서 받는다
+  const live = useLive(async signal => (id && user.seller ? { o: await getSellerOrder(id, user.id, signal), qs: await listSellerOrderInquiries(id, user.id, signal) } : null), (st, r) => { if (r) { mergeOrders(st, [r.o]); mergeInquiries(st, r.qs); } }, [id]);
+  if (!user.seller) return <Unavailable message="판매자 주문을 찾을 수 없습니다."/>;
+  if (!order) return live.loading || live.error ? <LiveStatus state={live}/> : <Unavailable message="판매자 주문을 찾을 수 없습니다."/>;
   const o = order; const paidAt = new Date(o.createdAt); const dueDate = new Date(paidAt); dueDate.setDate(dueDate.getDate() + 2); const dueDateStr = `${dueDate.getMonth()+1}.${String(dueDate.getDate()).padStart(2,'0')} (${['일','월','화','수','목','금','토'][dueDate.getDay()]})`;
   const needsTracking = ['paid', 'preparing'].includes(o.status); const orderInquiries = s.inquiries.filter(q => q.orderId === o.id && q.sellerId === user.id);
   return <div className="space-y-5">
@@ -307,7 +375,7 @@ export function SellerOrderPage() {
     </div>
     <section className="divider space-y-2 pb-4"><h2 className="text-[15px] font-bold">주문 및 결제 정보</h2><InfoRow label="상품금액" value={money(o.total - o.shipping)}/><InfoRow label="고정 배송비" value={money(o.shipping)}/><InfoRow label="최종 결제금액" value={<span className="font-bold">{money(o.total)}</span>}/></section>
     <section className="divider space-y-2 pb-4"><h2 className="text-[15px] font-bold">배송지</h2><p className="text-[12px]">{o.address.name} · {o.address.phone}</p><p className="muted text-[12px] leading-relaxed">{o.address.address} {o.address.detail}<br/>{o.address.request}</p></section>
-    <section className="divider space-y-2 pb-4"><h2 className="text-[15px] font-bold">배송 처리</h2><InfoRow label="출고지" value={s.sellerSettings[user.id]?.shippingAddress || '성수 물류창고'}/><InfoRow label="택배사" value={o.carrier || <span className="text-[var(--muted)]">미등록</span>}/><InfoRow label="운송장 번호" value={o.tracking ? <span className="inline-flex items-center gap-1">{o.tracking}<CopyButton value={o.tracking}/></span> : <span className="text-[var(--muted)]">미등록</span>}/></section>
+    <section className="divider space-y-2 pb-4"><h2 className="text-[15px] font-bold">배송 처리</h2><InfoRow label="출고지" value={s.sellerSettings[user.id]?.shippingAddress || (USE_MOCK ? '성수 물류창고' : '-')}/><InfoRow label="택배사" value={o.carrier || <span className="text-[var(--muted)]">미등록</span>}/><InfoRow label="운송장 번호" value={o.tracking ? <span className="inline-flex items-center gap-1">{o.tracking}<CopyButton value={o.tracking}/></span> : <span className="text-[var(--muted)]">미등록</span>}/></section>
     <Note>송장을 등록하면 구매자에게 배송 중으로 안내돼요. 판매자의 수동 배송완료 처리는 구매확정이나 정산 송금을 의미하지 않습니다.</Note>
     {orderInquiries.length > 0 && <Link to={`/seller/inquiries/${orderInquiries[0].id}`} className="flex items-center gap-3 rounded-[4px] border border-[var(--line)] p-4"><div className="flex-1 space-y-1"><p className="text-[13px] font-bold">이 주문의 문의</p><p className="muted text-[12px]">{orderInquiries[0].kind} 문의 {orderInquiries.length}건</p></div>{orderInquiries.some(q => !q.answer) && <span className="rounded-[3px] bg-[var(--red-soft)] px-2 py-0.5 text-[11px] font-bold text-[var(--red)]">미답변 {orderInquiries.filter(q => !q.answer).length}</span>}<ChevronRight size={16} className="muted"/></Link>}
     <section className="divider space-y-3 py-3"><h2 className="text-[15px] font-bold">배송 진행 내역</h2>{o.processedAt && <InfoRow label={dateTime(o.processedAt)} value="배송완료 · 판매자 수동 등록"/>}{o.shippedAt && <InfoRow label={dateTime(o.shippedAt)} value="운송장 등록 · 배송 중"/>}<InfoRow label={dateTime(o.createdAt)} value="결제 완료"/></section>
@@ -332,7 +400,12 @@ function TrackingModal({ order, onClose, onSaved }: { order: Order; onClose: () 
     {error && <p className="text-[12px] text-[#EF6253]">{error} 입력한 내용은 그대로 유지돼요.</p>}
     <Note>'-' 없이 숫자만 입력해 주세요. 등록하면 구매자에게 배송 시작 알림이 발송돼요.</Note>
     <ErrorBox message=""/>
-    <div className="flex gap-2"><Button outline className="flex-1" disabled={busy} onClick={onClose}>취소</Button><Button className="flex-1" disabled={busy || !tracking.trim()} onClick={async () => { setError(''); setBusy(true); try { if (!/^\d[\d-]{7,}$/.test(tracking.trim())) throw new Error('운송장 번호를 확인해 주세요.'); await atomic(state => { const item = state.orders.find(item => item.id === order.id && item.sellerId === state.activeUserId); if (!item || !['paid','preparing'].includes(item.status)) throw new Error('출고 가능한 주문이 아닙니다.'); item.carrier = carrier; item.tracking = tracking.trim(); item.shippedAt = nowOf(state); item.status = 'shipping'; }); onSaved(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }}>등록하기</Button></div>
+    <div className="flex gap-2"><Button outline className="flex-1" disabled={busy} onClick={onClose}>취소</Button><Button className="flex-1" disabled={busy || !tracking.trim()} onClick={async () => { setError(''); setBusy(true); try {
+    if (!USE_MOCK) { // 출고용 원본(fulfillment) version으로 송장 등록. 송장은 영문·숫자·하이픈 1~100자
+      if (!/^[A-Za-z0-9-]{1,100}$/.test(tracking.trim())) throw new Error('운송장 번호를 확인해 주세요.');
+      const updated = await shipOrder(order.id, order.sellerId, carrier, tracking.trim()); mutate(st => mergeOrders(st, [updated])); onSaved(); return;
+    }
+    if (!/^\d[\d-]{7,}$/.test(tracking.trim())) throw new Error('운송장 번호를 확인해 주세요.'); await atomic(state => { const item = state.orders.find(item => item.id === order.id && item.sellerId === state.activeUserId); if (!item || !['paid','preparing'].includes(item.status)) throw new Error('출고 가능한 주문이 아닙니다.'); item.carrier = carrier; item.tracking = tracking.trim(); item.shippedAt = nowOf(state); item.status = 'shipping'; }); onSaved(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }}>등록하기</Button></div>
   </div></Modal>;
 }
 function DeliveredModal({ order, now, onClose }: { order: Order; now: number; onClose: () => void }) {
@@ -347,7 +420,10 @@ function DeliveredModal({ order, now, onClose }: { order: Order; now: number; on
     </div>
     <p className="text-[11px] text-[#949494] leading-relaxed">판매자의 수동 배송완료 처리는 구매확정이나 정산 송금을 의미하지 않습니다.</p>
     <ErrorBox message={error}/>
-    <div className="flex gap-2"><Button outline className="flex-1" disabled={busy} onClick={onClose}>취소</Button><Button className="flex-1" disabled={busy} onClick={async () => { setBusy(true); setError(''); try { await atomic(s => markDelivered(s, s.activeUserId, order.id, nowOf(s), '문 앞', '', true, nowOf(s))); toast('배송완료로 처리했습니다.'); onClose(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }}>배송완료 처리</Button></div>
+    <div className="flex gap-2"><Button outline className="flex-1" disabled={busy} onClick={onClose}>취소</Button><Button className="flex-1" disabled={busy} onClick={async () => { setBusy(true); setError(''); try {
+    // TODO(api-gap): 배송완료 일시·수령 장소·메모는 API에 보낼 곳이 없다(delivery-completion은 expectedVersion만). 실제 모드는 처리 사실만 보낸다
+    if (!USE_MOCK) { const updated = await deliverOrder(order.id, order.sellerId); mutate(st => mergeOrders(st, [updated])); toast('배송완료로 처리했습니다.'); onClose(); return; }
+    await atomic(s => markDelivered(s, s.activeUserId, order.id, nowOf(s), '문 앞', '', true, nowOf(s))); toast('배송완료로 처리했습니다.'); onClose(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }}>배송완료 처리</Button></div>
   </div></div>;
 }
 
@@ -361,11 +437,11 @@ export function SellerMyPage() {
   const activeDrops = products.filter(p => saleState(p, Date.now()) === '판매 중' || saleState(p, Date.now()) === '판매 예정').length;
   const settlement = s.orders.filter(o => o.sellerId === user.id && !['cancelled','refunded'].includes(o.status)).reduce((n, o) => n + o.total - o.shipping, 0);
   const unanswered = s.inquiries.filter(q => q.sellerId === user.id && !q.answer).length;
-  const maskedBank = settings?.account ? `국민 ****${settings.account.slice(-4)}` : '국민 ****1024';
+  const maskedBank = USE_MOCK ? (settings?.account ? `국민 ****${settings.account.slice(-4)}` : '국민 ****1024') : settings?.account ? `${settings.bank} ${settings.account}`.trim() : '';
   return (
     <div className="space-y-0">
       <Header title="판매자 마이페이지" subtitle="스토어 정보와 판매 설정을 관리하세요." back={false}/>
-      <div className="divider flex items-center gap-3 pb-5">
+      <Link to="/seller/settings/account" aria-label="계정 설정" className="divider flex items-center gap-3 pb-5">
         <div className="grid h-[48px] w-[48px] shrink-0 place-items-center rounded-[8px] bg-[var(--ink)] text-[18px] font-bold text-white">{initial}</div>
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex items-center gap-2">
@@ -375,7 +451,7 @@ export function SellerMyPage() {
           <p className="muted text-[12px]">{user.name} · {user.email}</p>
         </div>
         <ChevronRight size={17} className="muted shrink-0"/>
-      </div>
+      </Link>
       <div className="mb-4 flex rounded-[4px] bg-[var(--canvas)]">
         {([['진행 중 드롭', `${activeDrops}건`, '/seller/products'], ['이번 달 정산 예정', money(settlement), '/seller/settings/bank'], ['미답변 문의', `${unanswered}건`, '/seller/inquiries', unanswered > 0]] as [string, string, string, boolean?][]).map(([label, value, to, red], i) => (
           <Link key={label} to={to} className={`flex flex-1 flex-col items-center gap-1 py-4 ${i > 0 ? 'border-l border-[var(--line)]' : ''}`}>
@@ -399,7 +475,7 @@ export function SellerMyPage() {
       <div className="h-2 bg-[var(--canvas)]"/>
       <section className="mb-4">
         <p className="muted mb-2 mt-4 text-[13px] font-bold">설정</p>
-        <MenuRow to="/seller/settings/account" label="알림 설정"/>
+        <MenuRow to={SETTINGS_HREF('/seller/my')} label="알림 설정"/>
         <MenuRow to="/seller/support" label="이용 안내 · 고객지원"/>
         <button className="divider flex min-h-[52px] w-full items-center gap-3 text-left" onClick={() => { mutate(state => { state.mode = 'buyer'; }); navigate('/'); }}><span className="min-w-0 flex-1 text-[13px]">구매자 모드로 전환</span><ChevronRight size={17} className="muted"/></button>
       </section>
@@ -414,24 +490,35 @@ export function SellerSettingsPage() {
   const [form, setForm] = useState<SellerSettings>(original ?? { displayName: user.name, bank: '', account: '', holder: user.name, shippingAddress: '', returnAddress: '', notifications: {} });
   const [phone, setPhone] = useState(user.phone), [email, setEmail] = useState(user.email), [error, setError] = useState(''), [busy, setBusy] = useState(false);
   const app = s.applications.find(a => a.userId === user.id && a.status === 'approved');
-  const [shipCarrier, setShipCarrier] = useState('CJ대한통운');
-  const [shipPickup, setShipPickup] = useState('평일 16:00');
-  const [returnFee, setReturnFee] = useState('3000');
-  const [exchangeFee, setExchangeFee] = useState('6000');
   const [addrTab, setAddrTab] = useState<'ship' | 'return'>('ship');
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [sameAsShip, setSameAsShip] = useState(false), [defaultReturn, setDefaultReturn] = useState(false);
 
+  // 실제 모드: 서버의 판매자 정보를 폼에 채운다(mock은 store 값 그대로)
+  const me = useApi(async signal => (USE_MOCK ? null : fetchSellerMe(original, signal)), []);
+  useEffect(() => { if (me.data) { setForm(me.data.settings); setPhone(me.data.contactPhone); setEmail(me.data.contactEmail); } }, [me.data]);
+  useEffect(() => { if (me.error) setError(me.error); }, [me.error]);
+  // 스토어 소개·로고(계정 설정 화면)
+  const store = useApi(async signal => (USE_MOCK || section !== 'account' ? null : fetchSellerStore(signal)), [section]);
+  const [intro, setIntro] = useState(''), [logoUrl, setLogoUrl] = useState(''), [logoTick, setLogoTick] = useState(0);
+  useEffect(() => { if (store.data) setIntro(store.data.introduction ?? ''); }, [store.data]);
   useEffect(() => {
-    apiGet('/sellers/me').then((me: any) => {
-      if (!me) return;
-      setForm(f => ({ ...f, displayName: me.sellerDisplayName ?? f.displayName, bank: me.bankAccount?.bankName ?? f.bank, account: me.bankAccount?.maskedBankAccount ?? f.account, holder: me.bankAccount?.accountHolderName ?? f.holder, shippingAddress: me.dispatchAddress?.roadAddress ?? f.shippingAddress, shippingPostal: me.dispatchAddress?.postalCode ?? f.shippingPostal, returnAddress: me.returnAddress?.roadAddress ?? f.returnAddress, returnPostal: me.returnAddress?.postalCode ?? f.returnPostal }));
-      if (me.contactPhone) setPhone(me.contactPhone);
-      if (me.contactEmail) setEmail(me.contactEmail);
-    }).catch(() => {});
-  }, []);
+    if (!store.data?.hasLogo) { setLogoUrl(''); return; }
+    let url = '', alive = true;
+    fetchSellerLogo().then(b => { if (alive) { url = URL.createObjectURL(b); setLogoUrl(url); } }, () => {});
+    return () => { alive = false; if (url) URL.revokeObjectURL(url); };
+  }, [store.data?.hasLogo, logoTick]);
+  async function changeLogo(file?: File) {
+    if (!file) return; setError('');
+    try { await uploadSellerLogo(file); store.reload(); setLogoTick(n => n + 1); toast('로고를 변경했습니다.'); } catch (e) { setError(errorMessage(e)); }
+  }
+  async function removeLogo() { setError(''); try { await deleteSellerLogo(); store.reload(); toast('로고를 삭제했습니다.'); } catch (e) { setError(errorMessage(e)); } }
 
   if (!user.seller) return <Unavailable/>;
+  // 실제 모드: 출고지·반품지는 판매자 주소록 API로 조회·추가·수정·삭제·기본 지정(mock은 아래 Figma 목업 화면)
+  if (!USE_MOCK && section === 'addresses') return <AddressBookPage/>;
+  if (!USE_MOCK && (section === 'ship-edit' || section === 'returns')) return <AddressBookFormPage fallback={section === 'returns' ? 'RETURN' : 'DISPATCH'}/>;
+  // TODO(api-gap): 반품 택배사·집하 시간·반품/교환 배송비 저장 API 없음
 
   const change = (key: keyof SellerSettings, value: string) => setForm({ ...form, [key]: value });
   const inputField = (key: 'displayName' | 'bank' | 'account' | 'holder' | 'shippingPostal' | 'shippingAddress' | 'returnPostal' | 'returnAddress', label: string, extra?: { hint?: string; required?: boolean }) =>
@@ -444,10 +531,13 @@ export function SellerSettingsPage() {
       if (section === 'addresses' && (!form.shippingAddress.trim() || !form.returnAddress.trim())) throw new Error('출고지와 반품지 주소를 입력해 주세요.');
       if (section === 'returns' && !form.returnAddress.trim()) throw new Error('반품지 주소를 입력해 주세요.');
       if (section === 'account' || section === 'business') { if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('올바른 이메일을 입력해 주세요.'); }
-      if (section === 'business') { await apiPut('/sellers/me/contact', { sellerDisplayName: form.displayName, contactName: user.name, contactEmail: email, contactPhone: phone }); }
-      else if (section === 'bank') { await apiPut('/sellers/me/bank-account', { bankName: form.bank, bankAccount: form.account, accountHolderName: form.holder }); }
-      else if (section === 'addresses' || section === 'returns') { await apiPut('/sellers/me/addresses', { dispatchAddress: { postalCode: form.shippingPostal || '', roadAddress: form.shippingAddress, detailAddress: '' }, returnAddress: { postalCode: form.returnPostal || '', roadAddress: form.returnAddress, detailAddress: '' } }); }
-      else if (section === 'account') { await apiPut('/sellers/me/contact', { contactName: user.name, contactEmail: email, contactPhone: phone }); }
+      if (section === 'bank' && !USE_MOCK && !/^\d{6,30}$/.test(form.account.replace(/-/g, ''))) throw new Error('계좌번호는 숫자만 6~30자리로 입력해 주세요.');
+      if (!USE_MOCK) {
+        if (section === 'business') await updateSellerContact({ sellerDisplayName: form.displayName, contactName: user.name, contactEmail: email, contactPhone: phone });
+        else if (section === 'bank') await updateSellerBank(form);
+        else if (section === 'addresses' || section === 'returns') await updateSellerAddresses(form);
+        else if (section === 'account') { await updateSellerContact({ sellerDisplayName: form.displayName, contactName: user.name, contactEmail: email, contactPhone: phone }); if (store.data) await updateSellerStore(intro); }
+      }
       mutate(state => { state.sellerSettings[user.id] = form; const member = state.users.find(u => u.id === user.id)!; member.phone = phone; member.email = email; });
       toast('변경 내용을 저장했습니다.');
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
@@ -467,6 +557,7 @@ export function SellerSettingsPage() {
           </div>
           <button type="button" className="h-8 shrink-0 rounded-[4px] border border-[var(--line)] px-2.5 text-[12px] font-bold">보기</button>
         </div>
+        {/* TODO(api-gap): 상호·대표자·등록번호·업태는 서버 응답에 없어 mock 표시 유지 */}
         {form.business && <div className="space-y-1.5 px-2 text-[12px]">
           {form.business.name && <InfoRow label="상호" value={form.business.name}/>}
           {form.business.registrationNumber && <InfoRow label="사업자등록번호" value={form.business.registrationNumber}/>}
@@ -494,17 +585,17 @@ export function SellerSettingsPage() {
       <h2 className="text-[13px] font-bold text-[var(--muted)]">현재 정산 계좌</h2>
       <section className="rounded-[8px] bg-[var(--canvas)] p-5">
         <div>
-          <div className="flex items-center justify-between"><p className="muted text-[13px]">{form.bank || 'KB국민은행'}</p><span className="flex items-center gap-1 rounded-[3px] bg-[var(--surface)] px-2 py-0.5 text-[10px] font-bold text-[var(--green)]"><Check size={11}/>인증 완료</span></div>
-          <p className="font-number text-[22px] font-bold mt-1">123456-04-***024</p>
-          <p className="muted text-[11px] mt-1">예금주 로엠필드(김서윤) · 2026.05.08 등록</p>
+          <div className="flex items-center justify-between"><p className="muted text-[13px]">{USE_MOCK ? form.bank || 'KB국민은행' : me.data?.settings.bank || '-'}</p>{USE_MOCK && <span className="flex items-center gap-1 rounded-[3px] bg-[var(--surface)] px-2 py-0.5 text-[10px] font-bold text-[var(--green)]"><Check size={11}/>인증 완료</span>}</div>
+          <p className="font-number text-[22px] font-bold mt-1">{USE_MOCK ? '123456-04-***024' : me.data?.settings.account || '-'}</p>
+          {USE_MOCK ? <p className="muted text-[11px] mt-1">예금주 로엠필드(김서윤) · 2026.05.08 등록</p> : me.data?.settings.holder ? <p className="muted text-[11px] mt-1">예금주 {me.data.settings.holder}</p> : null}
         </div>
       </section>
-      <div className="space-y-2">
+      {USE_MOCK && <div className="space-y-2">
         <InfoRow label="정산 주기" value="구매 확정 후 D+7 영업일"/>
         <InfoRow label="다음 정산 예정일" value="2026.11.11 (수)"/>
         <InfoRow label="정산 예정 금액" value={<span className="font-bold">1,284,000원</span>}/>
         <button type="button" className="flex items-center pt-1 text-[13px] font-bold">정산 내역 보기<ChevronRight size={15}/></button>
-      </div>
+      </div>}
       <div className="-mx-4 h-px bg-[var(--line)]"/>
       <h2 className="text-[13px] font-bold text-[var(--muted)]">계좌 변경</h2>
       <Field label="은행" required><select aria-label="은행" value={form.bank || ''} onChange={e => change('bank', e.target.value)} className="field-line"><option value="">은행을 선택해 주세요</option>{['KB국민은행','신한은행','우리은행','하나은행','IBK기업은행','NH농협은행','카카오뱅크','토스뱅크'].map(b => <option key={b}>{b}</option>)}</select></Field>
@@ -524,16 +615,16 @@ export function SellerSettingsPage() {
       <div className="mb-4 flex border-b border-[var(--line)]">
         {(['ship', 'return'] as const).map((t, i) => (
           <button key={t} onClick={() => setAddrTab(t)} className={`flex-1 border-b-2 py-3 text-[13px] font-bold ${addrTab === t ? 'border-[var(--ink)]' : 'border-transparent muted'}`}>
-            {t === 'ship' ? '출고지 2' : '반품지 1'}
+            {USE_MOCK ? (t === 'ship' ? '출고지 2' : '반품지 1') : t === 'ship' ? '출고지' : '반품지'}
           </button>
         ))}
       </div>
       {addrTab === 'ship' && (
         <div className="space-y-3">
-          {[
+          {(USE_MOCK ? [
             { name: '성수 물류창고', isDefault: true, address: '서울 성동구 성수이로 118, 3층 (04782)', person: '김서윤 · 010-2481-****' },
             { name: '파주 보관센터', isDefault: false, address: '경기 파주시 문발로 242, B동 (10881)', person: '박도현 · 031-944-****' },
-          ].map(loc => (
+          ] : form.shippingAddress ? [{ name: '기본 출고지', isDefault: true, address: form.shippingAddress, person: [user.name, phone].filter(Boolean).join(' · ') }] : []).map(loc => (
             <div key={loc.name} className="rounded-[8px] border border-[var(--line)] p-4 space-y-2">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -562,21 +653,21 @@ export function SellerSettingsPage() {
           <div className="rounded-[8px] border border-[var(--line)] p-4 space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <p className="text-[14px] font-bold">성수 물류창고</p>
-                <span className="rounded-full bg-[var(--green-soft)] px-2 py-0.5 text-[10px] font-bold text-[var(--green)]">출고지와 동일</span>
+                <p className="text-[14px] font-bold">{USE_MOCK ? '성수 물류창고' : '기본 반품지'}</p>
+                {(USE_MOCK || (!!form.returnAddress && form.returnAddress === form.shippingAddress)) && <span className="rounded-full bg-[var(--green-soft)] px-2 py-0.5 text-[10px] font-bold text-[var(--green)]">출고지와 동일</span>}
               </div>
               <div className="flex gap-2">
                 <Link to="/seller/settings/returns" className="text-[12px] font-bold">수정</Link>
                 <button className="text-[12px] text-[var(--red)]">삭제</button>
               </div>
             </div>
-            <p className="muted text-[12px]">서울 성동구 성수이로 118, 3층 (04782)</p>
-            <p className="muted text-[12px]">김서윤 · 010-2481-****</p>
+            <p className="muted text-[12px]">{USE_MOCK ? '서울 성동구 성수이로 118, 3층 (04782)' : form.returnAddress || '-'}</p>
+            <p className="muted text-[12px]">{USE_MOCK ? '김서윤 · 010-2481-****' : [user.name, phone].filter(Boolean).join(' · ')}</p>
           </div>
           <Link to="/seller/settings/returns" className="btn btn-outline block w-full text-center">반품지 추가</Link>
         </div>
       )}
-      <div className="mt-6 rounded-[8px] bg-[var(--canvas)] p-4 space-y-3">
+      {USE_MOCK && <div className="mt-6 rounded-[8px] bg-[var(--canvas)] p-4 space-y-3">
         <div className="flex items-center justify-between">
           <p className="text-[14px] font-bold">반품 · 교환 설정</p>
         </div>
@@ -584,11 +675,7 @@ export function SellerSettingsPage() {
           <div><p className="text-[14px]">반품지를 기본 출고지와 동일하게</p><p className="muted text-[12px]">성수 물류창고로 반품을 받아요</p></div>
           <Toggle label="반품지를 기본 출고지와 동일하게" checked={!form.returnAddress || form.returnAddress === form.shippingAddress} onChange={on => change('returnAddress', on ? form.shippingAddress ?? '' : '파주 보관센터')}/>
         </div>
-        <InfoRow label="반품 택배사" value="CJ대한통운"/>
-        <InfoRow label="반품 배송비 (편도)" value="3,000원"/>
-        <InfoRow label="교환 배송비 (왕복)" value="6,000원"/>
-        <Link to="/seller/settings/shipping" className="btn btn-outline block w-full text-center text-[12px]!">택배사 · 배송비 변경</Link>
-      </div>
+      </div>}
       {deleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center" style={{background:'rgba(0,0,0,0.45)'}} onClick={e => e.target === e.currentTarget && setDeleteConfirm(false)}>
           <div className="mx-4 w-full max-w-[318px] rounded-[8px] bg-[var(--surface)] p-5 space-y-4">
@@ -612,17 +699,17 @@ export function SellerSettingsPage() {
   if (section === 'ship-edit') return (
     <form className="space-y-5" onSubmit={handleSubmit}>
       <Header title="출고지 수정"/>
-      <Field label="출고지명"><input aria-label="출고지명" className="field" defaultValue="성수 물류창고"/></Field>
+      <Field label="출고지명"><input aria-label="출고지명" className="field" defaultValue={USE_MOCK ? '성수 물류창고' : '기본 출고지'}/></Field>
       <Field label="출고 담당자" required><input aria-label="출고 담당자" className="field" value={user.name} readOnly/></Field>
       <Field label="연락처" required><input aria-label="연락처" className="field" value={phone} onChange={e => setPhone(e.target.value)} type="tel"/></Field>
       <Field label="주소" required>
         <div className="space-y-2">
           <div className="flex gap-2">
-            <input aria-label="우편번호" className="field flex-1" defaultValue="04782" readOnly/>
+            <input aria-label="우편번호" className="field flex-1" defaultValue={USE_MOCK ? '04782' : form.shippingPostal ?? ''} readOnly/>
             <button type="button" className="btn btn-outline shrink-0 text-[12px]!">주소 검색</button>
           </div>
-          <input aria-label="도로명 주소" className="field" defaultValue="서울특별시 성동구 성수이로 118"/>
-          <input aria-label="상세 주소" className="field" defaultValue="3층 물류팀"/>
+          <input aria-label="도로명 주소" className="field" defaultValue={USE_MOCK ? '서울특별시 성동구 성수이로 118' : form.shippingAddress}/>
+          <input aria-label="상세 주소" className="field" defaultValue={USE_MOCK ? '3층 물류팀' : form.shippingDetail ?? ''}/>
         </div>
       </Field>
       <Field label="택배 집하 시간">
@@ -649,11 +736,11 @@ export function SellerSettingsPage() {
       <div className="flex items-center gap-3 rounded-[8px] bg-[var(--canvas)] p-3">
         <div className="flex-1">
           <p className="text-[13px] font-bold">반품지를 기본 출고지와 동일하게</p>
-          <p className="muted text-[11px]">성수 물류창고 주소를 그대로 불러와요</p>
+          <p className="muted text-[11px]">{USE_MOCK ? '성수 물류창고' : '기본 출고지'} 주소를 그대로 불러와요</p>
         </div>
         <Toggle label="반품지를 기본 출고지와 동일하게" checked={sameAsShip} onChange={on => { setSameAsShip(on); if (on) setForm(f => ({ ...f, returnAddress: f.shippingAddress, returnPostal: f.shippingPostal })); }}/>
       </div>
-      <Field label="반품지명" required><input aria-label="반품지명" className="field" value={form.returnAddress ? '파주 보관센터' : ''} onChange={() => {}} placeholder="파주 보관센터"/></Field>
+      <Field label="반품지명" required><input aria-label="반품지명" className="field" value={form.returnAddress ? (USE_MOCK ? '파주 보관센터' : '기본 반품지') : ''} onChange={() => {}} placeholder={USE_MOCK ? '파주 보관센터' : '반품지명'}/></Field>
       <Field label="반품 담당자" required><input aria-label="반품 담당자" className="field" value={user.name} readOnly/></Field>
       <Field label="연락처" required hint="반품 · 교환 관련 연락에 사용돼요."><input aria-label="연락처" className="field" value={phone} onChange={e => setPhone(e.target.value)} type="tel"/></Field>
       <Field label="주소" required>
@@ -678,33 +765,22 @@ export function SellerSettingsPage() {
     </form>
   );
 
-  // ── 배송 설정 변경 ──────────────────────────────────────────
-  if (section === 'shipping') return (
-    <form className="space-y-5" onSubmit={async e => { e.preventDefault(); toast('배송 설정을 저장했습니다.'); }}>
-      <Header title="택배사 · 배송비 변경"/>
-      <Field label="반품 택배사" required><select aria-label="반품 택배사" value={shipCarrier} onChange={e => setShipCarrier(e.target.value)} className="field rounded-[6px] border px-4 text-[15px]">{['CJ대한통운', '한진택배', '롯데택배', '우체국택배'].map(c => <option key={c}>{c}</option>)}</select></Field>
-      <Field label="택배 집하 시간" required><select aria-label="택배 집하 시간" value={shipPickup} onChange={e => setShipPickup(e.target.value)} className="field rounded-[6px] border px-4 text-[15px]">{['평일 14:00', '평일 15:00', '평일 16:00', '평일 17:00'].map(t => <option key={t}>{t}</option>)}</select></Field>
-      <Field label="반품 배송비 (편도)" required><input aria-label="반품 배송비" type="number" inputMode="numeric" min={0} step={500} value={returnFee} onChange={e => setReturnFee(e.target.value)} className="field-line"/></Field>
-      <Field label="교환 배송비 (왕복)" required><input aria-label="교환 배송비" type="number" inputMode="numeric" min={0} step={500} value={exchangeFee} onChange={e => setExchangeFee(e.target.value)} className="field-line"/></Field>
-      <div className="space-y-1 rounded-[6px] bg-[var(--canvas)] p-4"><p className="text-[13px] font-bold">변경 내용은 새로 등록하는 드롭부터 적용돼요</p><p className="muted text-[12px]">이미 등록된 상품은 등록 시점의 배송 설정을 유지해요.</p></div>
-      <Button type="submit" className="w-full">저장하기</Button>
-    </form>
-  );
-
   // ── 계정 설정 (account) ─────────────────────────────────────
   if (section === 'account') return (
     <form className="space-y-5" onSubmit={handleSubmit}>
       <Header title="계정 설정"/>
       <div className="flex items-start gap-4">
         <div className="relative shrink-0">
-          <div className="grid h-[64px] w-[64px] place-items-center rounded-[8px] bg-[var(--ink)] text-[24px] font-bold text-white">L</div>
-          <button type="button" aria-label="로고 변경" className="absolute -bottom-1 -right-1 grid h-[26px] w-[26px] place-items-center rounded-full border border-[var(--line)] bg-[var(--surface)]">
+          {logoUrl ? <img src={logoUrl} alt="스토어 로고" className="h-[64px] w-[64px] rounded-[8px] object-cover"/> : <div className="grid h-[64px] w-[64px] place-items-center rounded-[8px] bg-[var(--ink)] text-[24px] font-bold text-white">L</div>}
+          {!USE_MOCK && <input id="seller-logo-file" type="file" accept="image/png,image/jpeg" hidden onChange={e => { changeLogo(e.target.files?.[0]); e.target.value = ''; }}/>}
+          <button type="button" aria-label="로고 변경" onClick={() => document.getElementById('seller-logo-file')?.click()} className="absolute -bottom-1 -right-1 grid h-[26px] w-[26px] place-items-center rounded-full border border-[var(--line)] bg-[var(--surface)]">
             <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><rect x="1" y="2.5" width="11" height="8.5" rx="1.5" stroke="#7B7B7B" strokeWidth="1.2"/><path d="M4.5 2.5V2a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v.5" stroke="#7B7B7B" strokeWidth="1.2"/><circle cx="6.5" cy="6.75" r="1.75" stroke="#7B7B7B" strokeWidth="1.2"/></svg>
           </button>
         </div>
         <div className="space-y-1">
           <p className="text-[14px] font-bold">스토어 로고</p>
           <p className="muted text-[12px]">사업자 프로필을 등록할 수 있습니다.</p>
+          {logoUrl && <button type="button" className="text-[12px] font-bold underline" onClick={removeLogo}>로고 삭제</button>}
         </div>
       </div>
       <Field label="스토어 이름" required>
@@ -716,10 +792,11 @@ export function SellerSettingsPage() {
       </Field>
       <Field label="스토어 한 줄 소개">
         <div className="relative">
-          <input aria-label="스토어 한 줄 소개" className="field-line pr-14" placeholder="오래 입는 기본 니트를 만듭니다" maxLength={40}/>
-          <span className="muted absolute right-3 top-1/2 -translate-y-1/2 text-[12px]">0/40</span>
+          <input aria-label="스토어 한 줄 소개" className="field-line pr-14" placeholder="오래 입는 기본 니트를 만듭니다" maxLength={40} value={intro} onChange={e => setIntro(e.target.value)}/>
+          <span className="muted absolute right-3 top-1/2 -translate-y-1/2 text-[12px]">{intro.length}/40</span>
         </div>
       </Field>
+      <ErrorBox message={error}/>
       <Button type="submit" className="w-full" disabled={busy}>{busy ? '저장 중…' : '저장하기'}</Button>
       <div className="h-px bg-[var(--line)]"/>
       <h2 className="text-[13px] font-bold text-[var(--muted)]">로그인 정보</h2>
@@ -733,7 +810,7 @@ export function SellerSettingsPage() {
       <div className="divider flex items-center justify-between py-4">
         <span className="text-[15px]">비밀번호 변경</span>
         <div className="flex items-center gap-2">
-          <span className="muted text-[12px]">마지막 변경 2026.08.12</span>
+          {USE_MOCK && <span className="muted text-[12px]">마지막 변경 2026.08.12</span>}
           <ChevronRight size={16} className="muted"/>
         </div>
       </div>
@@ -746,40 +823,7 @@ export function SellerSettingsPage() {
   );
 
   // ── 회원 탈퇴 ───────────────────────────────────────────────
-  if (section === 'withdraw') return (
-    <form className="space-y-5" onSubmit={e => { e.preventDefault(); toast('탈퇴 처리 중입니다.'); }}>
-      <Header title="회원 탈퇴"/>
-      <h2 className="text-[18px] font-bold">탈퇴 전에 꼭 확인해 주세요.</h2>
-      <div className="rounded-[8px] bg-[var(--canvas)] p-4 space-y-3">
-        {[['진행 중인 주문', '없음'], ['정산 대기 금액', '0원'], ['판매 중인 드롭', '없음']].map(([label, value]) => (
-          <div key={label} className="flex items-center justify-between">
-            <span className="text-[13px]">{label}</span>
-            <span className="muted text-[13px]">{value}</span>
-          </div>
-        ))}
-      </div>
-      <Note>진행 중인 거래가 있으면 완료된 뒤에 탈퇴할 수 있어요</Note>
-      <div className="space-y-3">
-        <p className="text-[13px] font-bold">탈퇴하면 이렇게 돼요</p>
-        {['계정 정보, 배송지, 알림 설정이 바로 삭제돼요', '보유한 적립금과 쿠폰은 소멸되고 복구할 수 없어요', '주문·결제 기록은 관계 법령에 따라 5년간 보관돼요', '같은 이메일로는 30일 후에 다시 가입할 수 있어요'].map(text => (
-          <div key={text} className="flex items-start gap-2">
-            <span className="mt-0.5 text-[var(--muted)]">·</span>
-            <p className="text-[13px] leading-relaxed">{text}</p>
-          </div>
-        ))}
-      </div>
-      <Field label="탈퇴 사유">
-        <select aria-label="탈퇴 사유" className="field"><option>사용 빈도가 낮아요</option><option>다른 사유</option></select>
-      </Field>
-      <Field label="비밀번호 확인" required><input aria-label="비밀번호 확인" className="field" type="password" placeholder="••••••••"/></Field>
-      <label className="flex items-center gap-3">
-        <input type="checkbox" className="h-4 w-4"/>
-        <span className="text-[13px]">안내 사항을 모두 확인했고 탈퇴에 동의해요</span>
-      </label>
-      <Button type="submit" className="w-full">탈퇴하기</Button>
-    </form>
-  );
-
+  if (section === 'withdraw') return <WithdrawForm/>;
   // ── 알림 설정 fallback ──────────────────────────────────────
   return (
     <form className="space-y-5" onSubmit={handleSubmit}>
@@ -796,22 +840,16 @@ export function SellerSettingsPage() {
   );
 }
 export function SellerSupportPage() {
-  const faqs: [string, string][] = [
-    ['정산', '정산은 언제 입금되나요?'],
-    ['출고', '출고 마감 시간을 넘기면 어떻게 되나요?'],
-    ['검수', '검수에서 반려되면 다시 신청할 수 있나요?'],
-    ['반품', '구매자가 반품을 요청하면?'],
-  ];
   return (
     <div className="space-y-0">
       <Header title="이용 안내 · 고객지원"/>
       <label className="mb-5 flex h-10 items-center gap-2.5 rounded-[6px] bg-[var(--canvas)] px-3.5">
         <svg width="18" height="18" viewBox="0 0 18 18" fill="none" className="muted shrink-0"><circle cx="8" cy="8" r="6" stroke="#949494" strokeWidth="1.5"/><path d="M13 13l3 3" stroke="#949494" strokeWidth="1.5" strokeLinecap="round"/></svg>
-        <input aria-label="고객지원 검색" placeholder="정산, 출고, 검수 기준 검색" className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-[var(--muted)]" readOnly/>
+        <input aria-label="고객지원 검색" placeholder="정산, 출고, 판매 심사 기준 검색" className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-[var(--muted)]" readOnly/>
       </label>
       <section className="mb-5 space-y-3">
         <h2 className="text-[15px] font-bold">판매 가이드</h2>
-        <div className="grid grid-cols-3 gap-2">{([[Rocket, '첫 드롭\n등록하기', '등록부터\n승인까지 5단계'], [ScanSearch, '검수 기준 안내', '반려 없이 통과하는\n사진 · 상태'], [Truck, '출고 · 배송\n규칙', '결제 후 48시간\n내 출고']] as const).map(([Icon, title, desc]) => (
+        <div className="grid grid-cols-3 gap-2">{([[Rocket, '첫 드롭\n등록하기', '등록부터\n승인까지 5단계'], [ScanSearch, '판매 심사 기준', '반려 없이 통과하는\n사진 · 상태'], [Truck, '출고 · 배송\n규칙', '결제 후 48시간\n내 출고']] as const).map(([Icon, title, desc]) => (
           <div key={title} className="rounded-[8px] bg-[var(--canvas)] p-3">
             <Icon size={18} strokeWidth={1.6}/>
             <p className="mt-3 whitespace-pre-line text-[13px] font-bold leading-snug">{title}</p>
@@ -823,17 +861,9 @@ export function SellerSupportPage() {
       <section className="mb-5 space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-[15px] font-bold">판매자 자주 묻는 질문</h2>
-          <button className="muted text-[12px]">전체보기</button>
+          <Link to="/faq?for=seller" className="muted text-[12px]">전체보기</Link>
         </div>
-        {faqs.map(([, q], i) => (
-          <div key={i} className="flex items-center justify-between gap-3 border-b border-[var(--line)] py-4">
-            <div className="flex items-start gap-3">
-              <span className="text-[14px] font-bold text-[var(--green)]">Q</span>
-              <span className="text-[14px]">{q}</span>
-            </div>
-            <span className="shrink-0 muted text-[12px]">›</span>
-          </div>
-        ))}
+        <FaqList items={SELLER_FAQ_ITEMS} accent/>
       </section>
       <div className="mb-5 h-px bg-[var(--line)]"/>
       <section className="mb-5 space-y-3">
@@ -855,60 +885,6 @@ export function SellerSupportPage() {
     </div>
   );
 }
-export function InspectionFailPage() {
-  const { id } = useParams(); const s = useStore(), user = activeUser(s), navigate = useNavigate(); const p = s.products.find(p => p.id === id && p.sellerId === user.id); if (!user.seller) return <Unavailable/>; if (!p) return <Empty title="상품을 찾을 수 없어요"><Link to="/seller" className="btn">판매자 홈</Link></Empty>;
-  const CRITERIA = ['정품 여부', '상품 상태', '구성품', '수량'];
-  // shortcut: 검수 결과 API 전이라 결과가 없으면 Figma 예시 결과를 보여 준다, 검수 API 연결 시 교체
-  const result = ((p as any).inspectionResult ?? { '정품 여부': { pass: true, reason: '브랜드 정품 인증 확인' }, '상품 상태': { pass: false, reason: '등록 사진과 달리 외박스 모서리에 찍힘이 있어요' }, '구성품': { pass: false, reason: '설명서와 품질보증서가 빠져 있어요' }, '수량': { pass: true, reason: `옵션별 한정 수량 ${p.options.reduce((n, o) => n + o.stock, 0)}개 일치` } }) as Record<string, { pass: boolean; reason: string }>;
-  const failCount = CRITERIA.filter(label => result?.[label] && !result[label].pass).length;
-  return <div className="space-y-5">
-    <div className="flex items-center justify-between pt-1">
-      <h1 className="text-[18px] font-bold">판매 심사 결과</h1>
-      <button onClick={() => navigate('/seller/products')} aria-label="닫기" className="p-1"><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M17 5L5 17M5 5l12 12" stroke="#222" strokeWidth="1.8" strokeLinecap="round"/></svg></button>
-    </div>
-    <div className="relative overflow-hidden rounded-[8px]">
-      <ProductImage src={p.images[0]} alt={p.name} className="h-[180px] w-full object-cover"/>
-      <div className="absolute inset-0 flex flex-col items-center justify-end bg-black/65 pb-6 text-white">
-        <div className="mb-3 flex h-[54px] w-[54px] items-center justify-center rounded-full border border-white/60"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 20v-8" stroke="white" strokeWidth="2" strokeLinecap="round"/><circle cx="12" cy="22" r="1" fill="white"/><path d="M20 15V13a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 2 13v6a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l1.3-.75" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/><path d="M2.3 13 12 19l9.7-6" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>
-        <p className="text-[20px] font-bold">물품 검수 미통과</p>
-        <p className="mt-1 text-[13px] text-white/80">{p.brand} {p.name}</p>
-      </div>
-    </div>
-    <div className="space-y-1">
-      <h2 className="text-[22px] font-bold">물품 검수를</h2>
-      <h2 className="text-[22px] font-bold">통과하지 못했어요</h2>
-      <p className="mt-2 text-[13px] text-[#7B7B7B]">운영팀이 상품을 직접 확인한 결과예요.</p>
-      <p className="text-[13px] text-[#7B7B7B]">입력한 정보는 저장돼 있으니 사유를 반영해 재등록해 주세요.</p>
-    </div>
-    <div className="rounded-[6px] border border-[var(--line)] p-4 space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-[15px] font-bold">물품 검수 결과</h2>
-        {failCount > 0 && <span className="rounded-[4px] bg-[#FDEFED] px-2 py-0.5 text-[11px] font-bold text-[#E5484D]">{failCount}개 항목 미통과</span>}
-      </div>
-      <p className="text-[13px] text-[#7B7B7B]">입고된 상품을 운영팀이 아래 4가지 기준으로 확인했어요.</p>
-      <div className="rounded-[6px] bg-[#FBFBFB] divide-y divide-[var(--line)] px-4">
-        {CRITERIA.map(label => {
-          const r = result?.[label];
-          const pass = !r || r.pass;
-          return <div key={label} className="py-3 space-y-1">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${pass ? 'border-[#3FB181]' : 'border-[#E5484D]'}`}>
-                  {pass ? <Check size={11} className="text-[#3FB181]"/> : <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M2 2l7 7M9 2L2 9" stroke="#E5484D" strokeWidth="1.5" strokeLinecap="round"/></svg>}
-                </span>
-                <span className="text-[13px] font-bold">{label}</span>
-              </div>
-              <span className={`text-[12px] font-bold ${pass ? 'text-[#949494]' : 'text-[#E5484D]'}`}>{pass ? '통과' : '미통과'}</span>
-            </div>
-            {r?.reason && <p className="pl-8 text-[12px] text-[#7B7B7B]">{r.reason}</p>}
-          </div>;
-        })}
-      </div>
-    </div>
-    <Note title="운영팀 문의">검수 결과에 이의가 있으면 고객센터로 문의해 주세요.</Note>
-    <div className="flex gap-2"><Button outline className="flex-1" onClick={() => navigate('/seller')}>판매자 홈</Button><Button className="flex-1" onClick={() => navigate(`/seller/new?edit=${p.id}`)}>재등록하기</Button></div>
-  </div>;
-}
 export function TermsPage() {
   const navigate = useNavigate();
   const [checks, setChecks] = useState<Record<string, boolean>>({});
@@ -916,4 +892,59 @@ export function TermsPage() {
   const allRequired = items.filter(([,, r]) => r).every(([k]) => checks[k]);
   const allChecked = items.every(([k]) => checks[k]);
   return <div className="space-y-5"><Header title="판매자 약관 동의"/><div className="space-y-2"><p className="text-[10px] font-bold tracking-[1px]">STOCKDROP PARTNERS</p><h1 className="text-[22px] font-bold leading-[1.5] tracking-[-1px]">심사 요청 전에<br/>판매자 약관을 확인해 주세요</h1><p className="muted text-[12px] leading-relaxed">한정 수량 선착순 판매는 구매자와의 약속이에요.<br/>운영 정책을 꼭 읽고 동의해 주세요.</p></div><label className="divider flex items-center gap-3 py-3 text-[14px] font-bold"><input type="checkbox" className="h-5 w-5" checked={allChecked} onChange={() => { const next = !allChecked; const obj: Record<string, boolean> = {}; items.forEach(([k]) => { obj[k] = next; }); setChecks(obj); }}/>전체 동의하기</label>{items.map(([key, label, required]) => <div key={key} className="divider flex items-center gap-2 py-3 text-[12px]"><label className="flex flex-1 items-center gap-3"><input type="checkbox" className="h-4 w-4 shrink-0" checked={checks[key] ?? false} onChange={e => setChecks({ ...checks, [key]: e.target.checked })}/><span>{required ? '필수' : '선택'} {'  '}{label}</span></label><Link to="/legal" className="muted shrink-0 text-[11px] underline">보기</Link></div>)}<Note title="한정 판매 운영 정책 요약"><p className="mb-2"><b>01</b> {'  '}판매가 시작되면 한정 수량과 가격을 변경할 수 없어요.</p><p className="mb-2"><b>02</b> {'  '}결제 완료 후 2영업일 이내에 출고해야 해요.</p><p><b>03</b> {'  '}출고 지연·품절 취소가 반복되면 판매가 제한될 수 있어요.</p></Note><Button className="w-full" disabled={!allRequired} onClick={() => navigate('/apply')}>동의하고 심사 요청하기</Button></div>;
+}
+
+/** 회원 탈퇴 — 실제 모드: 탈퇴 가능 여부 조회 후 DELETE /v1/accounts/me, 성공하면 로그아웃과 같이 로컬 세션을 끝낸다. mock 모드는 기존 토스트만 */
+function WithdrawForm() {
+  const toast = useToast(), navigate = useNavigate();
+  const [reason, setReason] = useState('사용 빈도가 낮아요'), [password, setPassword] = useState(''), [agree, setAgree] = useState(false), [error, setError] = useState(''), [busy, setBusy] = useState(false);
+  const elig = useApi(signal => (USE_MOCK ? Promise.resolve(null) : fetchWithdrawalEligibility(signal)), []);
+  const e = elig.data;
+  const canWithdraw = !!e && e.verified && e.canWithdraw; // verified=false면 탈퇴 가능으로 해석하지 않는다
+  const count = (n: number | null | undefined) => (n == null ? '확인 불가' : n ? `${n}건` : '없음');
+  const rows = e ? [['진행 중인 주문', count(e.activeOrders)], ['정산 대기', count(e.pendingSettlements)], ['판매 중인 드롭', count(e.activeSales)]] : [['진행 중인 주문', '없음'], ['정산 대기 금액', '0원'], ['판매 중인 드롭', '없음']];
+  const submit = async (ev: React.FormEvent) => {
+    ev.preventDefault();
+    if (USE_MOCK) { toast('탈퇴 처리 중입니다.'); return; }
+    if (!agree) { setError('안내 사항 확인에 동의해 주세요.'); return; }
+    if (!password) { setError('비밀번호를 입력해 주세요.'); return; }
+    setBusy(true); setError('');
+    try { await withdrawAccount(password, reason); api.setAccessToken(null); mutate(endSession); toast('탈퇴가 완료되었습니다.'); navigate('/', { replace: true }); }
+    catch (x) { setError(errorMessage(x)); } finally { setBusy(false); }
+  };
+  return (
+    <form className="space-y-5" onSubmit={submit}>
+      <Header title="회원 탈퇴"/>
+      {!USE_MOCK && <LiveStatus state={elig}/>}
+      <h2 className="text-[18px] font-bold">탈퇴 전에 꼭 확인해 주세요.</h2>
+      <div className="rounded-[8px] bg-[var(--canvas)] p-4 space-y-3">
+        {rows.map(([label, value]) => (
+          <div key={label} className="flex items-center justify-between">
+            <span className="text-[13px]">{label}</span>
+            <span className="muted text-[13px]">{value}</span>
+          </div>
+        ))}
+      </div>
+      <Note>진행 중인 거래가 있으면 완료된 뒤에 탈퇴할 수 있어요</Note>
+      <div className="space-y-3">
+        <p className="text-[13px] font-bold">탈퇴하면 이렇게 돼요</p>
+        {['계정 정보, 배송지, 알림 설정이 바로 삭제돼요', '보유한 적립금과 쿠폰은 소멸되고 복구할 수 없어요', '주문·결제 기록은 관계 법령에 따라 5년간 보관돼요', '같은 이메일로는 30일 후에 다시 가입할 수 있어요'].map(text => (
+          <div key={text} className="flex items-start gap-2">
+            <span className="mt-0.5 text-[var(--muted)]">·</span>
+            <p className="text-[13px] leading-relaxed">{text}</p>
+          </div>
+        ))}
+      </div>
+      <Field label="탈퇴 사유">
+        <select aria-label="탈퇴 사유" className="field" value={reason} onChange={e => setReason(e.target.value)}><option>사용 빈도가 낮아요</option><option>다른 사유</option></select>
+      </Field>
+      <Field label="비밀번호 확인" required><input aria-label="비밀번호 확인" className="field" type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)}/></Field>
+      <label className="flex items-center gap-3">
+        <input type="checkbox" className="h-4 w-4" checked={agree} onChange={e => setAgree(e.target.checked)}/>
+        <span className="text-[13px]">안내 사항을 모두 확인했고 탈퇴에 동의해요</span>
+      </label>
+      <ErrorBox message={error}/>
+      <Button type="submit" className="w-full" disabled={busy || (!USE_MOCK && !canWithdraw)}>{busy ? '처리 중…' : '탈퇴하기'}</Button>
+    </form>
+  );
 }

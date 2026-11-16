@@ -1,0 +1,364 @@
+/**
+ * 판매자 도메인(2/2) 상품 — 명세 docs/api-spec.md 8절(상품 관리·등록 26개) + 11절(AI 분석 조회 1개).
+ * 상품 Command=PurchaseGateway(`purchase`), AI 분석 조회=일반 Gateway(`general`). 모두 SELLER JWT.
+ * 응답(SellerProduct)은 화면의 Product로 바꿔 돌려준다. 낙관적 잠금 version은 Product.version으로 들고 다니며,
+ * 등록 단계 PUT은 매번 응답의 새 version을 다음 요청에 넘긴다(submitListing).
+ * 실제 모드 전용: mock 모드는 화면이 기존 로컬 동작(publishDraft 등)을 그대로 쓴다.
+ */
+import type { Draft, Inquiry, Product } from '../domain';
+import { CATEGORY_PATHS, optionKey } from '../domain';
+import { ApiError, api } from './client';
+import { ms } from './mappers';
+import { errorMessage } from './errors';
+import type { AiAnalysisAcceptedDto, AiAnalysisDto, ProductImageMetaDto, ProductImageUploadDto, ProductRevisionDto, ProductReviewListItemDto, ProductSalesSummaryDto, RegistrationMetadataDto, SellerProductDto, SellerProductInquiryDto, ItemsPage } from './types';
+
+const general = 'general' as const, purchase = 'purchase' as const;
+const enc = encodeURIComponent;
+const P = '/v1/seller/products';
+const at = (id: string) => `${P}/${enc(id)}`;
+const iso = (t: number) => new Date(t).toISOString();
+
+/* ── 변환 ── */
+/** SellerProduct(편집 원본) → Product. 이미지는 별도 API라 비워 두고(merge가 기존 값 유지), 옵션 stock은 최초 수량 */
+export function sellerProductFromApi(d: SellerProductDto): Product {
+  return {
+    id: d.id, sellerId: d.sellerId, name: d.name ?? '', brand: d.brandOrStore ?? '', category: d.category ?? '', description: d.description ?? '', images: [], originalUrl: d.sourceUrl ?? '',
+    price: d.price ?? 0, shipping: d.shippingFee ?? 0, maxPerAccount: d.perAccountLimit ?? 0, dispatchDays: d.dispatchBusinessDays ?? 0, startsAt: ms(d.startsAt) ?? 0, endsAt: ms(d.endsAt) ?? 0,
+    published: d.status === 'APPROVED', options: (d.options ?? []).map(o => ({ id: o.id, name: o.label, stock: o.initialQuantity })),
+    dimensions: (d.optionDimensions ?? []).map(x => ({ name: x.name, values: (x.values ?? []).join(', ') })), extras: (d.attributes ?? []).map(a => ({ key: a.name, value: a.value })), reason: d.disposalReason ?? '',
+    faqs: (d.faqs ?? []).map(f => ({ id: f.id, question: f.question, answer: f.answer, confirmed: true })),
+    shippingNotice: d.shippingNotice ?? '', rejectionReason: d.status === 'REJECTED' ? (d.reviewReason ?? '') : undefined, version: d.version, reviewStatus: d.status,
+  };
+}
+/** 관리 목록 항목 → Product. 목록에는 가격·옵션·이미지가 없다(TODO(api-gap): 목록 카드의 가격·수량은 상세를 열어야 채워짐) */
+export function sellerProductFromListItem(d: ProductReviewListItemDto, sellerId: string): Product {
+  return {
+    id: d.id, sellerId, name: d.name, brand: '', category: '', description: '', images: [], originalUrl: '', price: 0, shipping: 0, maxPerAccount: 0, dispatchDays: 0,
+    startsAt: ms(d.startsAt) ?? 0, endsAt: ms(d.endsAt) ?? 0, published: d.status === 'APPROVED', options: [], dimensions: [], extras: [], reason: '', faqs: [], version: d.version, reviewStatus: d.status,
+  };
+}
+/** 상품 문의(판매자 시점) → Inquiry. userId=구매자, 상품명은 merge가 상품에서 채운다 */
+export function sellerProductInquiryFromApi(d: SellerProductInquiryDto, sellerId: string): Inquiry {
+  return { id: d.id, userId: d.buyerId, sellerId, productId: d.productId, productName: '', kind: '상품 문의', question: d.question, answer: d.answer ?? undefined, public: false, createdAt: Date.parse(d.createdAt), version: d.version };
+}
+
+/* ── 목록·집계·메타 ── */
+export interface SellerProductQuery { status?: 'DRAFT' | 'IN_REVIEW' | 'REJECTED' | 'APPROVED'; month?: string; saleState?: 'SCHEDULED' | 'ON_SALE' | 'ENDED'; page?: number; size?: number }
+/** GET /v1/seller/products — 본인 상품 관리 목록(`items`) */
+export async function listSellerProducts(sellerId: string, q: SellerProductQuery = {}, signal?: AbortSignal): Promise<Product[]> {
+  const r = await api.get<ItemsPage<ProductReviewListItemDto>>(P, { service: purchase, signal, query: { size: 100, ...q } });
+  return r.items.map(d => sellerProductFromListItem(d, sellerId));
+}
+/** POST /v1/seller/products — 등록 초안 생성(201, 본문 없음) */
+export const createProductDraft = async () => sellerProductFromApi(await api.post<SellerProductDto>(P, undefined, { service: purchase }));
+/** GET /v1/seller/products/registration-metadata — 카테고리 이름 목록과 AI 점검 기준 */
+export async function getRegistrationMetadata(signal?: AbortSignal) {
+  const meta = await api.get<RegistrationMetadataDto>(`${P}/registration-metadata`, { service: purchase, signal });
+  // 개발 서버 전용(DEV가 false인 빌드에서는 통째로 제거된다): 받은 응답을 docs/registration-metadata.json 으로 저장
+  if (import.meta.env.DEV) void fetch('/__dev/registration-metadata', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(meta) }).catch(() => {});
+  return meta;
+}
+/** 대분류 code(실제 서버: 대분류 항목의 code가 곧 접두사. 하위 카테고리 code는 `CLOTHING_TSHIRT_01`처럼 접두사 + `_`로 시작) */
+export const MAJOR_CODES = ['CLOTHING', 'FASHION_ACCESSORIES', 'STATIONERY', 'HOUSEHOLD'] as const;
+export const majorOf = (code: string) => MAJOR_CODES.find(m => code === m || code.startsWith(`${m}_`));
+/**
+ * 점검 항목 key → 구매자 상품 상세에 보일 짧은 표시명(대분류별 4개, 총 16개). 실제 서버 registration-metadata(255개 카테고리)의 key 전체와 일치한다.
+ * key = check.code에서 `__` 뒤 문자열(대분류 항목처럼 `__`가 없으면 code 전체). 질문 문장·checkCode는 구매자에게 그대로 보이므로 항목명으로 쓰지 않는다.
+ */
+export const ATTRIBUTE_NAMES: Record<string, string> = {
+  CLOTHING_MEASUREMENTS: '실측 사이즈', CLOTHING_MATERIAL: '소재·혼용률', CLOTHING_CARE: '세탁·관리', CLOTHING_COMPONENTS: '구성품',
+  FASHION_ACCESSORIES_DIMENSIONS: '크기·치수', FASHION_ACCESSORIES_MATERIAL: '소재', FASHION_ACCESSORIES_COMPONENTS: '구성품', FASHION_ACCESSORIES_CARE: '유의사항',
+  STATIONERY_DIMENSIONS: '크기·규격', STATIONERY_MATERIAL: '재질·사양', STATIONERY_COMPONENTS: '구성·개수', STATIONERY_USE: '사용 방법',
+  HOUSEHOLD_DIMENSIONS: '크기·규격', HOUSEHOLD_MATERIAL: '소재', HOUSEHOLD_COMPONENTS: '구성품', HOUSEHOLD_USE: '사용·관리',
+};
+/** mock 메타데이터용 질문 원문(실제 서버 응답과 같은 문장) */
+const MOCK_QUESTIONS: Record<string, string> = {
+  CLOTHING_MEASUREMENTS: '실측 사이즈와 측정 기준을 알려주세요.', CLOTHING_MATERIAL: '소재와 혼용률을 알려주세요.', CLOTHING_CARE: '세탁 및 관리 방법을 알려주세요.', CLOTHING_COMPONENTS: '구매 시 제공되는 구성품을 알려주세요.',
+  FASHION_ACCESSORIES_DIMENSIONS: '제품의 크기와 치수를 알려주세요.', FASHION_ACCESSORIES_MATERIAL: '제품 소재를 알려주세요.', FASHION_ACCESSORIES_COMPONENTS: '사진에 있는 구성품이 모두 포함되는지 알려주세요.', FASHION_ACCESSORIES_CARE: '사용 및 관리 시 유의사항을 알려주세요.',
+  STATIONERY_DIMENSIONS: '제품의 크기와 규격을 알려주세요.', STATIONERY_MATERIAL: '재질과 주요 사양을 알려주세요.', STATIONERY_COMPONENTS: '한 번 구매할 때 제공되는 구성과 개수를 알려주세요.', STATIONERY_USE: '사용 방법과 사용 시 유의사항을 알려주세요.',
+  HOUSEHOLD_DIMENSIONS: '제품의 크기와 규격을 알려주세요.', HOUSEHOLD_MATERIAL: '제품 소재를 알려주세요.', HOUSEHOLD_COMPONENTS: '사진에 있는 구성품이 모두 포함되는지 알려주세요.', HOUSEHOLD_USE: '사용 방법과 관리 시 유의사항을 알려주세요.',
+};
+export const OTHER_ATTRIBUTE_NAME = '기타 정보';
+export const checkKey = (code: string) => code.includes('__') ? code.slice(code.lastIndexOf('__') + 2) : code;
+/** 점검 항목 → attributes 항목명. 표에 없는 key는 '기타 정보'(질문 문장은 쓰지 않는다) + 개발용 경고 */
+export function attributeName(code: string): string {
+  const name = ATTRIBUTE_NAMES[checkKey(code)];
+  if (!name && import.meta.env.DEV) console.warn(`[registration-metadata] 표시명 매핑에 없는 점검 항목: ${code}`);
+  return name ?? OTHER_ATTRIBUTE_NAME;
+}
+export const ATTRIBUTE_NAME_MAX = 200, ATTRIBUTE_VALUE_MAX = 4000;
+/** attributes 저장 전 검사 — name ≤200, value ≤4000 */
+export function attributeProblem(name: string, value: string): string | null {
+  if (name.length > ATTRIBUTE_NAME_MAX) return `항목명은 ${ATTRIBUTE_NAME_MAX}자 이하여야 해요.`;
+  if (value.length > ATTRIBUTE_VALUE_MAX) return `${name} 내용은 ${ATTRIBUTE_VALUE_MAX.toLocaleString('ko-KR')}자 이하여야 해요.`;
+  return null;
+}
+/** 상품 배송 안내문(shippingNotice) 최대 길이 */
+export const SHIPPING_NOTICE_MAX = 4000;
+/** 택배사·반품 배송비·교환 배송비 → "CJ대한통운 / 반품 배송비 3,000원 / 교환 배송비 6,000원"(빈 칸은 뺀다) */
+export const composeShippingNotice = (carrier: string, returnFee: string, exchangeFee: string) => {
+  const won = (v: string) => Number(v).toLocaleString('ko-KR');
+  return [carrier.trim(), returnFee.trim() && `반품 배송비 ${won(returnFee)}원`, exchangeFee.trim() && `교환 배송비 ${won(exchangeFee)}원`].filter(Boolean).join(' / ');
+};
+const mockMajor = (path: string) => path.startsWith('패션 › 잡화') ? 'FASHION_ACCESSORIES' : path.startsWith('패션') ? 'CLOTHING' : path.startsWith('문구') ? 'STATIONERY' : 'HOUSEHOLD';
+/** mock 모드 등록 메타데이터(서버와 같은 모양: categoryCriteria는 categories와 같은 순서·개수, 하위 카테고리 code는 `대분류_MOCK_NN`, check code는 `code__KEY`) */
+export const MOCK_REGISTRATION_METADATA: RegistrationMetadataDto = { categories: CATEGORY_PATHS, categoryCriteria: CATEGORY_PATHS.map((name, i) => {
+  const major = mockMajor(name), code = `${major}_MOCK_${String(i + 1).padStart(2, '0')}`;
+  return { code, name, checks: Object.keys(ATTRIBUTE_NAMES).filter(k => k.startsWith(`${major}_`)).map(k => ({ code: `${code}__${k}`, question: MOCK_QUESTIONS[k] })) };
+}) };
+export type Criteria = RegistrationMetadataDto['categoryCriteria'][number];
+/** 카테고리 이름이 같은 점검 기준(없으면 undefined) */
+export const criteriaFor = (meta: RegistrationMetadataDto, category: string) => category ? meta.categoryCriteria.find(c => c.name === category) : undefined;
+/** AI 추천 code(categoryCriteria code)가 속한 대분류의 카테고리 이름들(code 접두사로 판단) */
+export function categoriesForCode(meta: RegistrationMetadataDto, code: string): string[] {
+  const major = majorOf(code);
+  return major ? meta.categoryCriteria.filter(c => majorOf(c.code) === major).map(c => c.name) : [];
+}
+/** AI 추천 code → 등록 카테고리 이름(code로 categoryCriteria를 찾아 name, 없으면 '') */
+export const categoryForCode = (meta: RegistrationMetadataDto, code: string | null) => (code && meta.categoryCriteria.find(x => x.code === code)?.name) || '';
+/** 개발용: categoryCriteria가 대분류 4개만 오면 카테고리별 기준(255개)이 아니라는 경고 */
+export function warnCriteria(meta: RegistrationMetadataDto) {
+  if (import.meta.env.DEV && meta.categoryCriteria.length !== meta.categories.length) console.warn(`[registration-metadata] categoryCriteria ${meta.categoryCriteria.length}개 ≠ categories ${meta.categories.length}개`);
+}
+/** GET /v1/seller/products/sales-summary — 판매·재고 집계(매출·정산 없음) */
+export const getSalesSummary = (month?: string, signal?: AbortSignal) => api.get<ProductSalesSummaryDto>(`${P}/sales-summary`, { service: purchase, signal, query: { month } });
+/** GET /v1/seller/products/{id} — 편집 원본(version 포함). 이미지는 getSellerProductWithImages */
+export async function getSellerProduct(id: string, signal?: AbortSignal): Promise<Product> {
+  return sellerProductFromApi(await api.get<SellerProductDto>(at(id), { service: purchase, signal }));
+}
+
+/* ── 이미지 (권한 발급 → S3 PUT → 완료 확인) ── */
+/** GET …/images — 위치순 이미지 메타 */
+export const listProductImages = (id: string, signal?: AbortSignal) => api.get<ProductImageMetaDto[]>(`${at(id)}/images`, { service: purchase, signal });
+/** GET …/images/{imageId}/download-url — 5분 유효 열람 URL */
+export async function getProductImageUrl(id: string, imageId: string, signal?: AbortSignal): Promise<string> {
+  return (await api.get<{ downloadUrl: string }>(`${at(id)}/images/${enc(imageId)}/download-url`, { service: purchase, signal })).downloadUrl;
+}
+/** PUT …/images — 순서(imageIds)와 대표(representativeId) 변경 */
+export const reorderProductImages = (id: string, imageIds: string[], representativeId: string) =>
+  api.put<ProductImageMetaDto[]>(`${at(id)}/images`, { imageIds, representativeId }, { service: purchase });
+/** DELETE …/images/{imageId} — 연결 해제 */
+export const deleteProductImage = (id: string, imageId: string) => api.delete<null>(`${at(id)}/images/${enc(imageId)}`, { service: purchase });
+/** 상품 + 이미지(열람 URL, 위치순) + imageIds. 상세·편집 화면용 */
+export async function getSellerProductWithImages(id: string, signal?: AbortSignal): Promise<Product> {
+  const [p, metas] = await Promise.all([getSellerProduct(id, signal), listProductImages(id, signal)]);
+  const sorted = [...metas].sort((a, b) => a.position - b.position);
+  const urls = await Promise.all(sorted.map(m => getProductImageUrl(id, m.id, signal).catch(() => '')));
+  return { ...p, images: urls, imageIds: sorted.map(m => m.id), imageSizes: sorted.map(m => m.sizeBytes ?? 0) };
+}
+/** 이미지 한 장 업로드 3단계 → 서버 imageId와 열람 URL. S3 PUT은 Authorization 없이 정확한 Content-Type으로 보내므로 fetch를 쓴다 */
+export async function uploadProductImage(id: string, file: File, putFetch: typeof fetch = (u, i) => fetch(u, i)): Promise<{ id: string; url: string }> {
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) throw new Error('JPG·PNG·WEBP 이미지만 올릴 수 있어요.');
+  if (file.size < 1 || file.size > 10 * 1024 * 1024) throw new Error('사진은 10MB 이하여야 해요.');
+  const g = await api.post<ProductImageUploadDto>(`${at(id)}/image-uploads`, { contentType: file.type, sizeBytes: file.size }, { service: purchase });
+  const r = await putFetch(g.uploadUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file });
+  if (!r.ok) { await deleteProductImage(id, g.imageId).catch(() => {}); throw new Error('사진을 올리지 못했어요. 다시 시도해 주세요.'); }
+  // 완료 확인이 안 되면 분석·심사에 쓰이지 않는 사진이 된다 → 연결을 해제하고 다시 올리게 한다
+  try { await api.post<ProductImageMetaDto>(`${at(id)}/images/${enc(g.imageId)}/completion`, undefined, { service: purchase }); }
+  catch (e) { await deleteProductImage(id, g.imageId).catch(() => {}); throw new Error(`사진 업로드 완료 확인에 실패했어요 (${errorMessage(e)}). 다시 시도해 주세요.`); }
+  return { id: g.imageId, url: await getProductImageUrl(id, g.imageId).catch(() => '') };
+}
+
+/* ── 등록 단계별 저장 (각 단계는 해당 값 전체 교체, expectedVersion 필수, 응답의 새 version을 다음에 쓴다) ── */
+const step = async (id: string, name: string, body: object) => sellerProductFromApi(await api.put<SellerProductDto>(`${at(id)}/registration/${name}`, body, { service: purchase }));
+export const saveBasicInfo = (id: string, expectedVersion: number, b: { name?: string; description?: string; brandOrStore?: string; category?: string; sourceUrl?: string }) => step(id, 'basic-info', { expectedVersion, ...b });
+export const saveDetails = (id: string, expectedVersion: number, b: { attributes: { name: string; value: string }[]; disposalReason?: string }) => step(id, 'details', { expectedVersion, ...b });
+export interface OptionVariant { id?: string; selections: Record<string, string>; initialQuantity: number }
+export const saveOptions = (id: string, expectedVersion: number, b: { dimensions: { name: string; values: string[] }[]; variants: OptionVariant[] }) => step(id, 'options', { expectedVersion, ...b });
+export interface PricingShipping { price?: number; shippingFee?: number; dispatchBusinessDays?: number; perAccountLimit?: number; shippingNotice?: string; purchaseNotice?: string; dispatchAddressId?: string; returnAddressId?: string }
+/** 출고지·반품지 id를 생략하면 서버가 기본 주소를 쓴다 */
+export const savePricingShipping = (id: string, expectedVersion: number, b: PricingShipping) => step(id, 'pricing-shipping', { expectedVersion, ...b });
+/** startsAt: ISO. null이면 일정 삭제. 종료=시작+3시간은 서버가 계산 */
+export const saveSchedule = (id: string, expectedVersion: number, startsAt: string | null) => step(id, 'schedule', { expectedVersion, startsAt });
+export interface FaqInput { id?: string; question: string; answer: string; suggestionId?: string }
+/** 6단계: FAQ 전체 저장(빈 배열=전체 제거). confirmed=true만 저장된다 */
+export const saveRegistrationFaqs = (id: string, expectedVersion: number, faqs: FaqInput[]) => step(id, 'faqs', { expectedVersion, faqs: faqs.map(f => ({ ...f, confirmed: true })) });
+/** POST …/review-submissions — 최초 심사 제출(DRAFT/REJECTED) */
+export const submitReview = async (id: string, expectedVersion: number) => sellerProductFromApi(await api.post<SellerProductDto>(`${at(id)}/review-submissions`, { expectedVersion }, { service: purchase }));
+
+/* ── FAQ 개별 (화면 없음: 등록 화면에 FAQ 입력 UI가 없어 호출처 없음 — 문의 답변의 publishToFaq가 FAQ 반영 경로) ── */
+const faqBody = (expectedVersion: number, f: FaqInput) => ({ expectedVersion, faq: { ...f, confirmed: true } });
+export const addProductFaq = async (id: string, expectedVersion: number, f: FaqInput) => sellerProductFromApi(await api.post<SellerProductDto>(`${at(id)}/faqs`, faqBody(expectedVersion, f), { service: purchase }));
+export const updateProductFaq = async (id: string, faqId: string, expectedVersion: number, f: FaqInput) => sellerProductFromApi(await api.put<SellerProductDto>(`${at(id)}/faqs/${enc(faqId)}`, faqBody(expectedVersion, f), { service: purchase }));
+/** DELETE — expectedVersion은 query, 응답은 200 + 상품 전체 */
+export const deleteProductFaq = async (id: string, faqId: string, expectedVersion: number) => sellerProductFromApi(await api.delete<SellerProductDto>(`${at(id)}/faqs/${enc(faqId)}`, { service: purchase, query: { expectedVersion } }));
+
+/* ── 수정 심사(승인 상품) ── */
+export interface RevisionInput { name: string; description: string; imageIds: string[]; representativeId: string; shippingFee: number; dispatchBusinessDays: number; shippingNotice?: string; purchaseNotice?: string; startsAt: string; dispatchAddressId?: string; returnAddressId?: string }
+/** GET …/revisions — data 자체가 배열 */
+export const listRevisions = (id: string, signal?: AbortSignal) => api.get<ProductRevisionDto[]>(`${at(id)}/revisions`, { service: purchase, signal });
+/** POST …/revisions — expectedVersion은 원본 상품 version. 201 + ProductRevision(IN_REVIEW) */
+export const submitRevision = (id: string, expectedVersion: number, b: RevisionInput) => api.post<ProductRevisionDto>(`${at(id)}/revisions`, { expectedVersion, ...b }, { service: purchase });
+
+/* ── AI 분석 ── */
+/** POST …/ai-analyses — 202 접수. 같은 입력의 완료 분석이 있으면 completed=true */
+export const requestAiAnalysis = (id: string, expectedVersion: number) => api.post<AiAnalysisAcceptedDto>(`${at(id)}/ai-analyses`, { expectedVersion }, { service: purchase });
+/** GET /v1/ai/product-analyses/{requestId} — 상품 id가 아니라 requestId. 완료 전 result=null, RETRY는 실패가 아니다 */
+export const getAiAnalysis = (requestId: string, signal?: AbortSignal) => api.get<AiAnalysisDto>(`/v1/ai/product-analyses/${enc(requestId)}`, { service: general, signal });
+const sleep = (t: number) => new Promise(r => setTimeout(r, t));
+/** 완료(COMPLETED)까지 폴링. 추측(명세 없음): 2초 간격 최대 30회. 이벤트 지연으로 생기는 404 AI_NOT_FOUND는 재시도한다 */
+export async function pollAiAnalysis(requestId: string, o: { interval?: number; tries?: number; signal?: AbortSignal } = {}): Promise<NonNullable<AiAnalysisDto['result']>> {
+  for (let i = 0; i < (o.tries ?? 30); i++) {
+    try { const r = await getAiAnalysis(requestId, o.signal); if (r.status === 'COMPLETED' && r.result) return r.result; }
+    catch (e) { if (!(e instanceof ApiError && e.code === 'AI_NOT_FOUND')) throw e; }
+    await sleep(o.interval ?? 2000);
+  }
+  throw new Error('AI 분석이 지연되고 있어요. 잠시 후 다시 시도해 주세요.');
+}
+
+/* ── 문의 답변 ── */
+/** GET /v1/seller/products/inquiries — 본인 상품 문의함(`items`) */
+export async function listSellerProductInquiries(sellerId: string, q: { productId?: string; unanswered?: boolean } = {}, signal?: AbortSignal): Promise<Inquiry[]> {
+  const r = await api.get<ItemsPage<SellerProductInquiryDto>>(`${P}/inquiries`, { service: purchase, signal, query: { size: 100, ...q } });
+  return r.items.map(d => sellerProductInquiryFromApi(d, sellerId));
+}
+/** PUT …/{productId}/inquiries/{inquiryId}/answer — expectedVersion은 문의 version. publishToFaq=true면 FAQ도 갱신 */
+export async function answerProductInquiry(sellerId: string, productId: string, inquiryId: string, b: { expectedVersion: number; answer: string; publishToFaq?: boolean }): Promise<Inquiry> {
+  const d = await api.put<SellerProductInquiryDto>(`${at(productId)}/inquiries/${enc(inquiryId)}/answer`, { publishToFaq: false, ...b }, { service: purchase });
+  return { ...sellerProductInquiryFromApi(d, sellerId), public: !!b.publishToFaq };
+}
+
+/* ── 화면 초안(Draft) → 서버 단계 값 ── */
+/** 옵션 축·수량 → 서버 dimensions/variants. 수량 0인 조합은 보내지 않고(≥1 필수), 차원 값도 쓰이는 값만 보낸다 */
+export function optionPayload(d: Draft) {
+  const axes = d.axes ?? { size: false, color: false }, colors = d.colors ?? [], sizes = d.sizes ?? [], stock = d.stock ?? {};
+  type Row = { name: string; selections: Record<string, string>; qty: number };
+  const rows: Row[] = axes.color && axes.size ? colors.flatMap(c => sizes.map(s => ({ name: `${c} / ${s}`, selections: { 색상: c, 사이즈: s }, qty: stock[optionKey(c, s)] ?? 0 })))
+    : axes.color ? colors.map(c => ({ name: c, selections: { 색상: c }, qty: stock[optionKey(c, '')] ?? 0 }))
+    : axes.size ? sizes.map(s => ({ name: s, selections: { 사이즈: s }, qty: stock[optionKey('', s)] ?? 0 }))
+    : [{ name: '기본', selections: { 옵션: '기본' }, qty: stock[optionKey('', '')] ?? 0 }]; // 추측(명세 없음): 옵션 없음 = 차원 '옵션' 값 '기본' 하나
+  const used = rows.filter(r => r.qty >= 1);
+  const dimensions = [...new Set(used.flatMap(r => Object.keys(r.selections)))].map(name => ({ name, values: [...new Set(used.map(r => r.selections[name]))] }));
+  // 서버가 준 옵션 id만 유지(화면이 만든 임시 id `opt-…`는 새 옵션)
+  const variants: OptionVariant[] = used.map(r => { const old = d.options.find(o => o.name === r.name)?.id; return { ...(old && !old.startsWith('opt-') ? { id: old } : {}), selections: r.selections, initialQuantity: r.qty }; });
+  return { dimensions, variants };
+}
+/** 기본 정보 단계 값. 추측(명세 없음): 화면에 설명·처분 사유 입력란이 없어 설명=상품명, 처분 사유=기본 문구로 채운다 */
+export function basicInfoOf(d: Draft, categories?: string[]) {
+  return { name: d.name.trim() || undefined, description: d.description.trim() || undefined, brandOrStore: d.brand.trim() || undefined, sourceUrl: d.originalUrl.trim() || undefined,
+    category: d.category && (!categories || categories.includes(d.category)) ? d.category : undefined };
+}
+const startIso = (d: Draft) => iso(new Date(d.startsAt).getTime());
+const detailsOf = (d: Draft) => ({ attributes: d.extras.filter(e => e.key.trim() && e.value.trim()).map(e => ({ name: e.key.trim(), value: e.value.trim() })), disposalReason: d.reason.trim() || undefined });
+/** 서버에 이미 같은 값이 저장돼 있는지(같으면 저장 요청을 건너뛴다) */
+export const sameBasic = (b: ReturnType<typeof basicInfoOf>, p: Product) => (b.name ?? '') === p.name && (b.description ?? '') === p.description && (b.brandOrStore ?? '') === p.brand && (b.sourceUrl ?? '') === p.originalUrl && (b.category ?? '') === p.category;
+export const sameDetails = (x: ReturnType<typeof detailsOf>, p: Product) => (x.disposalReason ?? '') === p.reason && JSON.stringify(x.attributes) === JSON.stringify(p.extras.map(e => ({ name: e.key, value: e.value })));
+
+/**
+ * 등록 화면 제출(실제 모드): 최신 version을 읽고 → 기본 정보 → 상세 → 옵션 → 가격·배송 → 일정 → (FAQ) → 심사 제출.
+ * 단계마다 응답의 새 version을 다음 요청에 넘긴다. 이미지는 올릴 때 이미 서버에 연결되어 있다.
+ */
+export async function submitListing(d: Draft, id: string): Promise<Product> {
+  let p = await withStage('상품 조회 실패', () => getSellerProduct(id));
+  const v = () => p.version ?? 0;
+  p = await withStage('기본 정보 저장 실패', () => saveBasicInfo(id, v(), basicInfoOf(d)));
+  p = await withStage('상세 정보 저장 실패', () => saveDetails(id, v(), detailsOf(d)));
+  const o = optionPayload(d);
+  if (!o.variants.length) throw new Error('옵션별 한정 수량을 입력해 주세요.');
+  p = await withStage('옵션 저장 실패', () => saveOptions(id, v(), o));
+  p = await withStage('가격·배송 저장 실패', () => savePricingShipping(id, v(), { price: d.price, shippingFee: d.shipping, dispatchBusinessDays: d.dispatchDays, perAccountLimit: d.maxPerAccount, shippingNotice: d.shippingNotice?.trim() || undefined, dispatchAddressId: d.dispatchAddressId, returnAddressId: d.returnAddressId }));
+  p = await withStage('판매 일정 저장 실패', () => saveSchedule(id, v(), startIso(d)));
+  if (d.faqs.length) p = await withStage('FAQ 저장 실패', () => saveRegistrationFaqs(id, v(), d.faqs.filter(f => f.question.trim() && f.answer.trim()).map(f => ({ id: f.id.startsWith('faq-') ? undefined : f.id, question: f.question, answer: f.answer }))));
+  return withStage('심사 요청 실패', () => submitReview(id, v()));
+}
+/** 승인 상품 수정 제출(실제 모드): 가격·옵션·수량은 수정 대상이 아니다. 이미지는 draft.imageIds 순서, 대표=첫 장 */
+export async function submitRevisionFromDraft(d: Draft, id: string): Promise<ProductRevisionDto> {
+  const p = await getSellerProduct(id), ids = (d.imageIds ?? []).filter(Boolean);
+  if (!ids.length) throw new Error('상품 사진을 확인해 주세요.');
+  return submitRevision(id, p.version ?? 0, { name: d.name.trim(), description: d.description.trim(), imageIds: ids, representativeId: ids[0], shippingFee: d.shipping, dispatchBusinessDays: d.dispatchDays, shippingNotice: d.shippingNotice?.trim() || undefined, startsAt: startIso(d), dispatchAddressId: d.dispatchAddressId, returnAddressId: d.returnAddressId });
+}
+/** AI 분석 요청 사진 전체 용량 한도(백엔드 규칙) */
+export const MAX_ANALYSIS_BYTES = 30 * 1024 * 1024;
+export const PRODUCT_STATE_MESSAGE = '심사 중이거나 승인된 상품은 분석할 수 없어요';
+type AnalysisInput = Pick<Draft, 'name' | 'description' | 'reason' | 'images'> & Partial<Pick<Draft, 'imageIds' | 'imageSizes' | 'originalUrl'>>;
+/**
+ * AI 분석 요청 조건(백엔드 규칙) — 빠진 칸별 문구. 빈 객체 = 시작 가능. 서버는 PRODUCT_INVALID를 violations 없이 주므로 여기서 먼저 막는다.
+ * 업로드 완료된 사진 1장 이상 · 사진 합계 30MB 이하 · 상품명·설명·처분 사유 · 상태 DRAFT/REJECTED. 카테고리·옵션·가격은 필요 없다.
+ */
+export function analysisProblems(d: AnalysisInput, status?: Product['reviewStatus']): Record<string, string> {
+  const f: Record<string, string> = {};
+  if (status && status !== 'DRAFT' && status !== 'REJECTED') f.state = PRODUCT_STATE_MESSAGE;
+  // 실제 모드는 완료 확인까지 끝난 사진만 imageIds에 들어간다(mock은 imageIds 없음)
+  const uploaded = d.imageIds ? d.imageIds.filter(Boolean).length : d.images.length;
+  if (!uploaded) f.images = '상품 사진을 1장 이상 올려 주세요.';
+  else if ((d.imageSizes ?? []).reduce((n, b) => n + b, 0) > MAX_ANALYSIS_BYTES) f.images = '사진 전체 용량이 30MB를 넘어요. 일부 사진을 빼 주세요.';
+  if (!d.name.trim()) f.name = '상품명을 입력해 주세요.';
+  if (!d.description.trim()) f.description = '짧은 설명을 입력해 주세요.';
+  if (!d.reason.trim()) f.disposalReason = '처분 사유를 입력해 주세요.';
+  const url = 'originalUrl' in d ? sourceUrlProblem(String(d.originalUrl ?? '')) : null; if (url) f.sourceUrl = url; // 기본 정보 저장에 같이 보내므로 미리 검사
+  return f;
+}
+/** 첫 번째로 빠진 조건 문구(null = 시작 가능) */
+export const analysisBlocker = (d: AnalysisInput, status?: Product['reviewStatus']) => Object.values(analysisProblems(d, status))[0] ?? null;
+export const SOURCE_URL_MAX = 2000;
+/** 원본(타 플랫폼) URL 검사 — 명세: http/https, ≤2000자. 빈 값은 null(필수 여부는 호출한 쪽이 정한다) */
+export function sourceUrlProblem(raw: string): string | null {
+  const v = raw.trim(); if (!v) return null;
+  if (/\s/.test(v)) return '주소에 띄어쓰기나 줄바꿈이 있어요. 주소만 붙여 넣어 주세요.';
+  if (!/^https?:\/\//i.test(v)) return 'http:// 또는 https://로 시작하는 주소를 입력해 주세요.';
+  if (v.length > SOURCE_URL_MAX) return `주소는 ${SOURCE_URL_MAX.toLocaleString('ko-KR')}자 이하여야 해요.`;
+  try { const u = new URL(v); if (!u.hostname.includes('.')) throw 0; } catch { return '올바른 주소 형식이 아니에요. 주소를 다시 확인해 주세요.'; }
+  return null;
+}
+/** 서버 칸 이름 → 화면 칸 이름 (단계 저장 실패 안내·칸 아래 표시용). 화면 data-field와 같은 키 */
+export const FIELD_LABELS: Record<string, string> = { name: '상품명', description: '짧은 설명', brandOrStore: '브랜드', category: '카테고리', sourceUrl: '타 플랫폼 판매 URL', disposalReason: '처분 사유', attributes: '카테고리별 상품 정보', images: '상품 사진', state: '상품 상태', version: '상품 버전' };
+/** 단계·칸을 알려 주는 오류. fields는 칸별 문구(화면이 해당 칸 아래 표시) */
+export class StageError extends Error {
+  constructor(public stage: string, public fields: Record<string, string>, fallback = '', public code = '') {
+    const [key, msg] = Object.entries(fields)[0] ?? [];
+    super(key ? `${stage}: ${FIELD_LABELS[key] ?? key} — ${msg}` : `${stage}: ${fallback}`); this.name = 'StageError';
+  }
+}
+/** 서버 violations의 field(예 'sourceUrl', 'request.sourceUrl')를 화면 칸 키로 */
+/** 단계 이름과 칸(violations)을 붙여 던진다. 상태 오류(PRODUCT_STATE)는 화면이 코드로 구분하도록 그대로 */
+export async function withStage<T>(stage: string, f: () => Promise<T>): Promise<T> {
+  try { return await f(); } catch (e) { if (e instanceof ApiError && e.code === 'PRODUCT_STATE') throw e; throw new StageError(stage, violationFields(e), errorMessage(e), e instanceof ApiError ? e.code : ''); }
+}
+const violationFields = (e: unknown): Record<string, string> => e instanceof ApiError ? Object.fromEntries(e.violations.map(v => [v.field.split('.').pop() ?? v.field, v.message])) : {};
+/**
+ * 심사 제출 전 검사 — 빠진 칸별 문구(화면 순서). 빈 객체 = 제출 가능.
+ * 서버는 PRODUCT_INVALID를 violations 없이 주므로 서버 규칙을 여기서 먼저 확인한다.
+ */
+export function listingProblems(d: Draft, o: { categories: string[]; now: number; dispatch: boolean; return: boolean }): Record<string, string> {
+  const f: Record<string, string> = {};
+  if (!(d.imageIds ? d.imageIds.filter(Boolean).length : d.images.length)) f.images = '상품 사진을 1장 이상 올려 주세요.';
+  if (!d.name.trim()) f.name = '상품명을 입력해 주세요.';
+  if (!d.description.trim()) f.description = '짧은 설명을 입력해 주세요.';
+  if (!d.reason.trim()) f.disposalReason = '처분 사유를 입력해 주세요.';
+  if (!d.category || !o.categories.includes(d.category)) f.category = '카테고리를 선택해 주세요.';
+  const badAttr = d.extras.map(e => attributeProblem(e.key.trim(), e.value.trim())).find(Boolean); if (badAttr) f.attributes = badAttr;
+  const url = d.originalUrl.trim() ? sourceUrlProblem(d.originalUrl) : '타 플랫폼 판매 URL을 입력해 주세요.'; if (url) f.sourceUrl = url;
+  if (!Number.isInteger(d.price) || d.price <= 0) f.price = '한정 판매가를 입력해 주세요.';
+  else if (d.reference && d.price >= d.reference.price) f.price = '등록한 URL의 판매가보다 낮아야 심사를 요청할 수 있어요.';
+  if (!optionPayload(d).variants.length) f.options = '옵션별 한정 수량을 1개 이상 입력해 주세요.';
+  const start = new Date(d.startsAt).getTime();
+  if (!Number.isFinite(start) || start <= o.now) f.startsAt = '판매 시작 시각이 지났어요. 지금보다 뒤로 바꿔 주세요.';
+  if (!Number.isInteger(d.dispatchDays) || d.dispatchDays <= 0) f.dispatchDays = '출고 기한을 선택해 주세요.';
+  if (!Number.isInteger(d.shipping) || d.shipping < 0) f.shipping = '배송비는 0원 이상으로 입력해 주세요.';
+  if ((d.shippingNotice ?? '').length > SHIPPING_NOTICE_MAX) f.shippingNotice = `배송 안내는 ${SHIPPING_NOTICE_MAX.toLocaleString('ko-KR')}자 이하여야 해요.`;
+  if (!Number.isInteger(d.maxPerAccount) || d.maxPerAccount <= 0) f.maxPerAccount = '1인 구매 한도는 1개 이상이어야 해요.';
+  if (!o.dispatch || !o.return) f.addresses = !o.dispatch && !o.return ? '출고지와 반품지를 등록해 주세요.' : !o.dispatch ? '출고지를 등록해 주세요.' : '반품지를 등록해 주세요.';
+  return f;
+}
+/** AI 점검(실제 모드): 현재 입력을 기본 정보로 저장 → 요청 → 폴링. 결과의 카테고리 코드는 점검 기준 이름으로 바꾼다 */
+export async function analyzeDraft(d: Draft, id: string, o?: { interval?: number; tries?: number }) {
+  const local = analysisProblems(d); if (Object.keys(local).length) throw new StageError('AI 분석 전 확인', local);
+  // 단계 이름과 칸(violations)을 붙여 던진다 — 'AI 분석 실패'만 보여 원인을 알 수 없던 문제. 상태 오류는 화면이 코드로 구분하도록 그대로
+  const at_ = withStage;
+  const meta = await at_('등록 정보 조회 실패', getRegistrationMetadata);
+  // 매 단계의 응답 version을 다음 요청에 쓴다(낙관적 잠금)
+  // 서버 값과 같으면 저장하지 않는다(재분석마다 version이 2씩 오르던 문제). 명세: AI 점검은 현재 이미지·기본정보·처분 사유 기준
+  let p = await at_('상품 조회 실패', () => getSellerProduct(id));
+  const basic = basicInfoOf(d, meta.categories), details = detailsOf(d);
+  if (!sameBasic(basic, p)) p = await at_('기본 정보 저장 실패', () => saveBasicInfo(id, p.version ?? 0, basic));
+  if (!sameDetails(details, p)) p = await at_('상세 정보 저장 실패', () => saveDetails(id, p.version ?? 0, details));
+  // 요청 직전에 서버 값을 다시 받아 조건을 확인한다(저장된 상품명·설명·처분 사유, 완료된 사진 1장 이상·30MB 이하, 최신 version, DRAFT·REJECTED). 안 맞으면 요청하지 않는다
+  const [fresh, imgs] = await at_('상품 다시 조회 실패', () => Promise.all([getSellerProduct(id), listProductImages(id)]));
+  const server = analysisProblems({ name: fresh.name, description: fresh.description, reason: fresh.reason, images: imgs.map(() => ''), imageIds: imgs.map(i => i.id), imageSizes: imgs.map(i => i.sizeBytes ?? 0) }, fresh.reviewStatus);
+  if (server.state) { throw new ApiError(PRODUCT_STATE_MESSAGE, 409, 'PRODUCT_STATE'); }
+  if (Object.keys(server).length) throw new StageError('AI 분석 조건 확인', Object.fromEntries(Object.entries(server).map(([k, v]) => [k, k === 'images' ? v : `서버에 저장되지 않았어요 · ${v}`])));
+  const accepted = await at_('AI 분석 요청 실패', () => requestAiAnalysis(id, fresh.version ?? 0));
+  const r = await at_('AI 분석 결과 확인 실패', () => pollAiAnalysis(accepted.requestId, o));
+  // 추천 코드(예 CLOTHING)는 registration-metadata로 등록 카테고리 이름으로 바꾼다(목록에 없으면 '' → 직접 선택)
+  return { outcome: r.outcome, code: r.recommendedCategory ?? '', category: categoryForCode(meta, r.recommendedCategory), questions: (r.questions ?? []).map(q => ({ checkCode: q.checkCode, question: q.question, reason: q.reason })), categories: meta.categories };
+}
