@@ -8,7 +8,7 @@ import { getState, mutate, useStore } from '../store';
 import { initialAuth } from '../domain';
 import type { ApiError } from '../api';
 import { errorMessage, fieldErrors, fetchMySettings, saveInterests, saveMarketingConsent, saveNotificationSettings } from '../api';
-import { homePath, login, logout, normalizeEmail, resetPassword, safeNext, sendCode, signedIn, signup, validEmail, validPassword, verifyCode, demoLogin } from '../auth';
+import { SignupLoginError, ensureSession, flushPendingPrefs, setPendingPrefs, loginHref, homePath, login, logout, normalizeEmail, resetPassword, safeNext, sendCode, signedIn, signup, validEmail, validPassword, verifyCode, demoLogin } from '../auth';
 import { DEMO_ACCOUNTS, DEMO_LOGIN, USE_MOCK } from '../config';
 import { canSubscribePush, enablePush } from '../push';
 const inputClass = 'w-full min-w-0 border-0 border-b border-[var(--line)] bg-transparent py-3 text-[14px] outline-none placeholder:text-[var(--muted)] focus:border-[var(--ink)] disabled:opacity-50';
@@ -138,7 +138,7 @@ export function SignupVerifyPage() {
 
 /** 회원가입 2단계: 비밀번호 + 연락처 + 약관 */
 export function SignupInfoPage() {
-  const s = useStore(), navigate = useNavigate();
+  const s = useStore(), navigate = useNavigate(), toast = useToast();
   const [params] = useSearchParams();
   const email = params.get('email') || '', nameParam = params.get('name') || '', next = safeNext(params.get('next'));
   const [nameValue, setNameValue] = useState(nameParam);
@@ -149,7 +149,7 @@ export function SignupInfoPage() {
   return (
     <AuthShell title="가입 정보 입력" onBack={() => navigate(`/signup?next=${encodeURIComponent(next)}`)}>
       <p className="mb-6 text-[13px] text-[var(--muted)]">구매와 판매에 사용할 하나의 계정을 만들어요.</p>
-      <form className="space-y-6" onSubmit={async e => { e.preventDefault(); if (busy) return; setError(''); if (password !== confirmation) return setError('비밀번호가 일치하지 않습니다.'); setBusy(true); setFields({}); try { await signup({ email, password, name: nameValue.trim(), phone, ...checks }); navigate(`/signup/done?next=${encodeURIComponent(next)}`, { replace: true }); } catch (e) { const f = fieldErrors(e); setFields(f); setError(Object.keys(f).length && !f.email && !f.verificationToken ? '' : (e as Error).message); } finally { setBusy(false); } }}>
+      <form className="space-y-6" onSubmit={async e => { e.preventDefault(); if (busy) return; setError(''); if (password !== confirmation) return setError('비밀번호가 일치하지 않습니다.'); setBusy(true); setFields({}); try { await signup({ email, password, name: nameValue.trim(), phone, ...checks }); navigate(`/signup/done?next=${encodeURIComponent(next)}`, { replace: true }); } catch (e) { if (e instanceof SignupLoginError) { toast('가입은 완료됐어요. 로그인해 주세요.'); navigate(loginHref(`/categories?next=${encodeURIComponent(next)}`), { replace: true }); return; } const f = fieldErrors(e); setFields(f); setError(Object.keys(f).length && !f.email && !f.verificationToken ? '' : (e as Error).message); } finally { setBusy(false); } }}>
         <div className="flex items-center justify-between border-b border-[var(--line)] pb-4">
           <div className="flex items-center gap-2 min-w-0"><span className="min-w-0 break-all text-[12px]">{normalizeEmail(email)}</span><span className="shrink-0 rounded-full bg-[var(--green-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--green)]">인증 완료</span></div>
           <button type="button" onClick={() => navigate(`/signup?next=${encodeURIComponent(next)}`)} className="muted shrink-0 p-2 text-[11px] underline">이메일 변경</button>
@@ -236,7 +236,11 @@ export function CategorySelectionPage() {
   const toggle = (cat: string) => setSelected(s => s.includes(cat) ? s.filter(c => c !== cat) : [...s, cat]);
   const proceed = async (cats: string[]) => { try { localStorage.setItem('stockdrop:categories', JSON.stringify(cats)); } catch {}
     // 로그인된 상태면 서버에 저장한다(건너뛰기·미로그인은 기기에만 저장). 실패해도 다음 단계로 진행 — 추측(명세 없음): 가입 직후 미로그인이면 서버 전송은 생략
-    if (!USE_MOCK && cats.length && signedIn(s)) { try { await saveInterests(cats); } catch (e) { toast(errorMessage(e)); } }
+    if (!USE_MOCK && cats.length) {
+      setPendingPrefs({ interests: cats });
+      if (!signedIn(s) || !(await ensureSession())) { toast('로그인한 뒤 관심 카테고리를 저장할게요.'); navigate(loginHref(`/categories?next=${encodeURIComponent(next)}`), { replace: true }); return; }
+      if (!(await flushPendingPrefs())) toast('관심 카테고리를 저장하지 못했어요. 나중에 다시 설정해 주세요.');
+    }
     navigate(`/notifications/settings?next=${encodeURIComponent(next)}`); };
   return <div className="flex min-h-[calc(100dvh-60px)] flex-col">
     <header className="flex items-center justify-between py-3">
@@ -272,7 +276,11 @@ export function NotificationSettingsPage() {
   };
   const save = async (push: boolean) => {
     try { localStorage.setItem('stockdrop:notifications', JSON.stringify({ ...enabled, marketing })); } catch {}
-    if (logged) { try { await Promise.all([saveNotificationSettings(!!enabled['sale_start'], !!enabled['recommendation']), saveMarketingConsent(marketing)]); } catch (e) { toast(errorMessage(e)); return; } }
+    if (!USE_MOCK) {
+      setPendingPrefs({ sale: !!enabled['sale_start'], recommend: !!enabled['recommendation'], marketing });
+      if (!logged || !(await ensureSession())) { toast('로그인한 뒤 알림 설정을 저장할게요.'); navigate(loginHref(`/notifications/settings?next=${encodeURIComponent(next)}`), { replace: true }); return; }
+      if (!(await flushPendingPrefs())) { toast('알림 설정을 저장하지 못했어요. 다시 시도해 주세요.'); return; }
+    }
     // 서버 Web Push 구독은 '알림 받기 시작'(사용자 동작)에서만. 실패해도 설정 저장은 끝났으니 다음 화면으로 간다
     if (push && logged) { try { const r = await enablePush(); if (r === 'denied') toast('브라우저 알림이 차단되어 있어요. 설정에서 허용해 주세요.'); else if (r === 'unsupported') toast('이 브라우저는 푸시 알림을 지원하지 않아요. iPhone은 홈 화면에 추가한 뒤 이용해 주세요.'); } catch (e) { toast(errorMessage(e)); } }
     if (settingsMode) toast('알림 설정을 저장했어요.');

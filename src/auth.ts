@@ -1,7 +1,7 @@
 import { initialAuth } from './domain';
 import type { State } from './domain';
 import { atomic, getState, mutate } from './store';
-import { api, ApiError, errorMessage, homePathFor, parseServerTime, rolesToFlags } from './api';
+import { api, ApiError, errorMessage, getAccessToken, homePathFor, parseServerTime, rolesToFlags, saveInterests, saveMarketingConsent, saveNotificationSettings } from './api';
 import type { AccountDto, AuthTokens, ChallengeDto, LoginDto, ResetTokenDto, VerificationTokenDto } from './api';
 import { DEMO_ACCOUNT_IDS, DEMO_LOGIN, USE_MOCK } from './config';
 import { disablePush } from './push';
@@ -33,6 +33,30 @@ function syncRoles(tokens: Pick<AuthTokens, 'accountId' | 'roles'>) {
 }
 /** 지금 로그인한 계정이 처음 가야 할 화면 (운영자 /admin, 판매자 /seller, 그 외 홈) */
 export function homePath(s: State = getState()) { const u = s.users.find(u => u.id === s.activeUserId); return u ? homePathFor({ seller: u.seller, admin: u.admin }) : '/'; }
+
+/* ── 가입 직후 설정(관심 카테고리·알림) 보관 ── 가입·로그인 확인이 끝나기 전에 고른 값은 잃지 않게 세션 동안 보관했다가, 로그인이 끝난 뒤 저장한다 */
+const PENDING_KEY = 'stockdrop:pending-prefs';
+export interface PendingPrefs { interests?: string[]; sale?: boolean; recommend?: boolean; marketing?: boolean }
+const readPending = (): PendingPrefs => { try { return JSON.parse(sessionStorage.getItem(PENDING_KEY) || '{}') ?? {}; } catch { return {}; } };
+const writePending = (p: PendingPrefs) => { try { Object.keys(p).length ? sessionStorage.setItem(PENDING_KEY, JSON.stringify(p)) : sessionStorage.removeItem(PENDING_KEY); } catch { /* 보관 못 해도 진행 */ } };
+export const setPendingPrefs = (patch: PendingPrefs) => writePending({ ...readPending(), ...patch });
+/** Access JWT가 있는 로그인 상태인지 — 없으면 재발급을 한 번 시도한다 (가입 직후·새로고침 직후 401 방지) */
+export async function ensureSession(): Promise<boolean> {
+  if (USE_MOCK) return true;
+  if (getAccessToken()) return true;
+  try { await api.refresh(); return true; } catch { return false; }
+}
+/** 보관한 설정을 서버에 저장한다. 저장된 항목만 지우고 실패한 것은 남긴다. 전부 저장되면 true, 로그인이 안 돼 있으면 false(보관 유지) */
+export async function flushPendingPrefs(): Promise<boolean> {
+  if (USE_MOCK) return true;
+  const p = readPending(); if (!Object.keys(p).length) return true;
+  if (!(await ensureSession())) return false;
+  const left: PendingPrefs = { ...p };
+  if (p.interests) { try { if (p.interests.length) await saveInterests(p.interests); delete left.interests; } catch { /* 남김 */ } }
+  if (p.sale !== undefined || p.recommend !== undefined) { try { await saveNotificationSettings(!!p.sale, !!p.recommend); delete left.sale; delete left.recommend; } catch { /* 남김 */ } }
+  if (p.marketing !== undefined) { try { await saveMarketingConsent(p.marketing); delete left.marketing; } catch { /* 남김 */ } }
+  writePending(left); return !Object.keys(left).length;
+}
 
 export async function logout() {
   if (!USE_MOCK) await disablePush(); // 명세: 로그아웃 전에 푸시 구독 해제(JWT 필요) 후 브라우저 unsubscribe
@@ -95,8 +119,11 @@ export async function login(emailValue: string, password: string): Promise<strin
   });
   // 표시 이름은 서버 값으로 맞춘다 (실패해도 로그인은 유지)
   api.get<AccountDto>('/v1/accounts/me').then(me => { if (me?.name) mutate(s => { const u = s.users.find(u => u.id === data.accountId); if (u) u.name = me.name; }); }).catch(() => {});
+  await flushPendingPrefs(); // 로그인 전에 고른 관심 카테고리·알림 설정이 있으면 지금 저장
   return homePath();
 }
+/** 가입은 성공했지만 자동 로그인이 실패했다 */
+export class SignupLoginError extends Error { constructor(message: string) { super(message); this.name = 'SignupLoginError'; } }
 export async function signup(input: { email: string; password: string; name: string; phone: string; age: boolean; terms: boolean; privacy: boolean; marketing: boolean }) {
   if (!validPassword(input.password)) throw new Error('비밀번호는 영문·숫자·특수문자를 포함한 8~64자로 입력해 주세요.');
   if (!input.name.trim() || input.name.trim().length > 30) throw new Error('이름을 입력해 주세요.');
@@ -106,7 +133,8 @@ export async function signup(input: { email: string; password: string; name: str
   if (!c?.verified || !c.token) throw new Error('이메일 인증을 다시 진행해 주세요.');
   // 가입 API는 토큰을 발급하지 않으므로 가입 뒤 이어서 로그인한다. 전화번호는 가입 API에 없다(docs/api-gap.md)
   try { await api.post('/v1/auth/signup', { email, password: input.password, name: input.name.trim(), verificationToken: c.token, marketingConsent: input.marketing }, { auth: false }); } catch (e) { throw friendly(e); }
-  await login(email, input.password);
+  // 가입 응답에는 토큰이 없다 → 바로 자동 로그인. 실패하면 가입은 끝났으니 로그인 화면으로 보낼 수 있게 구분해서 던진다
+  try { await login(email, input.password); } catch (e) { throw new SignupLoginError((e as Error).message); }
   await atomic(s => {
     const user = s.users.find(u => normalizeEmail(u.email) === email);
     if (user) { user.name = input.name.trim(); user.phone = input.phone.replace(/\D/g, ''); }
