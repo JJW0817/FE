@@ -6,8 +6,9 @@ import { CodeInput } from '../components/CodeInput';
 import { Button, ErrorBox, Field, Header, Modal, Note, useToast } from '../components/ui';
 import { getState, mutate, useStore } from '../store';
 import { initialAuth } from '../domain';
+import { enrollAnalytics, syncAnalyticsIdentity, withdrawAnalytics } from '../analytics';
 import type { ApiError } from '../api';
-import { errorMessage, fieldErrors, fetchMySettings, saveInterests, saveMarketingConsent, saveNotificationSettings } from '../api';
+import { errorMessage, fieldErrors, fetchMySettings, saveMarketingConsent, saveNotificationSettings } from '../api';
 import { SignupLoginError, ensureSession, flushPendingPrefs, setPendingPrefs, loginHref, homePath, login, logout, normalizeEmail, resetPassword, safeNext, sendCode, signedIn, signup, validEmail, validPassword, verifyCode, demoLogin } from '../auth';
 import { DEMO_ACCOUNTS, DEMO_LOGIN, USE_MOCK } from '../config';
 import { canSubscribePush, enablePush } from '../push';
@@ -149,7 +150,7 @@ export function SignupInfoPage() {
   return (
     <AuthShell title="가입 정보 입력" onBack={() => navigate(`/signup?next=${encodeURIComponent(next)}`)}>
       <p className="mb-6 text-[13px] text-[var(--muted)]">구매와 판매에 사용할 하나의 계정을 만들어요.</p>
-      <form className="space-y-6" onSubmit={async e => { e.preventDefault(); if (busy) return; setError(''); if (password !== confirmation) return setError('비밀번호가 일치하지 않습니다.'); setBusy(true); setFields({}); try { await signup({ email, password, name: nameValue.trim(), phone, ...checks }); navigate(`/signup/done?next=${encodeURIComponent(next)}`, { replace: true }); } catch (e) { if (e instanceof SignupLoginError) { toast('가입은 완료됐어요. 로그인해 주세요.'); navigate(loginHref(`/categories?next=${encodeURIComponent(next)}`), { replace: true }); return; } const f = fieldErrors(e); setFields(f); setError(Object.keys(f).length && !f.email && !f.verificationToken ? '' : (e as Error).message); } finally { setBusy(false); } }}>
+      <form className="space-y-6" onSubmit={async e => { e.preventDefault(); if (busy) return; setError(''); if (password !== confirmation) return setError('비밀번호가 일치하지 않습니다.'); setBusy(true); setFields({}); try { await signup({ email, password, name: nameValue.trim(), phone, ...checks }); navigate(`/signup/done?next=${encodeURIComponent(next)}`, { replace: true }); } catch (e) { if (e instanceof SignupLoginError) { toast('가입은 완료됐어요. 로그인해 주세요.'); navigate(loginHref(`/notifications/settings?next=${encodeURIComponent(next)}`), { replace: true }); return; } const f = fieldErrors(e); setFields(f); setError(Object.keys(f).length && !f.email && !f.verificationToken ? '' : (e as Error).message); } finally { setBusy(false); } }}>
         <div className="flex items-center justify-between border-b border-[var(--line)] pb-4">
           <div className="flex items-center gap-2 min-w-0"><span className="min-w-0 break-all text-[12px]">{normalizeEmail(email)}</span><span className="shrink-0 rounded-full bg-[var(--green-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--green)]">인증 완료</span></div>
           <button type="button" onClick={() => navigate(`/signup?next=${encodeURIComponent(next)}`)} className="muted shrink-0 p-2 text-[11px] underline">이메일 변경</button>
@@ -172,7 +173,7 @@ export function SignupInfoPage() {
     </AuthShell>
   );
 }
-export function SignupDonePage() { const s = useStore(), next = useNext(); if (!signedIn(s)) return <Navigate to="/login" replace/>; const user = s.users.find(u => u.id === s.activeUserId)!; return <div className="flex min-h-[calc(100dvh-60px)] flex-col"><Wordmark/><div className="flex flex-1 flex-col justify-center py-12"><Check size={38} strokeWidth={1.5}/><p className="mt-7 text-[10px] font-bold tracking-[2px]">WELCOME TO STOCKDROP</p><h1 className="mt-4 break-words text-[30px] font-bold leading-[1.5] tracking-[-1px]">{user.name}님,<br/>가입을 환영해요</h1><p className="muted mt-4 text-[12px] leading-[1.9]">지금부터 3시간 한정 드롭에<br/>바로 참여할 수 있어요.</p></div><div className="space-y-3 pb-6"><Link className="btn w-full" to={`/categories?next=${encodeURIComponent(next)}`}>상품 둘러보기</Link><Link className="btn btn-outline w-full" to="/apply">판매자 입점 신청</Link><p className="muted text-center text-[10px]">입점 신청만으로 판매 권한이 추가되지는 않습니다.</p></div></div>; }
+export function SignupDonePage() { const s = useStore(), next = useNext(); if (!signedIn(s)) return <Navigate to="/login" replace/>; const user = s.users.find(u => u.id === s.activeUserId)!; return <div className="flex min-h-[calc(100dvh-60px)] flex-col"><Wordmark/><div className="flex flex-1 flex-col justify-center py-12"><Check size={38} strokeWidth={1.5}/><p className="mt-7 text-[10px] font-bold tracking-[2px]">WELCOME TO STOCKDROP</p><h1 className="mt-4 break-words text-[30px] font-bold leading-[1.5] tracking-[-1px]">{user.name}님,<br/>가입을 환영해요</h1><p className="muted mt-4 text-[12px] leading-[1.9]">지금부터 3시간 한정 드롭에<br/>바로 참여할 수 있어요.</p></div><div className="space-y-3 pb-6"><Link className="btn w-full" to={`/notifications/settings?next=${encodeURIComponent(next)}`}>상품 둘러보기</Link><Link className="btn btn-outline w-full" to="/apply">판매자 입점 신청</Link><p className="muted text-center text-[10px]">입점 신청만으로 판매 권한이 추가되지는 않습니다.</p></div></div>; }
 /** 비밀번호 재설정 1단계: 이메일 인증 → /reset-password/new 로 이동 */
 export function ResetPasswordPage() {
   const next = useNext(), navigate = useNavigate();
@@ -229,35 +230,6 @@ export function ResetPasswordNewPage() {
     </AuthShell>
   );
 }
-export function CategorySelectionPage() {
-  const navigate = useNavigate(); const [params] = useSearchParams(); const next = safeNext(params.get('next')); const toast = useToast(); const s = useStore();
-  const CATS = ['의류·패션', '생활용품', '전자기기', '가전제품', '인테리어·가구', '공구·자재', '식품·음료', '뷰티·헬스', '스포츠·레저', '문구·도서', '유아·아동', '기타'];
-  const [selected, setSelected] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem('stockdrop:categories') || '[]'); } catch { return []; } });
-  const toggle = (cat: string) => setSelected(s => s.includes(cat) ? s.filter(c => c !== cat) : [...s, cat]);
-  const proceed = async (cats: string[]) => { try { localStorage.setItem('stockdrop:categories', JSON.stringify(cats)); } catch {}
-    // 로그인된 상태면 서버에 저장한다(건너뛰기·미로그인은 기기에만 저장). 실패해도 다음 단계로 진행 — 추측(명세 없음): 가입 직후 미로그인이면 서버 전송은 생략
-    if (!USE_MOCK && cats.length) {
-      setPendingPrefs({ interests: cats });
-      if (!signedIn(s) || !(await ensureSession())) { toast('로그인한 뒤 관심 카테고리를 저장할게요.'); navigate(loginHref(`/categories?next=${encodeURIComponent(next)}`), { replace: true }); return; }
-      if (!(await flushPendingPrefs())) toast('관심 카테고리를 저장하지 못했어요. 나중에 다시 설정해 주세요.');
-    }
-    navigate(`/notifications/settings?next=${encodeURIComponent(next)}`); };
-  return <div className="flex min-h-[calc(100dvh-60px)] flex-col">
-    <header className="flex items-center justify-between py-3">
-      <button className="muted py-2" aria-label="이전 화면" onClick={() => navigate(-1)}><ArrowLeft size={18}/></button>
-      <button className="muted py-2 text-[12px]" onClick={() => proceed([])}>건너뛰기</button>
-    </header>
-    <div className="mb-1 h-[3px] w-full bg-[var(--line)]"><div className="h-[3px] w-1/2 rounded-r-full bg-[var(--ink)]"/></div>
-    <div className="flex justify-end py-2 text-[11px] text-[var(--muted)]"><span className="font-bold text-[var(--ink)]">1</span><span> / 2</span></div>
-    <div className="flex-1 space-y-4 pt-2">
-      <h1 className="text-[20px] font-bold leading-[1.4] tracking-[-0.5px]">관심 카테고리를 선택해주세요</h1>
-      <p className="text-[13px] text-[var(--muted)]">선택한 카테고리를 기반으로 맞춤 상품과 알림을 보내드려요.<br/>복수 선택이 가능합니다.</p>
-      <div className="h-[1px] bg-[var(--line)]"/>
-      <div className="grid grid-cols-2 gap-2 pt-1">{CATS.map(cat => { const on = selected.includes(cat); return <button key={cat} onClick={() => toggle(cat)} className={`relative flex items-center justify-between rounded-[10px] border px-4 py-[17px] text-[14px] transition-colors ${on ? 'border-[#858585] bg-[#EBEBEB] font-bold' : 'border-[var(--line)] bg-[var(--surface)]'}`}>{cat}{on && <Check size={16} className="shrink-0 rounded-full bg-[var(--ink)] p-[2px] text-[var(--surface)]"/>}</button>; })}</div>
-    </div>
-    <div className="pb-6 pt-4"><Button className="w-full" onClick={() => proceed(selected)} disabled={!selected.length}>{selected.length ? `${selected.length}개 선택 · 다음으로` : '카테고리를 선택해주세요'}</Button></div>
-  </div>;
-}
 /** 마이페이지(구매자·판매자)에서 여는 알림 설정 — 가입 단계 화면을 설정 모드로 연다(건너뛰기·진행 막대 없음, 저장 후 돌아감) */
 export const SETTINGS_HREF = (back: string) => `/notifications/settings?mode=settings&next=${encodeURIComponent(back)}`;
 export function NotificationSettingsPage() {
@@ -266,11 +238,21 @@ export function NotificationSettingsPage() {
   const NOTIFS = [{ id: 'sale_start', title: '판매 시작 알림', desc: '관심 상품 판매 시작 즉시 알려드려요' }, { id: 'price_change', title: '관심 상품 가격 변동', desc: '찜한 상품 가격 변동 시 알려드려요' }, { id: 'low_stock', title: '한정 수량 임박 알림', desc: '재고가 5개 이하 남으면 알려드려요' }, { id: 'recommendation', title: '개인 맞춤 상품 추천', desc: '취향에 맞는 새 상품 등록 시 알려드려요' }];
   const [enabled, setEnabled] = useState<Record<string, boolean>>(() => { try { return JSON.parse(localStorage.getItem('stockdrop:notifications') || '{}'); } catch { return {}; } });
   const [marketing, setMarketing] = useState(false); const toast = useToast(); const s = useStore();
+  const [analytics, setAnalytics] = useState(false), [analyticsBusy, setAnalyticsBusy] = useState(false);
   const toggle = (id: string) => setEnabled(e => ({ ...e, [id]: !e[id] }));
   const pushReady = USE_MOCK || canSubscribePush(); // mock은 기존 화면 그대로. 실제 모드는 홈 화면에 추가된 iOS 앱에서만 구독 버튼
   // 알림 설정 조회 전용 API가 없어 GET /accounts/me로 읽는다. price_change·low_stock은 API가 없어 이 기기에만 저장 (TODO(api-gap))
   const logged = !USE_MOCK && signedIn(s);
-  useEffect(() => { if (logged) fetchMySettings().then(m => { setEnabled(e => ({ ...e, sale_start: m.saleStart, recommendation: m.personalizedRecommendation })); setMarketing(m.marketing); }).catch(() => {}); }, [logged]);
+  useEffect(() => { if (logged) { fetchMySettings().then(m => { setEnabled(e => ({ ...e, sale_start: m.saleStart, recommendation: m.personalizedRecommendation })); setMarketing(m.marketing); }).catch(() => {}); syncAnalyticsIdentity().then(id => setAnalytics(!!id)).catch(() => {}); } }, [logged]); // 분석 참여 여부도 서버 값으로
+  // 분석 참여는 이 토글을 켠 순간에만 등록하고(동의 없이 호출 금지), 끄면 바로 철회한다. 가입 2단계·마이페이지 공통
+  const toggleAnalytics = async () => {
+    if (analyticsBusy) return;
+    if (USE_MOCK) { setAnalytics(v => !v); return; }
+    if (!logged || !(await ensureSession())) { toast('로그인한 뒤 설정할 수 있어요.'); return; }
+    setAnalyticsBusy(true);
+    try { if (analytics) { await withdrawAnalytics(); setAnalytics(false); } else { await enrollAnalytics(); setAnalytics(true); } }
+    catch (e) { toast(errorMessage(e)); } finally { setAnalyticsBusy(false); }
+  };
   const proceed = async (push = false) => {
     setSaving(true); try { await save(push); } finally { setSaving(false); }
   };
@@ -294,7 +276,7 @@ export function NotificationSettingsPage() {
       <button className="muted py-2 text-[13px]" onClick={() => proceed()}>건너뛰기</button>
     </header>
     <div className="mb-1 h-[3px] w-full bg-[var(--line)]"><div className="h-[3px] w-full rounded-r-full bg-[var(--ink)]"/></div>
-    <div className="flex justify-end py-2 text-[11px] text-[var(--muted)]"><span className="font-bold text-[var(--ink)]">2</span><span> / 2</span></div></>}
+    <div className="flex justify-end py-2 text-[11px] text-[var(--muted)]"><span className="font-bold text-[var(--ink)]">1</span><span> / 1</span></div></>}
     <div className="flex-1 space-y-5 pt-2">
       <div className="flex flex-col items-center gap-3 py-6">
         <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--line)]"><Bell size={22} strokeWidth={1.5}/></div>
@@ -311,6 +293,11 @@ export function NotificationSettingsPage() {
         <input type="checkbox" checked={marketing} onChange={e => setMarketing(e.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 rounded-[4px]"/>
         <div><p>광고성 정보 수신 동의 (선택)</p><p className="muted mt-1 text-[11px] font-normal leading-relaxed">개인 맞춤 알림 서비스를 위해 마케팅 정보 수신에 동의합니다.</p></div>
       </label>
+      <div className="divider flex items-center justify-between gap-4 py-4">
+        <div className="flex-1"><p className="text-[14px] font-bold">관심 상품 알림을 위한 조회 기록 분석</p><p className="muted mt-0.5 text-[12px]">상품 조회 기록을 Google Analytics로 분석해 관심 상품 알림에 사용해요</p></div>
+        <button role="switch" aria-label="관심 상품 알림을 위한 조회 기록 분석" aria-checked={analytics} disabled={analyticsBusy} onClick={toggleAnalytics} className={`relative h-[28px] w-[48px] shrink-0 rounded-full transition-colors ${analytics ? 'bg-[var(--ink)]' : 'bg-[var(--line)]'}`}><span className={`absolute top-[3px] h-[22px] w-[22px] rounded-full bg-white shadow-sm transition-all ${analytics ? 'left-[23px]' : 'left-[3px]'}`}/></button>
+      </div>
+      <p className="muted text-[12px]">맞춤 알림을 받으려면 분석 동의와 마케팅 수신 동의가 모두 필요해요</p>
       {!pushReady && <Note title="푸시 알림"><p>홈 화면에 추가하면 알림을 받을 수 있어요. 사파리 공유 버튼 → ‘홈 화면에 추가’ 후 홈 화면의 STOCKDROP 앱으로 열어 주세요.</p></Note>}
     </div>
     <div className="pb-6 pt-4"><Button className="w-full" disabled={saving} onClick={() => proceed(pushReady)}>{settingsMode ? (saving ? '저장 중…' : '저장') : pushReady ? '알림 받기 시작' : '설정 저장하고 시작'}</Button></div>

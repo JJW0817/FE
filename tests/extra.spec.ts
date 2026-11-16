@@ -19,7 +19,7 @@ test('추천 실패의 직접 선택과 지원 제외 상품 우회 차단', asy
   await actor(page, 'seller'); await editState(page, s => { s.aiOutcome = 'failed'; });
   await page.goto('/#/seller/new'); await page.getByLabel('상품 사진 업로드').setInputFiles(path.resolve('public/images/generated-4.png')); await page.getByLabel('상품명').fill('코튼 에코백');
   await page.goto('/#/seller/new/ai/failed'); await expect(page.getByRole('heading', { name: /사진을 분석하지 못했어요/ })).toBeVisible(); await expect(page.getByRole('button', { name: '다시 분석' })).toBeVisible();
-  await page.getByRole('button', { name: '직접 입력하기' }).click(); await expect(page.getByRole('dialog', { name: '카테고리 선택' })).toBeVisible(); await expect(page.getByRole('radio', { name: /화장품/ })).toHaveCount(0); await page.getByRole('radio', { name: '패션 › 잡화 › 가방' }).check(); await page.getByRole('button', { name: '카테고리 저장' }).click(); await expect(page.getByRole('dialog', { name: '카테고리 선택' })).toHaveCount(0); await expect(page.getByText('패션 › 잡화 › 가방')).toBeVisible();
+  await page.getByRole('button', { name: '직접 입력하기' }).click(); await expect(page.getByRole('dialog', { name: '카테고리 선택' })).toBeVisible(); await expect(page.getByRole('radio', { name: /화장품/ })).toHaveCount(0); await expect(page.getByRole('radio')).toHaveCount(0); await page.getByLabel('카테고리 검색').fill('가방'); await page.getByRole('radio', { name: '패션 › 잡화 › 가방' }).check(); await page.getByRole('button', { name: '카테고리 저장' }).click(); await expect(page.getByRole('dialog', { name: '카테고리 선택' })).toHaveCount(0); await expect(page.getByText('패션 › 잡화 › 가방')).toBeVisible();
   await page.getByLabel('상품명').fill('비타민 건강기능식품'); await expect(page.getByText(/지원하지 않는 상품은 등록할 수 없습니/).first()).toBeVisible();
 });
 
@@ -33,4 +33,19 @@ test('주요 화면 360px·1440px 반응형과 런타임 오류 검수', async (
     await actor(page, 'buyer');
   }
   expect(errors).toEqual([]);
+});
+
+test('시작 화면: 처음 켤 때 한 번만 나오고, 화면 이동에서는 다시 안 나오며, 움직임 줄이기에서는 애니메이션이 없다', async ({ page }) => {
+  await page.addInitScript(() => Object.defineProperty(navigator, 'webdriver', { get: () => false })); // 자동화 감지로 건너뛰는 것을 끈다
+  await page.goto('about:blank'); await page.goto('/#/welcome'); // 새로 열기(해시만 바꾸면 같은 페이지라 다시 안 나온다)
+  const splash = page.getByRole('img', { name: 'STOCKDROP' }); await expect(splash).toBeVisible();
+  expect(await splash.evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgb(14, 14, 15)');
+  expect(await splash.locator('svg').count()).toBe(9);
+  expect(await splash.locator('svg').first().evaluate(el => getComputedStyle(el).animationName)).toBe('splash-drop');
+  await expect(splash).toHaveCount(0, { timeout: 5000 });
+  await page.goto('/#/login'); await page.waitForTimeout(400); await expect(page.getByRole('img', { name: 'STOCKDROP' })).toHaveCount(0); // 같은 페이지 안 이동: 다시 안 나온다
+  await page.emulateMedia({ reducedMotion: 'reduce' }); await page.reload();
+  const calm = page.getByRole('img', { name: 'STOCKDROP' }); await expect(calm).toBeVisible();
+  expect(await calm.locator('svg').first().evaluate(el => getComputedStyle(el).animationName)).toBe('none');
+  await expect(calm).toHaveCount(0, { timeout: 4000 });
 });

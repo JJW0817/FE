@@ -1,7 +1,8 @@
 import { initialAuth } from './domain';
 import type { State } from './domain';
 import { atomic, getState, mutate } from './store';
-import { api, ApiError, errorMessage, getAccessToken, homePathFor, parseServerTime, rolesToFlags, saveInterests, saveMarketingConsent, saveNotificationSettings } from './api';
+import { applyAnalyticsId, syncAnalyticsIdentity } from './analytics';
+import { api, ApiError, errorMessage, getAccessToken, homePathFor, parseServerTime, rolesToFlags, saveMarketingConsent, saveNotificationSettings } from './api';
 import type { AccountDto, AuthTokens, ChallengeDto, LoginDto, ResetTokenDto, VerificationTokenDto } from './api';
 import { DEMO_ACCOUNT_IDS, DEMO_LOGIN, USE_MOCK } from './config';
 import { disablePush } from './push';
@@ -15,14 +16,14 @@ export const loginHref = (next: string) => `/login?next=${encodeURIComponent(saf
 /** 화면 문구로 바꾸되 code·violations는 남긴다(입력칸별 오류 표시용) */
 const friendly = (e: unknown) => e instanceof ApiError ? new ApiError(errorMessage(e), e.status, e.code, e.traceId, e.violations) : new Error(errorMessage(e));
 function ensure(s: State) { return s.auth ??= initialAuth(); }
-export function selectProfile(s: State, id: string) { const user = s.users.find(u => u.id === id); if (!user) throw new Error('계정을 찾을 수 없습니다.'); const a = ensure(s); a.userId = id; a.onboarded = true; s.activeUserId = id; s.mode = user.admin ? 'admin' : 'buyer'; }
+export function selectProfile(s: State, id: string) { const user = s.users.find(u => u.id === id); if (!user) throw new Error('계정을 찾을 수 없습니다.'); const a = ensure(s); a.userId = id; a.onboarded = true; s.activeUserId = id; }
 /** 데모 로그인 — 서버 없이 목업 계정으로 로그인 (mock 모드일 때만) */
 export function demoLogin(id: string) { if (!DEMO_LOGIN) throw new Error('데모 로그인을 사용할 수 없습니다.'); mutate(s => { selectProfile(s, id); ensure(s).demo = true; }); }
-export function endSession(s: State) { ensure(s).demo = false; ensure(s).userId = null; s.activeUserId = ''; s.mode = 'buyer'; }
+export function endSession(s: State) { ensure(s).demo = false; ensure(s).userId = null; s.activeUserId = ''; }
 
 /* ── 세션 연동: 재발급 실패 시 로그아웃(보호된 화면은 App이 로그인으로 보낸다), 재발급 시 역할 갱신 ── */
 api.configure({
-  onSessionExpired: () => { if (signedIn(getState())) mutate(endSession); },
+  onSessionExpired: () => { applyAnalyticsId(null); if (signedIn(getState())) mutate(endSession); },
   onRefreshed: syncRoles,
 });
 /** 토큰의 roles를 현재 계정의 판매자·운영자 플래그에 반영한다 (판매자 승인 직후 재발급 등) */
@@ -34,9 +35,9 @@ function syncRoles(tokens: Pick<AuthTokens, 'accountId' | 'roles'>) {
 /** 지금 로그인한 계정이 처음 가야 할 화면 (운영자 /admin, 판매자 /seller, 그 외 홈) */
 export function homePath(s: State = getState()) { const u = s.users.find(u => u.id === s.activeUserId); return u ? homePathFor({ seller: u.seller, admin: u.admin }) : '/'; }
 
-/* ── 가입 직후 설정(관심 카테고리·알림) 보관 ── 가입·로그인 확인이 끝나기 전에 고른 값은 잃지 않게 세션 동안 보관했다가, 로그인이 끝난 뒤 저장한다 */
+/* ── 가입 직후 설정(알림) 보관 ── 가입·로그인 확인이 끝나기 전에 고른 값은 잃지 않게 세션 동안 보관했다가, 로그인이 끝난 뒤 저장한다 */
 const PENDING_KEY = 'stockdrop:pending-prefs';
-export interface PendingPrefs { interests?: string[]; sale?: boolean; recommend?: boolean; marketing?: boolean }
+export interface PendingPrefs { sale?: boolean; recommend?: boolean; marketing?: boolean }
 const readPending = (): PendingPrefs => { try { return JSON.parse(sessionStorage.getItem(PENDING_KEY) || '{}') ?? {}; } catch { return {}; } };
 const writePending = (p: PendingPrefs) => { try { Object.keys(p).length ? sessionStorage.setItem(PENDING_KEY, JSON.stringify(p)) : sessionStorage.removeItem(PENDING_KEY); } catch { /* 보관 못 해도 진행 */ } };
 export const setPendingPrefs = (patch: PendingPrefs) => writePending({ ...readPending(), ...patch });
@@ -52,7 +53,6 @@ export async function flushPendingPrefs(): Promise<boolean> {
   const p = readPending(); if (!Object.keys(p).length) return true;
   if (!(await ensureSession())) return false;
   const left: PendingPrefs = { ...p };
-  if (p.interests) { try { if (p.interests.length) await saveInterests(p.interests); delete left.interests; } catch { /* 남김 */ } }
   if (p.sale !== undefined || p.recommend !== undefined) { try { await saveNotificationSettings(!!p.sale, !!p.recommend); delete left.sale; delete left.recommend; } catch { /* 남김 */ } }
   if (p.marketing !== undefined) { try { await saveMarketingConsent(p.marketing); delete left.marketing; } catch { /* 남김 */ } }
   writePending(left); return !Object.keys(left).length;
@@ -62,6 +62,7 @@ export async function logout() {
   if (!USE_MOCK) await disablePush(); // 명세: 로그아웃 전에 푸시 구독 해제(JWT 필요) 후 브라우저 unsubscribe
   try { await api.post('/v1/auth/logout', undefined, { csrf: true, auth: false }); } catch { /* 서버에 닿지 않아도 이 기기의 세션은 끝낸다 */ }
   api.setAccessToken(null);
+  applyAnalyticsId(null); // 분석만 끊는다. 참여 철회(DELETE)는 사용자가 토글을 끌 때만
   mutate(endSession);
 }
 export { parseServerTime } from './api/mappers';
@@ -119,7 +120,8 @@ export async function login(emailValue: string, password: string): Promise<strin
   });
   // 표시 이름은 서버 값으로 맞춘다 (실패해도 로그인은 유지)
   api.get<AccountDto>('/v1/accounts/me').then(me => { if (me?.name) mutate(s => { const u = s.users.find(u => u.id === data.accountId); if (u) u.name = me.name; }); }).catch(() => {});
-  await flushPendingPrefs(); // 로그인 전에 고른 관심 카테고리·알림 설정이 있으면 지금 저장
+  syncAnalyticsIdentity().catch(() => {}); // 분석 참여 상태는 로그인할 때마다 서버에서 다시 받는다
+  await flushPendingPrefs(); // 로그인 전에 고른 알림 설정이 있으면 지금 저장
   return homePath();
 }
 /** 가입은 성공했지만 자동 로그인이 실패했다 */
@@ -143,7 +145,7 @@ export async function signup(input: { email: string; password: string; name: str
 }
 /** 앱을 다시 열었을 때 Refresh 쿠키로 Access JWT를 복원한다. 서버가 거절(401·403)하면 이 기기의 로그인을 끝낸다 */
 export async function restoreSession(): Promise<boolean> {
-  try { await api.refresh(); return true; }
+  try { await api.refresh(); syncAnalyticsIdentity().catch(() => {}); return true; }
   catch (e) {
     // 네트워크 오류·서버 오류·mock 모드에서는 저장된 세션을 그대로 둔다
     if (e instanceof ApiError && (e.status === 401 || e.status === 403)) mutate(endSession);

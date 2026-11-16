@@ -56,6 +56,10 @@ test('판매 상품 등록 단일 화면 → AI 분석 적용 → 판매 심사 
   await page.getByLabel('택배사').selectOption('CJ대한통운'); await page.getByLabel('반품 배송비').fill('3000'); await page.getByLabel('교환 배송비').fill('6000');
   await expect(page.getByLabel('배송 안내')).toHaveValue('CJ대한통운 / 반품 배송비 3,000원 / 교환 배송비 6,000원');
 
+  // 물품 검수: 모두 확인하지 않으면 심사 요청이 막힌다
+  await page.getByRole('button', { name: '판매 심사 요청하기' }).click();
+  await expect(page.getByText('물품 검수 항목을 모두 확인해 주세요.')).toBeVisible();
+  for (const c of await page.getByRole('checkbox', { name: /새 상품이에요|구성품이 모두|사용한 흔적|사진이 지금/ }).all()) await c.check();
   await page.getByRole('button', { name: '판매 심사 요청하기' }).click();
   await expect(page.getByRole('heading', { name: '판매 심사 결과' })).toBeVisible();
 

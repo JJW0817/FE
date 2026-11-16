@@ -40,16 +40,15 @@ describe('가입 직후 설정 저장', () => {
       const url = String(u), auth = (init?.headers as Record<string, string>)?.Authorization; calls.push(`${init?.method ?? 'GET'} ${url.replace('/api', '')} ${auth ?? '-'}`);
       if (url.endsWith('/auth/csrf')) return json({ headerName: 'X-CSRF', token: 't' });
       if (url.endsWith('/auth/refresh')) return loggedIn ? json({ accessToken: 'tok', tokenType: 'Bearer', expiresAt: '', accountId: 'a', roles: [] }) : json(null, 401);
-      if (url.includes('signup-options')) return json({ categories: [{ code: 'CLOTHING', label: '의류·패션' }] });
       return json(null);
     }) as typeof fetch });
-    setPendingPrefs({ interests: ['의류·패션'], sale: true, recommend: false, marketing: false });
+    setPendingPrefs({ sale: true, recommend: false, marketing: false });
     expect(await flushPendingPrefs()).toBe(false); // 로그인 전: 저장 요청 없음, 보관 유지
     expect(calls.some(c => c.startsWith('PUT'))).toBe(false);
     loggedIn = true; api.setAccessToken('tok');
     expect(await flushPendingPrefs()).toBe(true);
     expect(calls.filter(c => c.startsWith('PUT')).every(c => c.endsWith('Bearer tok'))).toBe(true);
-    expect(calls.filter(c => c.startsWith('PUT')).map(c => c.split(' ')[1])).toEqual(['/v1/accounts/me/interests', '/v1/accounts/me/notification-settings', '/v1/accounts/me/marketing-consent']);
+    expect(calls.filter(c => c.startsWith('PUT')).map(c => c.split(' ')[1])).toEqual(['/v1/accounts/me/notification-settings', '/v1/accounts/me/marketing-consent']);
     expect(await flushPendingPrefs()).toBe(true); expect(sess.size).toBe(0);
   });
 });

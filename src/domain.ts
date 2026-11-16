@@ -63,13 +63,14 @@ export interface Draft {
   category: string; originalUrl: string; extras: Extra[]; reason: string; dimensions: Dimension[];
   noOptions: boolean; options: Option[]; price: number; shipping: number; dispatchDays: number;
   maxPerAccount: number; startsAt: string; faqs: Faq[];
+  /** 물품 검수에서 체크한 항목(INSPECTION_CHECKS 순서 번호). 화면 시연용 — 서버로 보내지 않는다 */ inspection?: number[];
   /** 택배사·반품 배송비·교환 배송비 입력(숫자는 문자열, 빈 값 = 미입력)과 이 값으로 만든 shippingNotice(판매자가 직접 고칠 수 있다) */ carrier?: string; returnFee?: string; exchangeFee?: string; shippingNotice?: string;
   ai: { status: AiStatus; signature: string; category: string; reason: string; result?: AiAnalysis; /** 분석 전 단계에서 막힌 칸별 문구(등록 화면 칸 아래 표시) */ fields?: Record<string, string> };
   /** 단일 화면 등록(Figma 판매 상품 등록): 옵션 축, 색상·사이즈, 조합별 수량, 추가 URL, 타 플랫폼 확인 결과 */
   /** 실제 API: 서버에 만든 초안 상품 id·서버 이미지 id(images와 같은 순서) */ serverId?: string; imageIds?: string[];
   /** 사진 바이트 수(images와 같은 순서) — AI 분석 30MB 한도 확인용 */ imageSizes?: number[];
   /** 실제 API: 판매자 주소록에서 고른 출고지·반품지 id(없으면 서버가 기본 주소를 쓴다) */ dispatchAddressId?: string; returnAddressId?: string;
-  axes?: { size: boolean; color: boolean }; colors?: string[]; sizes?: string[]; stock?: Record<string, number>; extraUrls?: string[]; reference?: ReferenceListing;
+  axes?: { size: boolean; color: boolean }; /** 색상 말고 다른 옵션 축의 이름(기본 '사이즈') */ sizeName?: string; colors?: string[]; sizes?: string[]; stock?: Record<string, number>; extraUrls?: string[]; reference?: ReferenceListing;
 }
 export interface ReferenceListing { platform: string; title: string; price: number; image?: string }
 /** AI 분석 결과(RECOMMENDED). 서버는 outcome·추천 카테고리 코드·점검 질문만 준다 — 신뢰도·대안·속성은 없다 */
@@ -80,7 +81,7 @@ export interface AiQuestion { checkCode?: string; question: string; reason: stri
 export interface BusinessInfo { name?: string; representative?: string; registrationNumber?: string; businessType?: string; openedAt?: string; address?: string }
 export interface SellerSettings { business?: BusinessInfo; displayName: string; bank: string; account: string; holder: string; shippingAddress: string; returnAddress: string; shippingPostal?: string; returnPostal?: string; shippingDetail?: string; returnDetail?: string; notifications: Record<string, boolean> }
 export interface State {
-  version: 1; auth?: AuthData; activeUserId: string; mode: 'buyer' | 'seller' | 'admin'; users: User[]; products: Product[];
+  version: 1; auth?: AuthData; activeUserId: string; users: User[]; products: Product[];
   applications: Application[]; holds: Hold[]; orders: Order[]; inquiries: Inquiry[]; drafts: Record<string, Draft>;
   addresses: Record<string, Address>; sellerSettings: Record<string, SellerSettings>; bookmarks: string[];
   clockOffset: number; paymentOutcome: 'success' | 'failure' | 'pending'; aiOutcome: 'auto' | 'uncertain' | 'failed' | 'unsupported';
@@ -99,6 +100,10 @@ export function purchaseBlock(s: State, p: Pick<Product, 'sellerId'>): 'admin' |
 /** 판매 심사 반려 사유 — 운영자 화면은 항목별로 `[항목] 사유`를 줄마다 보낸다. 물품 확인(검수) 항목은 `[물품 확인 · 상품 상태]`처럼 보낸다.
  * 서버는 사유 텍스트 하나만 주므로(검수 항목 필드 없음) 이 형식을 풀어 보여 주고, 형식이 아니면 통째로 '심사 의견' 한 항목 */
 export const INSPECTION_PREFIX = '물품 확인 · ';
+/** 물품 검수 — 판매자가 심사 요청 전에 확인하는 상태 체크. 서버 심사 요청에는 검수 필드가 없어(review-submissions는 expectedVersion뿐) 화면 시연용으로만 쓰고 보내지 않는다 */
+export const INSPECTION_CHECKS = ['새 상품이에요 (중고·전시·하자 상품이 아니에요)', '구성품이 모두 들어 있어요', '사용한 흔적이 없어요', '등록한 사진이 지금 상품 상태와 같아요'] as const;
+/** 검수용 사진 안내 */
+export const INSPECTION_PHOTOS = ['정면 전체', '라벨·택·바코드', '구성품 전체', '하자나 흠집이 있다면 그 부위'] as const;
 export function parseRejection(reason: string | undefined): { field: string; reason: string; inspection: boolean }[] {
   const text = (reason ?? '').trim(); if (!text) return [];
   const items = text.split('\n').map(l => /^\[(.+?)\]\s*(.*)$/.exec(l.trim())).filter((m): m is RegExpExecArray => !!m).map(m => ({ field: m[1].replace(INSPECTION_PREFIX, ''), reason: m[2], inspection: m[1].startsWith(INSPECTION_PREFIX) }));
@@ -215,7 +220,7 @@ export function publishDraft(s: State, userId: string, d: Draft, now: number): P
 }
 /** 실제 API 모드(mock 꺼짐)의 첫 상태 — 목업 계정·상품·주문 없이 시작한다. 데이터는 서버에서 받아 채운다 */
 export function emptyState(): State {
-  return { version: 1, auth: initialAuth(), activeUserId: '', mode: 'buyer', users: [], products: [], applications: [], holds: [], orders: [], inquiries: [], drafts: {}, addresses: {}, sellerSettings: {}, bookmarks: [], clockOffset: 0, paymentOutcome: 'success', aiOutcome: 'auto' };
+  return { version: 1, auth: initialAuth(), activeUserId: '', users: [], products: [], applications: [], holds: [], orders: [], inquiries: [], drafts: {}, addresses: {}, sellerSettings: {}, bookmarks: [], clockOffset: 0, paymentOutcome: 'success', aiOutcome: 'auto' };
 }
 /** demoSales: 화면 목업용 판매 이력(다른 구매자 주문)을 넣는다. 단위 테스트는 기본값(false)으로 빈 이력에서 시작 */
 export function seedState(now = Date.now(), demoSales = false, mockSignedIn = true): State {
@@ -232,7 +237,7 @@ export function seedState(now = Date.now(), demoSales = false, mockSignedIn = tr
   // 화면 목업용 판매 이력: 가디건 50개 중 32개, 에코백 20개 중 17개, 수납 바구니 완판 (판매자 주문 목록에는 보이지 않도록 sellerId 'archive')
   const demo = (ps: Product[]): Order[] => ([['cardigan', [['cs', 8], ['cm', 9], ['nm', 7], ['nl', 8]]], ['ecobag', [['natural', 9], ['black', 8]]], ['basket', [['small', 14], ['large', 10]]]] as [string, [string, number][]][]).map(([id, lines], i) => { const p = ps.find(p => p.id === id)!; const qty = lines.reduce((n, [, q]) => n + q, 0); return { id: `demo-${id}`, userId: 'crowd', sellerId: 'archive', productId: id, holdId: `demo-hold-${i}`, lines: lines.map(([optionId, quantity]) => ({ optionId, name: p.options.find(o => o.id === optionId)!.name, quantity })), product: { name: p.name, brand: p.brand, image: p.images[0], category: p.category, originalUrl: p.originalUrl, price: p.price }, shipping: 0, total: p.price * qty, address: { ...defaultAddress }, status: 'paid', createdAt: p.startsAt + 60_000 }; });
   const order = (i: number, p: Product, status: OrderStatus): Order => ({ id: `SD-${new Date(now).getFullYear()}-00${i + 1}`, userId: 'buyer', sellerId: 'seller', productId: `archive-${p.id}`, holdId: `archive-hold-${i}`, lines: [{ optionId: p.options[0].id, name: p.options[0].name, quantity: 1 }], product: { name: p.name, brand: p.brand, image: p.images[0], category: p.category, originalUrl: p.originalUrl, price: p.price }, shipping: 3000, total: p.price + 3000, address: { ...defaultAddress }, status, createdAt: now - 172_800_000, ...(status === 'shipping' || status === 'delivered' ? { carrier: 'CJ대한통운', tracking: '1234-5678-9012', shippedAt: now - 86_400_000 } : {}), ...(status === 'delivered' ? { deliveredAt: now - 3_600_000, deliveredPlace: '문 앞', processedAt: now - 3_500_000, processedBy: 'seller' } : {}) });
-  return { version: 1, auth: mockSignedIn ? { ...initialAuth(), onboarded: true, userId: 'buyer' } : initialAuth(), activeUserId: mockSignedIn ? 'buyer' : '', mode: 'buyer', users, products, applications: [{ id: 'SD-P-002', userId: 'applicant', displayName: '종이상점', name: '이수진', email: 'paper@example.com', phone: '010-2222-3333', document: { id: 'sample', name: '사업자등록증_종이상점.pdf', size: 1024, uploadedAt: now - 3_600_000 }, bank: '신한은행', account: '000-1234-5678', shippingAddress: '서울시 성동구 성수이로 00', returnAddress: '서울시 성동구 성수이로 00', status: 'pending', submittedAt: now - 3_600_000, business: { name: '나의 상점', representative: '김서윤', registrationNumber: '214-86-12345', businessType: '소매업 · 의류', openedAt: '2023년 04월 12일', address: '서울 성동구 성수이로 118' } }], holds: [], orders: [order(0, products[0], 'preparing'), order(1, products[1], 'shipping'), order(2, products[3], 'delivered'), ...(demoSales ? demo(products) : [])], inquiries: [{ id: 'q-figma', userId: 'buyer', sellerId: 'seller', productId: 'archive-cardigan', orderId: `SD-${new Date(now).getFullYear()}-001`, productName: 'LOWFIELD · 소프트 코튼 가디건', quantity: 1, kind: '하자·파손', question: '오른쪽 소매 쪽에 올이 풀린 부분이 있어요.\n교환이나 반품이 가능할까요?', answer: "불편을 드려 죄송합니다.\n보내주신 사진으로 하자가 확인되어 무료 반품을\n도와드릴게요. 아래 '반품 신청하기'를 눌러주시면\n택배 기사님이 2영업일 안에 방문 수거해요.", public: false, createdAt: now - 86_400_000 }, { id: 'q-seed', userId: 'buyer', sellerId: 'seller', productId: 'ecobag', productName: '데일리 코튼 에코백', kind: '상품 문의', question: '손잡이 길이를 포함한 높이도 알 수 있나요?', public: false, createdAt: now - 300_000 }], drafts: {}, addresses: { buyer: { ...defaultAddress }, seller: { ...defaultAddress, name: '김민지' } }, sellerSettings: { seller: { business: { name: '로엠필드 (LOMFIELD)', representative: '김서윤', registrationNumber: '214-87-*****' }, displayName: '아틀리에 노트', bank: '신한은행', account: '000-1234-5678', holder: '김민지', shippingAddress: '서울시 성동구 성수이로 00', returnAddress: '서울시 광진구 아차산로 00', notifications: { 신규주문: true, 문의: true, 판매일정: true, 마케팅: false } } }, bookmarks: [], clockOffset: 0, paymentOutcome: 'success', aiOutcome: 'auto' };
+  return { version: 1, auth: mockSignedIn ? { ...initialAuth(), onboarded: true, userId: 'buyer' } : initialAuth(), activeUserId: mockSignedIn ? 'buyer' : '', users, products, applications: [{ id: 'SD-P-002', userId: 'applicant', displayName: '종이상점', name: '이수진', email: 'paper@example.com', phone: '010-2222-3333', document: { id: 'sample', name: '사업자등록증_종이상점.pdf', size: 1024, uploadedAt: now - 3_600_000 }, bank: '신한은행', account: '000-1234-5678', shippingAddress: '서울시 성동구 성수이로 00', returnAddress: '서울시 성동구 성수이로 00', status: 'pending', submittedAt: now - 3_600_000, business: { name: '나의 상점', representative: '김서윤', registrationNumber: '214-86-12345', businessType: '소매업 · 의류', openedAt: '2023년 04월 12일', address: '서울 성동구 성수이로 118' } }], holds: [], orders: [order(0, products[0], 'preparing'), order(1, products[1], 'shipping'), order(2, products[3], 'delivered'), ...(demoSales ? demo(products) : [])], inquiries: [{ id: 'q-figma', userId: 'buyer', sellerId: 'seller', productId: 'archive-cardigan', orderId: `SD-${new Date(now).getFullYear()}-001`, productName: 'LOWFIELD · 소프트 코튼 가디건', quantity: 1, kind: '하자·파손', question: '오른쪽 소매 쪽에 올이 풀린 부분이 있어요.\n교환이나 반품이 가능할까요?', answer: "불편을 드려 죄송합니다.\n보내주신 사진으로 하자가 확인되어 무료 반품을\n도와드릴게요. 아래 '반품 신청하기'를 눌러주시면\n택배 기사님이 2영업일 안에 방문 수거해요.", public: false, createdAt: now - 86_400_000 }, { id: 'q-seed', userId: 'buyer', sellerId: 'seller', productId: 'ecobag', productName: '데일리 코튼 에코백', kind: '상품 문의', question: '손잡이 길이를 포함한 높이도 알 수 있나요?', public: false, createdAt: now - 300_000 }], drafts: {}, addresses: { buyer: { ...defaultAddress }, seller: { ...defaultAddress, name: '김민지' } }, sellerSettings: { seller: { business: { name: '로엠필드 (LOMFIELD)', representative: '김서윤', registrationNumber: '214-87-*****' }, displayName: '아틀리에 노트', bank: '신한은행', account: '000-1234-5678', holder: '김민지', shippingAddress: '서울시 성동구 성수이로 00', returnAddress: '서울시 광진구 아차산로 00', notifications: { 신규주문: true, 문의: true, 판매일정: true, 마케팅: false } } }, bookmarks: [], clockOffset: 0, paymentOutcome: 'success', aiOutcome: 'auto' };
 }
 
 /* ── 단일 화면 상품 등록 (Figma 판매 상품 등록 / 판매 정보 수정) ───────────────────────── */
@@ -248,7 +253,7 @@ export function listingOptions(d: Draft): Option[] {
 }
 export function listingDimensions(d: Draft): Dimension[] {
   const axes = d.axes ?? { size: false, color: false };
-  return [...(axes.color ? [{ name: '색상', values: (d.colors ?? []).join(', ') }] : []), ...(axes.size ? [{ name: '사이즈', values: (d.sizes ?? []).join(', ') }] : [])];
+  return [...(axes.color ? [{ name: '색상', values: (d.colors ?? []).join(', ') }] : []), ...(axes.size ? [{ name: d.sizeName || '사이즈', values: (d.sizes ?? []).join(', ') }] : [])];
 }
 export function validateListing(d: Draft, now: number) {
   if (unsupportedInput(d.name, d.description) || d.ai.status === 'unsupported') throw new DomainError('지원하지 않는 상품은 등록할 수 없습니다.');

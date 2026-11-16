@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
-import { AlertCircle, Calendar, Check, ChevronDown, ChevronRight, Hash, Image as ImageIcon, Info, Link2, Minus, Package, Plus, ShieldCheck, Sparkles, Timer } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Calendar, Check, ChevronDown, ChevronRight, Hash, Image as ImageIcon, Info, Link2, Minus, Package, Plus, ShieldCheck, Sparkles, Timer } from 'lucide-react';
 import { activeUser, blankDraft, listingDimensions, listingOptions, localDateTime, lookupReference, mockAiAnalysis, money, nowOf, optionKey, publishDraft, unsupportedInput } from '../domain';
 import type { AiQuestion, Draft, Product } from '../domain';
 import type { RegistrationMetadataDto } from '../api/types';
@@ -9,21 +9,24 @@ import { atomic, getState, mutate, useStore } from '../store';
 import { imageData } from '../files';
 import { Button, Empty, ErrorBox, Header, LiveStatus, Modal, Note, ProductImage, Unavailable, useToast } from '../components/ui';
 import { useClock } from '../hooks';
+import { categoryTree } from '../categoryTree';
+import { INSPECTION_CHECKS, INSPECTION_PHOTOS } from '../domain';
+import { COLOR_AXIS, optionPresetFor } from '../optionPresets';
 import { IMAGE_EXPIRED, QUICK_SCHEDULE, USE_MOCK } from '../config';
-import { getProductImageUrl, FIELD_LABELS, StageError, sourceUrlProblem, MOCK_REGISTRATION_METADATA, PRODUCT_STATE_MESSAGE, SHIPPING_NOTICE_MAX, ATTRIBUTE_VALUE_MAX, attributeName, composeShippingNotice, warnCriteria, analysisProblems, analyzeDraft, categoriesForCode, criteriaFor, listAddressBook, listingProblems, createProductDraft, deleteProductImage, errorMessage, fieldErrors, isApiError, getRegistrationMetadata, getSellerProductWithImages, mergeProducts, reorderProductImages, submitListing, submitRevisionFromDraft, uploadProductImage, useApi, useLive } from '../api';
+import { getProductImageUrl, FIELD_LABELS, StageError, sourceUrlProblem, MOCK_REGISTRATION_METADATA, PRODUCT_STATE_MESSAGE, SHIPPING_NOTICE_MAX, ATTRIBUTE_VALUE_MAX, attributeName, composeShippingNotice, warnCriteria, analysisProblems, analyzeDraft, criteriaFor, listAddressBook, listingProblems, createProductDraft, deleteProductImage, errorMessage, fieldErrors, isApiError, getRegistrationMetadata, getSellerProductWithImages, mergeProducts, reorderProductImages, submitListing, submitRevisionFromDraft, uploadProductImage, useApi, useLive } from '../api';
 
 /* ── 초안 ─────────────────────────────────────────────────────────────────────── */
 const SWATCH: Record<string, string> = { 차콜: '#3F3F3F', 오트밀: '#E6DCC6', 크림: '#F3EBDC', 네이비: '#2B3A55', 블랙: '#222222', 화이트: '#FFFFFF', 내추럴: '#E8DCC8', 그레이: '#9A9A9A', 베이지: '#E3D3B8' };
 const WEEK = ['일', '월', '화', '수', '목', '금', '토'];
 function fromProduct(p: Product): Draft {
-  const color = p.dimensions.find(d => d.name === '색상'), size = p.dimensions.find(d => d.name === '사이즈');
+  const color = p.dimensions.find(d => d.name === '색상'), size = p.dimensions.find(d => d.name !== '색상');
   const split = (v?: string) => (v ?? '').split(',').map(x => x.trim()).filter(Boolean);
   const basic = p.options.length === 1 && p.options[0].name === '기본';
   const axes = basic ? { size: false, color: false } : color || size ? { size: !!size, color: !!color } : { size: true, color: false };
   const colors = split(color?.values), sizes = size ? split(size.values) : !color && !basic ? p.options.map(o => o.name) : [];
   const stock: Record<string, number> = {};
   for (const o of p.options) { const parts = o.name.split(' / '); const c = axes.color ? parts[0] : '', s = axes.color && axes.size ? parts[1] : axes.size ? o.name : ''; stock[optionKey(basic ? '' : c, basic ? '' : s)] = o.stock; }
-  return { ...blankDraft(), editingId: p.id, name: p.name, brand: p.brand, description: p.description, images: [...p.images], imageIds: p.imageIds && [...p.imageIds], imageSizes: p.imageSizes && [...p.imageSizes], category: p.category, originalUrl: p.originalUrl, extras: structuredClone(p.extras), reason: p.reason, dimensions: structuredClone(p.dimensions), noOptions: basic, options: structuredClone(p.options), price: p.price, shipping: p.shipping, shippingNotice: p.shippingNotice ?? '', dispatchDays: p.dispatchDays, maxPerAccount: p.maxPerAccount, startsAt: p.startsAt ? localDateTime(p.startsAt) : blankDraft().startsAt, faqs: structuredClone(p.faqs), axes, colors, sizes, stock, reference: p.reference ?? lookupReference(p.originalUrl) };
+  return { ...blankDraft(), editingId: p.id, name: p.name, brand: p.brand, description: p.description, images: [...p.images], imageIds: p.imageIds && [...p.imageIds], imageSizes: p.imageSizes && [...p.imageSizes], category: p.category, sizeName: size?.name, originalUrl: p.originalUrl, extras: structuredClone(p.extras), reason: p.reason, dimensions: structuredClone(p.dimensions), noOptions: basic, options: structuredClone(p.options), price: p.price, shipping: p.shipping, shippingNotice: p.shippingNotice ?? '', dispatchDays: p.dispatchDays, maxPerAccount: p.maxPerAccount, startsAt: p.startsAt ? localDateTime(p.startsAt) : blankDraft().startsAt, faqs: structuredClone(p.faqs), axes, colors, sizes, stock, reference: p.reference ?? lookupReference(p.originalUrl) };
 }
 function freshDraft(now: number): Draft { const start = new Date(now + 3_600_000); start.setMinutes(0, 0, 0); return { ...blankDraft(now), startsAt: localDateTime(start.getTime()), axes: { size: true, color: true }, colors: [], sizes: [], stock: {} }; }
 /** 초안 변경 — options·dimensions를 항상 축·수량에서 다시 계산 */
@@ -243,6 +246,7 @@ export function WizardPage() {
     // 서버는 업무 규칙 오류(PRODUCT_INVALID)에 violations를 주지 않으므로 제출 전에 같은 규칙으로 먼저 막는다
     const settings = s.sellerSettings[user.id];
     const problems = listingProblems(d, { categories: meta.data?.categories ?? [], now, dispatch: USE_MOCK ? !!settings?.shippingAddress : !!book.data?.[0].length, return: USE_MOCK ? !!settings?.returnAddress : !!book.data?.[1].length });
+    if (!editId && (d.inspection?.length ?? 0) < INSPECTION_CHECKS.length) problems.inspection = '물품 검수 항목을 모두 확인해 주세요.';
     if (Object.keys(problems).length) { showProblems(problems); setError('빠진 정보를 확인해 주세요.'); return; }
     setBusy(true);
     try {
@@ -270,6 +274,9 @@ export function WizardPage() {
     } finally { setBusy(false); }
   }
   const FieldError = ({ name }: { name: string }) => fieldErr[name] ? <p role="alert" className="mt-1.5 text-[12px] text-[var(--red)]">{fieldErr[name]}</p> : null;
+  // 고른 카테고리에 맞는 추천 옵션 이름. 이미 입력한 옵션 이름(카테고리를 바꾸기 전 것)도 칩으로 남겨 지우지 않는다
+  const preset = optionPresetFor(d.category, meta.data), sizeName = d.sizeName || '사이즈';
+  const secondNames = [...preset.second, ...(preset.second.includes(sizeName) ? [] : [sizeName])];
   const chip = (on: boolean, label: string, onClick: () => void) => <button type="button" onClick={onClick} className={`inline-flex h-8 items-center gap-1 rounded-full px-3.5 text-[13px] ${on ? 'bg-[var(--ink)] font-bold text-white' : 'border border-[var(--border)] text-[var(--aux)]'}`}>{on && <Check size={13} strokeWidth={2.5}/>}{label}</button>;
   const qtyRow = (label: string, key: string, last: boolean) => <div key={key} className={`flex h-[52px] items-center justify-between ${last ? '' : 'border-b border-[var(--line)]'}`}><span className="text-[15px]">{label}</span><Stepper label={label} value={stock[key] ?? 0} onChange={n => setStock(key, n)}/></div>;
 
@@ -348,13 +355,14 @@ export function WizardPage() {
     </section>
 
     <section className="space-y-3" data-field="options"><Label hint="· 필수">옵션별 한정 수량</Label>
-      <div className="flex items-center gap-2"><span className="mr-1 text-[12px] text-[var(--aux)]">옵션</span>{chip(axes.size, '사이즈', () => patch({ axes: { ...axes, size: !axes.size } }))}{chip(axes.color, '색상', () => patch({ axes: { ...axes, color: !axes.color } }))}{chip(!axes.size && !axes.color, '옵션 없음', () => patch({ axes: { size: false, color: false } }))}</div>
+      <div className="flex flex-wrap items-center gap-2"><span className="mr-1 text-[12px] text-[var(--aux)]">옵션</span>{chip(axes.color, COLOR_AXIS, () => patch({ axes: { ...axes, color: !axes.color } }))}{secondNames.map(n => chip(axes.size && sizeName === n, n, () => patch(axes.size && sizeName === n ? { axes: { ...axes, size: false } } : { axes: { ...axes, size: true }, sizeName: n })))}<InlineAdd label="직접 추가" className="h-8 rounded-full border border-[var(--border)] px-3" onAdd={v => { if (v !== COLOR_AXIS) patch({ axes: { ...axes, size: true }, sizeName: v }); }}/>{chip(!axes.size && !axes.color, '옵션 없음', () => patch({ axes: { size: false, color: false } }))}</div>
       {axes.color && <div className="flex flex-wrap gap-2">{colors.map((c, i) => <button type="button" key={c} onClick={() => setActiveColor(i)} className={`flex h-10 items-center gap-1.5 rounded-[6px] px-3.5 ${c === color ? 'border-[1.5px] border-[var(--ink)]' : 'border border-[var(--border)]'}`}><span className="h-3.5 w-3.5 rounded-full border border-black/10" style={{ background: SWATCH[c] ?? '#DEDEDE' }}/><span className={`text-[14px] ${c === color ? 'font-bold' : 'text-[var(--aux)]'}`}>{c}</span><span className="text-[12px] text-[var(--meta)]">{colorTotal(c)}개</span></button>)}<InlineAdd label="색상" className="h-10 rounded-[6px] border border-[var(--border)] px-3.5" onAdd={v => { if (!colors.includes(v)) { patch({ colors: [...colors, v] }); setActiveColor(colors.length); } }}/></div>}
       {(axes.size || (!axes.color && !axes.size) || (axes.color && color)) && <div className="rounded-[6px] border border-[var(--line)] px-4">
         {axes.size ? <>
-          <div className="flex h-12 items-center justify-between border-b border-[var(--line)]"><p className="text-[13px] font-bold">{axes.color ? `${color || '색상'} · 사이즈별 수량` : '사이즈별 수량'}</p><p className="text-[13px] font-bold text-[var(--aux)]">{axes.color ? colorTotal(color) : total}개</p></div>
+          <div className="flex h-12 items-center justify-between border-b border-[var(--line)]"><p className="text-[13px] font-bold">{axes.color ? `${color || '색상'} · ${sizeName}별 수량` : `${sizeName}별 수량`}</p><p className="text-[13px] font-bold text-[var(--aux)]">{axes.color ? colorTotal(color) : total}개</p></div>
           {sizes.map((sz, i) => qtyRow(sz, optionKey(axes.color ? color : '', sz), i === sizes.length - 1))}
-          <div className="border-t border-[var(--line)] py-3.5"><InlineAdd label="사이즈 추가" onAdd={v => { if (!sizes.includes(v)) patch({ sizes: [...sizes, v] }); }}/></div>
+          {(preset.quick[sizeName] ?? []).length > 0 && <div className="flex flex-wrap items-center gap-1.5 border-t border-[var(--line)] py-3"><span className="mr-1 text-[12px] text-[var(--aux)]">빠른 선택</span>{preset.quick[sizeName].map(v => <button type="button" key={v} aria-pressed={sizes.includes(v)} onClick={() => patch({ sizes: sizes.includes(v) ? sizes : [...sizes, v] })} className={`h-7 rounded-full px-3 text-[12px] ${sizes.includes(v) ? 'bg-[var(--ink)] font-bold text-white' : 'border border-[var(--border)] text-[var(--aux)]'}`}>{v}</button>)}</div>}
+          <div className="border-t border-[var(--line)] py-3.5"><InlineAdd label={`${sizeName} 추가`} onAdd={v => { if (!sizes.includes(v)) patch({ sizes: [...sizes, v] }); }}/></div>
         </> : axes.color ? qtyRow(`${color} 수량`, optionKey(color, ''), true) : qtyRow('기본 수량', optionKey('', ''), true)}
       </div>}
       <div className="flex items-center justify-between rounded-[6px] bg-[var(--soft)] px-4 py-3.5"><div><p className="text-[13px] font-bold">총 한정 수량</p>{axes.color && colors.length > 0 && <p className="mt-0.5 text-[12px] text-[var(--meta)]">{colors.map(c => `${c} ${colorTotal(c)}`).join(' · ')}</p>}</div><p className="text-[18px] font-bold">{total}개</p></div>
@@ -413,35 +421,52 @@ export function WizardPage() {
       <Link to="/seller/settings/addresses" className="text-[12px] text-[var(--aux)] underline">출고지·반품지 관리</Link>
     </section>
 
-    {!editId && <section className="space-y-3">
-      <div><Label hint="· 판매 심사에 포함">물품 확인</Label><p className="mt-1 text-[12px] text-[var(--aux)]">판매 심사 때 운영팀이 실제 상품을 직접 확인해요</p></div>
+    {!editId && <section data-field="inspection" className="space-y-3">
+      <div><Label hint="· 판매 심사에 포함">물품 검수</Label><p className="mt-1 text-[12px] text-[var(--aux)]">심사 때 운영팀이 사진으로 실제 상품 상태를 확인해요</p></div>
       <div className="space-y-3 rounded-[6px] bg-[var(--soft)] p-4">
-        {([[ShieldCheck, '정품 여부', '브랜드 정품인지 확인해요'], [ImageIcon, '상품 상태', '등록 사진과 실제 상태가 같은지 봐요'], [Package, '구성품', '설명서·보증서 등 빠진 게 없는지 봐요'], [Hash, '수량', '옵션별 한정 수량과 맞는지 세어요']] as const).map(([Icon, title, desc]) => <div key={title} className="flex items-center gap-2.5"><Icon size={16} className="shrink-0"/><span className="w-[60px] shrink-0 text-[13px] font-bold">{title}</span><span className="text-[12px] text-[var(--aux)]">{desc}</span></div>)}
-        <p className="flex items-start gap-1.5 border-t border-[var(--line)] pt-3 text-[12px] text-[var(--meta)]"><Info size={14} className="mt-[2px] shrink-0"/>미통과 시 알림으로 사유를 알려드리고 재등록할 수 있어요.</p>
+        <p className="text-[13px] font-bold">검수용 사진 안내</p>
+        <ul className="space-y-1.5 text-[12px] text-[var(--aux)]">{INSPECTION_PHOTOS.map((t, n) => <li key={t} className="flex items-center gap-2"><span className="grid h-4 w-4 place-items-center rounded-full bg-[var(--ink)] text-[10px] text-[var(--surface)]">{n + 1}</span>{t}</li>)}</ul>
+        <p className="flex items-start gap-1.5 text-[12px] text-[var(--meta)]"><Info size={14} className="mt-[2px] shrink-0"/>위 사진을 위의 상품 사진으로 올려 주세요. 사진은 상품 사진과 같은 곳에 올라가요.</p>
       </div>
+      <div className="space-y-1">{INSPECTION_CHECKS.map((t, n) => { const on = !!d.inspection?.includes(n); return <label key={t} className="flex min-h-11 cursor-pointer items-center gap-3 border-b border-[var(--line)] text-[13px]"><input type="checkbox" className="h-5 w-5" checked={on} onChange={() => patch({ inspection: on ? (d.inspection ?? []).filter(x => x !== n) : [...(d.inspection ?? []), n] })}/>{t}</label>; })}</div>
+      <FieldError name="inspection"/>
+      <p className="flex items-start gap-1.5 text-[12px] text-[var(--meta)]"><Info size={14} className="mt-[2px] shrink-0"/>미통과 시 알림으로 사유를 알려드리고 재등록할 수 있어요.</p>
     </section>}
 
     {blocked && <ErrorBox message="지원하지 않는 상품은 등록할 수 없습니다."/>}
     <ErrorBox message={error}/>
     <div className="space-y-3 pt-4">
       <p className="text-center text-[12px] text-[var(--meta)]">{editId ? '수정 내용은 판매 심사 후 반영돼요 · 영업일 기준 1일 이내' : '판매 심사(물품 확인 포함)는 영업일 기준 1일 이내에 완료돼요'}</p>
-      <Button className="w-full text-[15px]!" disabled={busy || uploading || blocked} onClick={submit}>{busy ? '요청 중…' : editId ? (editing?.reviewStatus === 'REJECTED' ? '수정하고 재심사 요청' : '수정 내용 저장') : '판매 심사 요청하기'}</Button>
+      <Button className="w-full text-[15px]!" disabled={busy || uploading || blocked} onClick={submit}>{busy ? '요청 중…' : editId ? (editing?.reviewStatus === 'REJECTED' ? '수정하고 재심사 요청' : '수정 심사 요청') : '판매 심사 요청하기'}</Button>
     </div>
 
     {photo !== null && d.images[photo] && <Modal title={`상품 사진 ${photo + 1}`} onClose={() => setPhoto(null)}><div className="space-y-3"><ProductImage src={d.images[photo]} alt="선택한 사진" className="aspect-square w-full"/>{photo > 0 && <Button className="w-full" onClick={() => void coverPhoto(photo)}>대표 사진으로 지정</Button>}<Button outline className="w-full" onClick={() => void removePhoto(photo)}>삭제</Button></div></Modal>}
-    {picking && <CategoryPicker value={d.category} onClose={closePicker} onSave={category => { patch({ category }); closePicker(); }}/>}
+    {picking && <CategoryPicker value={d.category} recommended={d.ai.result?.category} onClose={closePicker} onSave={category => { patch({ category }); closePicker(); }}/>}
   </div>;
 }
-function CategoryPicker({ value, onClose, onSave }: { value: string; onClose: () => void; onSave: (v: string) => void }) {
-  const [pick, setPick] = useState(value), [q, setQ] = useState('');
+/** 카테고리 단계 선택: 대분류 → 중분류 → 세부. 위에 AI 추천(누르면 바로 선택), 검색은 단계와 상관없이 전체에서. 저장 값은 세부 카테고리 서버 원문 */
+function CategoryPicker({ value, recommended, onClose, onSave }: { value: string; recommended?: string; onClose: () => void; onSave: (v: string) => void }) {
+  const [pick, setPick] = useState(value), [q, setQ] = useState(''), [major, setMajor] = useState<string | null>(null), [group, setGroup] = useState<string | null>(null);
   // 허용 카테고리는 서버 registration-metadata의 categories(이름)에서만 고른다. mock도 같은 모양의 목업
   const meta = useRegistrationMeta();
-  const list = (meta.data?.categories ?? []).filter(c => c.includes(q.trim()));
+  const tree = meta.data ? categoryTree(meta.data) : [];
+  const searching = !!q.trim(), found = (meta.data?.categories ?? []).filter(c => c.includes(q.trim()));
+  const m = tree.find(x => x.code === major), g = m?.groups.find(x => x.label === group);
+  const radio = (path: string) => <label key={path} className="divider flex items-center gap-3 py-3 text-[13px]"><input type="radio" name="category" value={path} checked={pick === path} onChange={() => setPick(path)}/>{path}</label>;
+  const row = (label: string, count: number, onClick: () => void) => <button key={label} type="button" onClick={onClick} className="divider flex w-full items-center justify-between py-3 text-left text-[14px]"><span>{label} <span className="muted text-[12px]">{count}</span></span><ChevronRight size={16}/></button>;
   return <Modal title="카테고리 선택" onClose={onClose}><div className="space-y-1">
-    <input aria-label="카테고리 검색" className="field-line" value={q} onChange={e => setQ(e.target.value)} placeholder="카테고리 이름으로 찾기"/>
+    <input aria-label="카테고리 검색" className="field-line" value={q} onChange={e => setQ(e.target.value)} placeholder="카테고리 이름으로 찾기 (전체에서 검색)"/>
     <LiveStatus state={meta}/>
-    <div className="max-h-[50dvh] overflow-y-auto">{list.map(path => <label key={path} className="divider flex items-center gap-3 py-3 text-[13px]"><input type="radio" name="category" value={path} checked={pick === path} onChange={() => setPick(path)}/>{path}</label>)}</div>
-    {meta.data && !list.length && <p className="py-3 text-[13px] text-[var(--meta)]">찾는 카테고리가 없어요</p>}
+    {recommended && !searching && <button type="button" onClick={() => onSave(recommended)} className="mt-2 flex w-full items-center justify-between rounded-[6px] bg-[var(--soft)] p-3 text-left"><span><span className="block text-[11px] font-bold text-[var(--positive)]">AI 추천</span><span className="text-[14px] font-bold">{recommended}</span></span><span className="text-[12px]">바로 선택</span></button>}
+    {!searching && (m || g) && <div className="flex items-center gap-1 pt-2 text-[12px]"><button type="button" aria-label="이전 단계" className="muted" onClick={() => (g ? setGroup(null) : setMajor(null))}><ArrowLeft size={16}/></button><span className="muted">{m!.name}{g ? ` › ${g.label}` : ''}</span></div>}
+    <div className="max-h-[50dvh] overflow-y-auto">
+      {searching ? found.map(radio)
+        : g ? g.items.map(radio)
+        : m ? m.groups.map(x => row(x.label, x.items.length, () => setGroup(x.label)))
+        : tree.map(x => row(x.name, x.groups.reduce((n, y) => n + y.items.length, 0), () => setMajor(x.code)))}
+    </div>
+    {searching && meta.data && !found.length && <p className="py-3 text-[13px] text-[var(--meta)]">찾는 카테고리가 없어요</p>}
+    {pick && <p className="pt-2 text-[12px]">선택: <b>{pick}</b></p>}
     <Note>지원 목록에서만 선택할 수 있습니다. 등록 대상이 아닌 상품은 다른 카테고리로 우회 등록할 수 없습니다.</Note><Button className="mt-4 w-full" disabled={!pick} onClick={() => onSave(pick)}>카테고리 저장</Button></div></Modal>;
 }
 
@@ -452,21 +477,19 @@ function AiFrame({ children, footer }: { children: ReactNode; footer: ReactNode 
 function Thumbs({ images }: { images: string[] }) { return <div className="flex gap-2">{(images.length ? images.slice(0, 4) : ['', '']).map((src, i) => <div key={i} className="h-[72px] w-[72px] rounded-[4px] bg-[var(--soft)]" aria-hidden={!src}/>)}</div>; }
 
 export function AiAnalysisPage() {
-  const { user, d, suffix, patch } = useDraft(); const navigate = useNavigate(); const [pick, setPick] = useState<string>(''); const meta = useRegistrationMeta();
+  const { user, d, suffix, patch } = useDraft(); const navigate = useNavigate(); const meta = useRegistrationMeta();
   if (!user.seller) return <Unavailable message="승인된 판매자만 상품을 등록할 수 있습니다."/>;
   if (!d) return null;
   if (d.ai.status === 'analyzing') return <Navigate to={`/seller/new/ai/analyzing${suffix}`} replace/>;
   if (d.ai.status === 'uncertain') return <Navigate to={`/seller/new${suffix}`} replace/>;
   if (d.ai.status === 'failed' || !d.ai.result) return <Navigate to={`/seller/new/ai/failed${suffix}`} replace/>;
-  const r = d.ai.result, chosen = pick || r.category;
-  // 추천 코드에 속한 등록 카테고리 중에서 바꿀 수 있다(추천값이 기본 선택). 다른 분류는 직접 선택으로
-  const list = meta.data ? categoriesForCode(meta.data, r.code) : [r.category];
+  const r = d.ai.result, chosen = r.category;
   const back = () => navigate(`/seller/new${suffix}`);
   return <AiFrame footer={<div className="flex gap-2"><Button outline className="w-[128px] text-[15px]!" onClick={() => { startAnalysis(user.id); navigate(`/seller/new/ai/analyzing${suffix}`, { replace: true }); }}>다시 분석</Button><Button className="flex-1 text-[15px]!" onClick={() => { patch({ category: chosen }); back(); }}>이 카테고리로 적용</Button></div>}>
     <div className="space-y-2"><div className="relative"><ProductImage src={d.images[0]} alt="분석한 대표 사진" className="h-[240px] w-full"/><span className="absolute left-3 top-3 flex items-center gap-1 rounded-[4px] bg-black/70 px-2 py-1 text-[11px] font-bold text-white"><Sparkles size={12}/>AI 분석 완료</span></div><p className="text-[12px] text-[var(--meta)]">등록한 사진 {r.photos}장을 분석했어요</p></div>
     <div className="space-y-1"><p className="text-[12px] font-bold text-[var(--meta)]">AI 추천 카테고리</p><p className="text-[22px] font-bold">{r.category}</p></div>
     <section><h2 className="mb-1 text-[14px] font-bold">카테고리 선택</h2><LiveStatus state={meta}/>
-      {list.map(path => <label key={path} className="flex h-12 cursor-pointer items-center gap-3 border-b border-[var(--line)]"><input type="radio" name="ai-category" className="peer sr-only" checked={chosen === path} onChange={() => setPick(path)}/><span className={`grid h-5 w-5 place-items-center rounded-full border-[1.5px] ${chosen === path ? 'border-[var(--ink)]' : 'border-[var(--border)]'}`}>{chosen === path && <span className="h-2.5 w-2.5 rounded-full bg-[var(--ink)]"/>}</span><span className="flex-1 text-[14px]">{path}</span>{path === r.category && <span className="text-[11px] font-bold text-[var(--positive)]">AI 추천</span>}</label>)}
+      <div className="flex h-12 items-center gap-3 border-b border-[var(--line)]"><span className="grid h-5 w-5 place-items-center rounded-full border-[1.5px] border-[var(--ink)]"><span className="h-2.5 w-2.5 rounded-full bg-[var(--ink)]"/></span><span className="flex-1 text-[14px]">{r.category}</span><span className="text-[11px] font-bold text-[var(--positive)]">AI 추천</span></div>
       <button type="button" onClick={() => navigate(`/seller/new${suffix}${suffix ? '&' : '?'}pick=category`)} className="mt-3 flex items-center text-[13px] text-[var(--aux)]">다른 카테고리 직접 선택<ChevronRight size={15}/></button>
     </section>
     {r.questions.length > 0 && <><div className="-mx-4 h-2 bg-[var(--divider)]"/><section className="space-y-3"><h2 className="text-[16px] font-bold">AI 점검 질문</h2><p className="text-[12px] text-[var(--aux)]">카테고리를 적용하면 등록 화면의 해당 입력칸 옆에도 보여요</p>{r.questions.map((q, i) => <div key={i} className="space-y-1 rounded-[6px] border border-[var(--line)] p-3.5"><p className="text-[14px] font-bold">{q.question}</p>{q.reason && <p className="text-[12px] text-[var(--aux)]">{q.reason}</p>}</div>)}</section></>}

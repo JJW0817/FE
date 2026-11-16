@@ -6,7 +6,7 @@ export async function editState(page: Page, fn: (s: any, arg: any) => void, arg?
   await page.locator('#root > *').first().waitFor();
 }
 /** 목업 계정으로 전환 (buyer · seller · admin) */
-export async function actor(page: Page, id: string) { await editState(page, (s, id) => { s.auth.userId = id; s.auth.onboarded = true; s.activeUserId = id; s.mode = id === 'admin' ? 'admin' : 'buyer'; }, id); }
+export async function actor(page: Page, id: string) { await editState(page, (s, id) => { s.auth.userId = id; s.auth.onboarded = true; s.activeUserId = id; }, id); }
 /** 외부 호스트(카카오 우편번호 스크립트 등)는 load 이벤트를 붙잡아 타임아웃을 만들므로 테스트에서는 막는다 */
 export const blockExternal = (page: Page) => page.route(url => !/^(127\.0\.0\.1|localhost)$/.test(url.hostname) && /^https?:$/.test(url.protocol), r => r.abort());
 export async function signInDemo(page: Page) { await blockExternal(page); await page.goto('/#/'); await page.waitForFunction(() => !!localStorage.getItem('stockdrop:v1')); await actor(page, 'buyer'); await page.goto('/#/'); }

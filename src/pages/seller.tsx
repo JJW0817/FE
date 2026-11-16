@@ -1,5 +1,6 @@
 import { LogoutButton, SETTINGS_HREF } from './auth';
 import { FaqList, SELLER_FAQ_ITEMS } from './account';
+import { BankField } from '../components/BankField';
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Plus, Check, ChevronRight, FileText, Info, Rocket, ScanSearch, Share2, Truck } from 'lucide-react';
@@ -11,6 +12,7 @@ import { dateTime, kstShort, kstSlot, useClock } from '../hooks';
 import { Badge, Button, CopyButton, copyText, Toggle, Empty, ErrorBox, Field, Header, InfoRow, LiveStatus, MenuRow, Modal, Note, ORDER_LABELS, ProductImage, ProductSummary, Unavailable, useToast } from '../components/ui';
 import { PdfField } from '../components/PdfField';
 import { AddressBookFormPage, AddressBookPage } from './sellerAddresses';
+import type { ProductRevisionDto } from '../api';
 import { answerOrderInquiry, listSellerOrderInquiries, answerProductInquiry, deleteSellerLogo, deliverOrder, errorMessage, getSalesSummary, getSellerOrder, getSellerOrderInquiry, getSellerOrderSummary, getSellerProduct, getSellerProductWithImages, listRevisions, listSellerOrderInquiryInbox, listSellerOrders, listSellerProductInquiries, listSellerProducts, mergeInquiries, mergeOrders, mergeProducts, shipOrder, useLive, fetchSellerLogo, fetchSellerMe, fetchSellerStore, fetchWithdrawalEligibility, updateSellerAddresses, updateSellerBank, updateSellerContact, updateSellerStore, uploadSellerLogo, useApi, withdrawAccount } from '../api';
 import { api } from '../api';
 import { USE_MOCK } from '../config';
@@ -22,6 +24,13 @@ export function SellerProductsPage() {
   const live = useLive(async signal => listSellerProducts(user.id, {}, signal), (st, items) => mergeProducts(st, items), [user.id]);
   const month = `${new Date(now).getFullYear()}-${String(new Date(now).getMonth() + 1).padStart(2, '0')}`;
   const summary = useApi(async signal => (USE_MOCK ? null : getSalesSummary(month, signal)), [month]);
+  const editable = s.products.filter(p => p.sellerId === user.id && p.reviewStatus === 'APPROVED' && p.startsAt > now).map(p => p.id).join(',');
+  // 수정 심사는 목록 API가 없어 승인 상태이고 시작 전인 상품(수정 가능한 상품)만 상품별로 조회한다
+  const revStatus = useApi(async signal => {
+    if (USE_MOCK || !editable) return {} as Record<string, ProductRevisionDto>;
+    const rows = await Promise.all(editable.split(',').map(async id => [id, (await listRevisions(id, signal).catch(() => [] as ProductRevisionDto[])).sort((a, b) => Date.parse(b.submittedAt) - Date.parse(a.submittedAt))[0]] as const));
+    return Object.fromEntries(rows.filter(([, r]) => r));
+  }, [editable]);
   if (!user.seller) return <Unavailable/>; const settings = s.sellerSettings[user.id]; const allProducts = s.products.filter(p => p.sellerId === user.id); const products = allProducts.filter(p => tab === '전체' || (tab === '판매 심사 중' ? p.reviewStatus === 'IN_REVIEW' : saleState(p, now) === tab)); const thisMonth = summary.data?.confirmedQuantity ?? s.orders.filter(o => o.sellerId === user.id && !['cancelled','refunded'].includes(o.status)).reduce((n, o) => n + o.lines.reduce((a, l) => a + l.quantity, 0), 0); const alarmCount = 226; /* TODO(api-gap): 알림 신청 인원 API 없음(목업) */ const soldOutCount = allProducts.filter(p => saleState(p, now) === '판매 종료').length;
   const chips: [string, number][] = [['전체', allProducts.length], ['판매 중', allProducts.filter(p => saleState(p, now) === '판매 중').length], ['판매 예정', allProducts.filter(p => saleState(p, now) === '판매 예정').length], ['판매 심사 중', allProducts.filter(p => p.reviewStatus === 'IN_REVIEW').length], ['판매 종료', soldOutCount]];
   return <div className="space-y-0">
@@ -36,7 +45,7 @@ export function SellerProductsPage() {
         <div className="flex gap-3">
           <ProductImage src={p.images[0]} alt={p.name} className="h-[72px] w-[72px] shrink-0"/>
           <div className="min-w-0 flex-1 space-y-1">
-            <div className="flex items-center gap-2"><span className={`rounded-[3px] px-2 py-0.5 text-[11px] font-bold ${isLive ? 'bg-[#EEF8F3] text-[#3FB181]' : !USE_MOCK && p.reviewStatus === 'REJECTED' ? 'bg-[var(--red-soft)] text-[var(--red)]' : 'bg-[var(--soft)] text-[var(--muted)]'}`}>{isLive ? '판매 중' : status === '게시 전' && !USE_MOCK && p.reviewStatus ? REVIEW_LABEL[p.reviewStatus] : status}</span><span className="muted text-[11px] font-bold">{isLive ? `오늘 ${hm(p.startsAt)} – ${hm(p.endsAt)}` : ended ? `${md(p.endsAt)} ${hm(p.endsAt)} 종료` : `${md(p.startsAt)} ${hm(p.startsAt)} 오픈`}</span></div>
+            <div className="flex items-center gap-2"><span className={`rounded-[3px] px-2 py-0.5 text-[11px] font-bold ${isLive ? 'bg-[#EEF8F3] text-[#3FB181]' : !USE_MOCK && p.reviewStatus === 'REJECTED' ? 'bg-[var(--red-soft)] text-[var(--red)]' : 'bg-[var(--soft)] text-[var(--muted)]'}`}>{isLive ? '판매 중' : status === '게시 전' && !USE_MOCK && p.reviewStatus ? REVIEW_LABEL[p.reviewStatus] : status}</span>{revStatus.data?.[p.id]?.status === 'IN_REVIEW' && <span className="rounded-[3px] bg-[#FFF3E0] px-2 py-0.5 text-[11px] font-bold text-[#B25E09]">수정 심사 중</span>}{revStatus.data?.[p.id]?.status === 'REJECTED' && <span className="rounded-[3px] bg-[var(--red-soft)] px-2 py-0.5 text-[11px] font-bold text-[var(--red)]">수정 반려</span>}<span className="muted text-[11px] font-bold">{isLive ? `오늘 ${hm(p.startsAt)} – ${hm(p.endsAt)}` : ended ? `${md(p.endsAt)} ${hm(p.endsAt)} 종료` : `${md(p.startsAt)} ${hm(p.startsAt)} 오픈`}</span></div>
             <p className="text-[14px]">{p.name}</p>
             <p className="font-number text-[15px] font-bold">{money(p.price)} <span className="muted text-[12px] font-normal">{total}개 한정</span></p>
           </div>
@@ -178,7 +187,7 @@ export function SellerProductPage() {
           </div>
         </div>
       </section>}
-      <div className="flex gap-2 pt-4"><Link to="/seller" className="btn btn-outline flex-1">판매자 홈</Link><Link to={approved ? '/seller/products' : '/seller/new'} className="btn flex-[1.6]">{approved ? '판매 상품 관리' : '다른 상품 등록하기'}</Link></div>
+      <div className="flex gap-2 pt-4"><Link to="/seller" className="btn btn-outline flex-1">홈</Link><Link to={approved ? '/seller/products' : '/seller/new'} className="btn flex-[1.6]">{approved ? '판매 상품 관리' : '다른 상품 등록하기'}</Link></div>
     </div>;
   }
 
@@ -289,7 +298,7 @@ export function SellerProductPage() {
     <ProductSummary product={{ ...p, image: p.images[0] }} amount={p.price}/>
     <div className="rounded-[4px] bg-[var(--canvas)] p-5"><p className="text-[11px] opacity-70">판매 시작까지</p><p className="font-number my-2 text-[32px] font-bold">{hh2}:{mm2}:{ss2}</p><p className="text-[10px] opacity-70">{dateTime(p.startsAt)} · 자동 시작</p></div>
     <div className="space-y-2"><InfoRow label="판매 시작" value={dateTime(p.startsAt)}/><InfoRow label="판매 종료" value={dateTime(p.endsAt)}/><InfoRow label="최초 판매 수량" value={`${fee.initial}개`}/><InfoRow label="판매가격" value={money(p.price)}/></div>
-    {rev && rev.status !== 'APPROVED' && <Note title={rev.status === 'IN_REVIEW' ? '수정 내용 판매 심사 중' : '판매 심사 반려 (수정 내용)'}>{rev.status === 'IN_REVIEW' ? '승인되면 구매자 화면에 반영돼요.' : rev.reason ?? ''}</Note>}
+    {rev && <Note title={rev.status === 'IN_REVIEW' ? '수정 심사 중' : rev.status === 'APPROVED' ? '수정 내용이 승인됐어요' : '수정 심사 반려'}>{rev.status === 'IN_REVIEW' ? '승인되면 구매자 화면에 반영돼요. 심사 중에는 다시 수정 요청할 수 없어요.' : rev.status === 'APPROVED' ? '변경한 내용이 구매자 화면에 반영됐어요.' : rev.reason || '반려 사유가 없어요.'}</Note>}
     {now < p.startsAt ? <Link className="btn btn-outline w-full" to={`/seller/new?edit=${p.id}`}>상품 정보 수정</Link> : <Note title="핵심 정보는 변경할 수 없어요">판매 시작 후 가격·옵션·최초 수량·종료 시각은 변경할 수 없습니다.</Note>}
     <Link className="btn w-full" to={`/seller/orders?product=${p.id}`}>주문 관리</Link>
   </div>;
@@ -427,8 +436,9 @@ function DeliveredModal({ order, now, onClose }: { order: Order; now: number; on
   </div></div>;
 }
 
+/** 판매자 권한이 있는 사용자의 마이페이지 — 판매 관리와 구매 메뉴를 한 화면에 둔다(모드 전환 없음). 권한이 없으면 MyPage */
 export function SellerMyPage() {
-  const s = useStore(), user = activeUser(s), navigate = useNavigate();
+  const s = useStore(), user = activeUser(s);
   if (!user.seller) return <Unavailable/>;
   const settings = s.sellerSettings[user.id];
   const displayName = settings?.displayName ?? user.name;
@@ -440,7 +450,7 @@ export function SellerMyPage() {
   const maskedBank = USE_MOCK ? (settings?.account ? `국민 ****${settings.account.slice(-4)}` : '국민 ****1024') : settings?.account ? `${settings.bank} ${settings.account}`.trim() : '';
   return (
     <div className="space-y-0">
-      <Header title="판매자 마이페이지" subtitle="스토어 정보와 판매 설정을 관리하세요." back={false}/>
+      <Header title="마이페이지" subtitle="스토어 정보와 내 구매·계정을 한 곳에서 관리하세요." back={false}/>
       <Link to="/seller/settings/account" aria-label="계정 설정" className="divider flex items-center gap-3 pb-5">
         <div className="grid h-[48px] w-[48px] shrink-0 place-items-center rounded-[8px] bg-[var(--ink)] text-[18px] font-bold text-white">{initial}</div>
         <div className="min-w-0 flex-1 space-y-1">
@@ -463,6 +473,9 @@ export function SellerMyPage() {
       <section className="mb-4">
         <p className="muted mb-2 text-[13px] font-bold">판매 관리</p>
         <MenuRow to="/seller/products" label="판매 상품 관리"><span className="muted mr-1 text-[12px]">{products.length}개</span></MenuRow>
+        <MenuRow to="/seller/products?state=판매 중" label="판매 현황"/>
+        <MenuRow to="/seller/orders" label="주문 관리"/>
+        <MenuRow to="/seller/inquiries" label="문의 답변"><span className={`mr-1 text-[12px] ${unanswered > 0 ? 'text-[var(--red)]' : 'muted'}`}>{unanswered > 0 ? `${unanswered}건 대기` : ''}</span></MenuRow>
         <MenuRow to="/seller/new" label="새 한정 판매 등록"/>
       </section>
       <div className="h-2 bg-[var(--canvas)]"/>
@@ -474,10 +487,16 @@ export function SellerMyPage() {
       </section>
       <div className="h-2 bg-[var(--canvas)]"/>
       <section className="mb-4">
+        <p className="muted mb-2 mt-4 text-[13px] font-bold">내 구매</p>
+        <MenuRow to="/orders" label="주문 · 배송 조회"/>
+        <MenuRow to="/addresses" label="배송지 관리"/>
+        <MenuRow to="/inquiries" label="문의 내역"/>
+      </section>
+      <div className="h-2 bg-[var(--canvas)]"/>
+      <section className="mb-4">
         <p className="muted mb-2 mt-4 text-[13px] font-bold">설정</p>
-        <MenuRow to={SETTINGS_HREF('/seller/my')} label="알림 설정"/>
+        <MenuRow to={SETTINGS_HREF('/my')} label="알림 설정"/>
         <MenuRow to="/seller/support" label="이용 안내 · 고객지원"/>
-        <button className="divider flex min-h-[52px] w-full items-center gap-3 text-left" onClick={() => { mutate(state => { state.mode = 'buyer'; }); navigate('/'); }}><span className="min-w-0 flex-1 text-[13px]">구매자 모드로 전환</span><ChevronRight size={17} className="muted"/></button>
       </section>
       <div className="text-center"><LogoutButton/></div>
     </div>
@@ -598,7 +617,7 @@ export function SellerSettingsPage() {
       </div>}
       <div className="-mx-4 h-px bg-[var(--line)]"/>
       <h2 className="text-[13px] font-bold text-[var(--muted)]">계좌 변경</h2>
-      <Field label="은행" required><select aria-label="은행" value={form.bank || ''} onChange={e => change('bank', e.target.value)} className="field-line"><option value="">은행을 선택해 주세요</option>{['KB국민은행','신한은행','우리은행','하나은행','IBK기업은행','NH농협은행','카카오뱅크','토스뱅크'].map(b => <option key={b}>{b}</option>)}</select></Field>
+      <Field label="은행" required><BankField label="은행" value={form.bank || ''} onChange={v => change('bank', v)}/></Field>
       <Field label="계좌번호" required><input aria-label="계좌번호" className="field-line" inputMode="numeric" value={form.account ?? ''} onChange={e => change('account', e.target.value)} placeholder="'-' 없이 숫자만 입력"/></Field>
       <Field label="예금주" hint="사업자등록증의 상호 또는 대표자명과 같아야 해요"><input aria-label="예금주" className="field-line" value={form.holder ?? ''} onChange={e => change('holder', e.target.value)}/></Field>
       <div className="flex gap-2 rounded-[6px] bg-[var(--canvas)] p-4 text-[12px] text-[#7B7B7B]"><Info size={15} className="mt-px shrink-0"/><p>1원 입금으로 본인 계좌를 확인해요. 변경한 계좌는 다음 정산부터 적용돼요.</p></div>

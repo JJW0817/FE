@@ -75,8 +75,12 @@ test('사업자 PDF 신청 후 운영자 승인 시 기존 구매 권한과 주�
   await actor(page, 'admin'); await page.goto('/#/admin/applications'); await page.getByRole('link', { name: new RegExp(app.displayName) }).click(); await expect(page).toHaveURL(new RegExp(`#/admin/${app.id}$`));
   await expect(page.getByRole('button', { name: '승인하기', exact: true })).toBeDisabled(); await page.getByRole('button', { name: '열람하기' }).click();
   await page.getByRole('button', { name: '승인하기', exact: true }).click(); await page.getByRole('button', { name: '승인하기', exact: true }).last().click(); await expect(page).toHaveURL(/#\/admin\/applications$/); expect((await state(page)).applications.find((a: any) => a.id === app.id).status).toBe('approved');
-  await actor(page, 'buyer'); await page.goto('/#/my'); await expect(page.getByRole('button', { name: '판매자 모드로 전환' })).toBeVisible(); expect((await state(page)).orders).toHaveLength(orderCount); await page.getByRole('button', { name: '판매자 모드로 전환' }).click(); await expect(page).toHaveURL(/#\/seller$/);
-  await page.goto('/#/seller/my'); await page.getByRole('button', { name: '구매자 모드로 전환' }).click(); await expect(page).toHaveURL(/#\/$/); await expect(page.getByRole('navigation', { name: '구매자 하단 메뉴' })).toBeVisible();
+  // 승인 뒤에는 전환 버튼 없이 마이페이지 하나에 판매 관리와 구매 메뉴가 함께 있고, 하단 메뉴도 하나다
+  await actor(page, 'buyer'); await page.goto('/#/my'); expect((await state(page)).orders).toHaveLength(orderCount);
+  await expect(page.getByRole('button', { name: /모드로 전환/ })).toHaveCount(0);
+  await expect(page.getByText('판매 상품 관리')).toBeVisible(); await expect(page.getByText('주문 · 배송 조회')).toBeVisible(); await expect(page.getByRole('link', { name: '계정 설정' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: '하단 메뉴' })).toBeVisible();
+  await page.goto('/#/seller/my'); await expect(page).toHaveURL(/#\/my$/);
 });
 
 test('운영자 입점 반려는 확인창을 거쳐 목록으로 돌아간다', async ({ page }) => {
@@ -98,7 +102,7 @@ test('마이페이지에서 연 화면: 알림 설정은 설정 모드, 주문·
   await expect(page.getByRole('button', { name: '건너뛰기' })).toHaveCount(0); await expect(page.getByText('/ 2')).toHaveCount(0);
   await page.getByRole('button', { name: '저장', exact: true }).click();
   await expect(page).toHaveURL(/#\/my$/);
-  await page.getByRole('navigation', { name: '구매자 하단 메뉴' }).getByRole('link', { name: '주문' }).click();
+  await page.getByRole('navigation', { name: '하단 메뉴' }).getByRole('link', { name: '주문' }).click();
   await expect(page.getByRole('heading', { name: '주문 · 배송' })).toBeVisible(); await expect(page.getByRole('button', { name: '이전 화면' })).toHaveCount(0);
   await page.goto('/#/my'); await page.getByText('주문 · 배송 조회').first().click();
   await expect(page.getByRole('button', { name: '이전 화면' })).toBeVisible();
@@ -138,4 +142,23 @@ test('판매 심사 반려는 반려 사유와 물품 확인 미통과 항목을
   await actor(page, 'seller'); await page.goto('/#/seller/published/ecobag');
   await expect(page.getByRole('heading', { name: '판매 심사 결과' })).toBeVisible(); await expect(page.getByText('판매 심사 반려')).toBeVisible();
   await expect(page.getByText('더 낮춰 주세요')).toBeVisible(); await expect(page.getByRole('heading', { name: '물품 확인' })).toBeVisible(); await expect(page.getByText('1개 항목 미통과')).toBeVisible(); await expect(page.getByText('설명서가 빠졌어요')).toBeVisible();
+});
+
+test('운영자는 판매 심사 상세에서 사진을 크게 열어 넘겨 보고 검수 항목을 보며 반려로 이어갈 수 있다', async ({ page }) => {
+  await editState(page, s => { const p = s.products.find((x: any) => x.id === 'ecobag'); p.published = false; p.rejectionReason = undefined; p.images = [p.images[0], p.images[0], p.images[0]]; });
+  await actor(page, 'admin'); await page.goto('/#/admin/products/ecobag');
+  await page.getByRole('button', { name: '사진 1 크게 보기' }).click();
+  const viewer = page.getByRole('dialog', { name: '사진 크게 보기' }); await expect(viewer).toBeVisible(); await expect(viewer.getByText('1 / 3')).toBeVisible();
+  await viewer.getByRole('button', { name: '다음 사진' }).click(); await expect(viewer.getByText('2 / 3')).toBeVisible();
+  await viewer.getByRole('button', { name: '확대' }).click(); await expect(viewer.getByText('150%')).toBeVisible();
+  await expect(viewer.getByRole('checkbox', { name: /정품 여부/ })).toBeVisible();
+  await viewer.getByRole('button', { name: '반려' }).click(); await expect(viewer).toHaveCount(0); await expect(page.getByRole('heading', { name: '판매 심사 반려' })).toBeVisible();
+});
+
+test('정산 은행은 직접 입력이 아니라 아래에서 올라오는 선택 시트로 고른다', async ({ page }) => {
+  await actor(page, 'buyer'); await page.goto('/#/apply');
+  await page.getByRole('button', { name: '정산 은행' }).click();
+  const list = page.getByRole('listbox', { name: '은행 목록' }); await expect(list.getByRole('option')).toHaveCount(20);
+  await list.getByRole('option', { name: '카카오뱅크' }).click(); await expect(list).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '정산 은행' })).toContainText('카카오뱅크');
 });

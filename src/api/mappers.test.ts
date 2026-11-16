@@ -8,7 +8,7 @@ describe('역할·시작 화면', () => {
     expect(rolesToFlags(['BUYER', 'SELLER'])).toEqual({ seller: true, admin: false });
     expect(rolesToFlags(['admin'])).toEqual({ seller: false, admin: true });
     expect(homePathFor(rolesToFlags(['ADMIN']))).toBe('/admin');
-    expect(homePathFor(rolesToFlags(['BUYER', 'SELLER']))).toBe('/seller');
+    expect(homePathFor(rolesToFlags(['BUYER', 'SELLER']))).toBe('/');
     expect(homePathFor(rolesToFlags(['BUYER']))).toBe('/');
   });
 });
