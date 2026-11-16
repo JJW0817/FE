@@ -23,4 +23,6 @@ export const DEMO_ACCOUNTS = [{ id: 'buyer', label: '구매자' }, { id: 'seller
  */
 export const STORAGE_TAG = `${import.meta.env.VITE_API_TARGET || 'https://api.stockdrop.cloud'}#2`;
 /** 서버 사진 주소는 5분짜리 임시 주소(X-Amz-Expires=300)다. 만료로 깨지면 이 이벤트로 알려 화면이 열람 주소를 새로 받는다(api/live.ts·등록 화면) */
+/** 테스트용 빠른 판매 시작: 개발 서버·미리보기에서만 `VITE_QUICK_SCHEDULE=true`. 켜면 판매 일정에 '5분 뒤 시작' 버튼과 분 단위 선택. 운영 배포는 설정하지 않는다(30분 단위) */
+export const QUICK_SCHEDULE = import.meta.env.VITE_QUICK_SCHEDULE === 'true';
 export const IMAGE_EXPIRED = 'stockdrop:image-expired';
