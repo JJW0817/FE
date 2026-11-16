@@ -16,10 +16,10 @@ export const loginHref = (next: string) => `/login?next=${encodeURIComponent(saf
 /** 화면 문구로 바꾸되 code·violations는 남긴다(입력칸별 오류 표시용) */
 const friendly = (e: unknown) => e instanceof ApiError ? new ApiError(errorMessage(e), e.status, e.code, e.traceId, e.violations) : new Error(errorMessage(e));
 function ensure(s: State) { return s.auth ??= initialAuth(); }
-export function selectProfile(s: State, id: string) { const user = s.users.find(u => u.id === id); if (!user) throw new Error('계정을 찾을 수 없습니다.'); const a = ensure(s); a.userId = id; a.onboarded = true; s.activeUserId = id; s.mode = user.admin ? 'admin' : 'buyer'; }
+export function selectProfile(s: State, id: string) { const user = s.users.find(u => u.id === id); if (!user) throw new Error('계정을 찾을 수 없습니다.'); const a = ensure(s); a.userId = id; a.onboarded = true; s.activeUserId = id; }
 /** 데모 로그인 — 서버 없이 목업 계정으로 로그인 (mock 모드일 때만) */
 export function demoLogin(id: string) { if (!DEMO_LOGIN) throw new Error('데모 로그인을 사용할 수 없습니다.'); mutate(s => { selectProfile(s, id); ensure(s).demo = true; }); }
-export function endSession(s: State) { ensure(s).demo = false; ensure(s).userId = null; s.activeUserId = ''; s.mode = 'buyer'; }
+export function endSession(s: State) { ensure(s).demo = false; ensure(s).userId = null; s.activeUserId = ''; }
 
 /* ── 세션 연동: 재발급 실패 시 로그아웃(보호된 화면은 App이 로그인으로 보낸다), 재발급 시 역할 갱신 ── */
 api.configure({

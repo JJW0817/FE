@@ -12,7 +12,7 @@ export function rolesToFlags(roles: readonly string[]) {
   return { seller: has('SELLER'), admin: has('ADMIN') };
 }
 /** 로그인 직후 시작 화면: 운영자 → /admin, 판매자 → /seller, 그 외 홈 (역할 선택 데모 로그인과 같은 규칙) */
-export const homePathFor = (flags: { seller: boolean; admin: boolean }) => (flags.admin ? '/admin' : flags.seller ? '/seller' : '/');
+export const homePathFor = (flags: { seller: boolean; admin: boolean }) => (flags.admin ? '/admin' : '/');
 
 /** 주문 상태(state)+배송(delivery) → 화면 OrderStatus. 구매 완료는 CONFIRMED에서만 */
 export function orderStatus(state: OrderState, delivery: DeliveryState | null): OrderStatus {

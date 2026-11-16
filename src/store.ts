@@ -11,7 +11,7 @@ const listeners = new Set<() => void>();
  * 실제 모드는 서버 데이터(상품·주문·문의·신청·배송지)를 저장소에 두지 않는다 — 화면을 열 때 서버에서 받는다.
  * 남기는 것: 로그인 상태·계정, 화면 설정, 작성 중인 상품 초안, 아직 끝나지 않은 결제 대기(5분). 예전 서버 주소의 이미지 URL이 남아 깨지던 문제
  */
-const LIVE_KEEP = ['version', 'auth', 'activeUserId', 'mode', 'users', 'drafts', 'sellerSettings', 'bookmarks', 'clockOffset', 'paymentOutcome', 'aiOutcome'] as const;
+const LIVE_KEEP = ['version', 'auth', 'activeUserId', 'users', 'drafts', 'sellerSettings', 'bookmarks', 'clockOffset', 'paymentOutcome', 'aiOutcome'] as const;
 export function persisted(s: State): object {
   if (USE_MOCK) return s;
   const now = Date.now(), out: Record<string, unknown> = { tag: STORAGE_TAG };
@@ -21,9 +21,9 @@ export function persisted(s: State): object {
 }
 /** 저장된 실제 모드 값 → 상태(꼬리표가 다르면 버림). 서버 데이터 칸은 빈 값으로 채운다 */
 export function restoreLive(value: any): any { return value?.tag === STORAGE_TAG ? { ...emptyState(), ...value, holds: Array.isArray(value.holds) ? value.holds : [] } : null; }
-function read(): State | undefined { try { let value = JSON.parse(localStorage.getItem(KEY) || 'null'); if (!USE_MOCK) value = restoreLive(value); if (value?.version === 1 && Array.isArray(value.users) && Array.isArray(value.products) && Array.isArray(value.orders) && value.addresses && value.drafts) { if (!value.auth) { value.auth = initialAuth(); value.activeUserId = ''; value.mode = 'buyer'; }
+function read(): State | undefined { try { let value = JSON.parse(localStorage.getItem(KEY) || 'null'); if (!USE_MOCK) value = restoreLive(value); if (value?.version === 1 && Array.isArray(value.users) && Array.isArray(value.products) && Array.isArray(value.orders) && value.addresses && value.drafts) { if (!value.auth) { value.auth = initialAuth(); value.activeUserId = ''; }
     // 자동 로그인이 꺼져 있으면, 예전 목업 자동 로그인으로 저장된 세션(목업 계정 ID)은 처음 방문 상태로 되돌린다
-    else if (!MOCK_AUTH && DEMO_ACCOUNT_IDS.includes(value.auth.userId) && !(DEMO_LOGIN && value.auth.demo)) { value.auth = initialAuth(); value.activeUserId = ''; value.mode = 'buyer'; }
+    else if (!MOCK_AUTH && DEMO_ACCOUNT_IDS.includes(value.auth.userId) && !(DEMO_LOGIN && value.auth.demo)) { value.auth = initialAuth(); value.activeUserId = ''; }
     return value as State; } } catch { /* Recover invalid local data without preventing access. */ } }
 let current = read() ?? seed();
 try { localStorage.setItem(KEY, JSON.stringify(persisted(current))); } catch { /* A later write reports storage restrictions. */ }

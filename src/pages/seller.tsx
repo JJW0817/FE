@@ -186,7 +186,7 @@ export function SellerProductPage() {
           </div>
         </div>
       </section>}
-      <div className="flex gap-2 pt-4"><Link to="/seller" className="btn btn-outline flex-1">판매자 홈</Link><Link to={approved ? '/seller/products' : '/seller/new'} className="btn flex-[1.6]">{approved ? '판매 상품 관리' : '다른 상품 등록하기'}</Link></div>
+      <div className="flex gap-2 pt-4"><Link to="/seller" className="btn btn-outline flex-1">홈</Link><Link to={approved ? '/seller/products' : '/seller/new'} className="btn flex-[1.6]">{approved ? '판매 상품 관리' : '다른 상품 등록하기'}</Link></div>
     </div>;
   }
 
@@ -435,8 +435,9 @@ function DeliveredModal({ order, now, onClose }: { order: Order; now: number; on
   </div></div>;
 }
 
+/** 판매자 권한이 있는 사용자의 마이페이지 — 판매 관리와 구매 메뉴를 한 화면에 둔다(모드 전환 없음). 권한이 없으면 MyPage */
 export function SellerMyPage() {
-  const s = useStore(), user = activeUser(s), navigate = useNavigate();
+  const s = useStore(), user = activeUser(s);
   if (!user.seller) return <Unavailable/>;
   const settings = s.sellerSettings[user.id];
   const displayName = settings?.displayName ?? user.name;
@@ -448,7 +449,7 @@ export function SellerMyPage() {
   const maskedBank = USE_MOCK ? (settings?.account ? `국민 ****${settings.account.slice(-4)}` : '국민 ****1024') : settings?.account ? `${settings.bank} ${settings.account}`.trim() : '';
   return (
     <div className="space-y-0">
-      <Header title="판매자 마이페이지" subtitle="스토어 정보와 판매 설정을 관리하세요." back={false}/>
+      <Header title="마이페이지" subtitle="스토어 정보와 내 구매·계정을 한 곳에서 관리하세요." back={false}/>
       <Link to="/seller/settings/account" aria-label="계정 설정" className="divider flex items-center gap-3 pb-5">
         <div className="grid h-[48px] w-[48px] shrink-0 place-items-center rounded-[8px] bg-[var(--ink)] text-[18px] font-bold text-white">{initial}</div>
         <div className="min-w-0 flex-1 space-y-1">
@@ -471,6 +472,9 @@ export function SellerMyPage() {
       <section className="mb-4">
         <p className="muted mb-2 text-[13px] font-bold">판매 관리</p>
         <MenuRow to="/seller/products" label="판매 상품 관리"><span className="muted mr-1 text-[12px]">{products.length}개</span></MenuRow>
+        <MenuRow to="/seller/products?state=판매 중" label="판매 현황"/>
+        <MenuRow to="/seller/orders" label="주문 관리"/>
+        <MenuRow to="/seller/inquiries" label="문의 답변"><span className={`mr-1 text-[12px] ${unanswered > 0 ? 'text-[var(--red)]' : 'muted'}`}>{unanswered > 0 ? `${unanswered}건 대기` : ''}</span></MenuRow>
         <MenuRow to="/seller/new" label="새 한정 판매 등록"/>
       </section>
       <div className="h-2 bg-[var(--canvas)]"/>
@@ -482,10 +486,16 @@ export function SellerMyPage() {
       </section>
       <div className="h-2 bg-[var(--canvas)]"/>
       <section className="mb-4">
+        <p className="muted mb-2 mt-4 text-[13px] font-bold">내 구매</p>
+        <MenuRow to="/orders" label="주문 · 배송 조회"/>
+        <MenuRow to="/addresses" label="배송지 관리"/>
+        <MenuRow to="/inquiries" label="문의 내역"/>
+      </section>
+      <div className="h-2 bg-[var(--canvas)]"/>
+      <section className="mb-4">
         <p className="muted mb-2 mt-4 text-[13px] font-bold">설정</p>
-        <MenuRow to={SETTINGS_HREF('/seller/my')} label="알림 설정"/>
+        <MenuRow to={SETTINGS_HREF('/my')} label="알림 설정"/>
         <MenuRow to="/seller/support" label="이용 안내 · 고객지원"/>
-        <button className="divider flex min-h-[52px] w-full items-center gap-3 text-left" onClick={() => { mutate(state => { state.mode = 'buyer'; }); navigate('/'); }}><span className="min-w-0 flex-1 text-[13px]">구매자 모드로 전환</span><ChevronRight size={17} className="muted"/></button>
       </section>
       <div className="text-center"><LogoutButton/></div>
     </div>

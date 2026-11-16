@@ -16,7 +16,7 @@ import type { CheckoutTermsDto, InboxItem } from '../api';
 import { USE_MOCK } from '../config';
 import type { SavedAddress } from './address';
 
-/** 구매자 홈 / 판매자 홈 — Figma "구매자 홈", "판매자 홈"(판매 등록 버튼) */
+/** 홈 — 구매자 홈. 판매자 권한이 있으면 Figma "판매자 홈"처럼 판매 등록 버튼이 함께 보인다 */
 export function HomePage() {
   const s = useStore(), now = useClock(); const [params, setParams] = useSearchParams(); const [notified, toggleNotify] = useNotified();
   // shortcut: 공개 상품을 한 번에 100개까지만 받아 기존처럼 화면에서 거른다. 상품이 많아지면 keyword·status·page를 서버 쿼리로 넘긴다
