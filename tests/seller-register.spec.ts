@@ -57,7 +57,7 @@ test('판매 상품 등록 단일 화면 → AI 분석 적용 → 판매 심사 
   await expect(page.getByLabel('배송 안내')).toHaveValue('CJ대한통운 / 반품 배송비 3,000원 / 교환 배송비 6,000원');
 
   await page.getByRole('button', { name: '판매 심사 요청하기' }).click();
-  await expect(page.getByRole('heading', { name: '심사 요청 결과' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '판매 심사 결과' })).toBeVisible();
 
   const s = await page.evaluate(() => JSON.parse(localStorage.getItem('stockdrop:v1')!));
   const p = s.products.find((p: { name: string }) => p.name === '울 블렌드 오버핏 니트 (차콜)');

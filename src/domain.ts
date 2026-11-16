@@ -96,6 +96,14 @@ export function purchaseBlock(s: State, p: Pick<Product, 'sellerId'>): 'admin' |
   const u = s.users.find(x => x.id === s.activeUserId);
   return u?.admin ? 'admin' : p.sellerId && p.sellerId === s.activeUserId ? 'own' : null;
 }
+/** 판매 심사 반려 사유 — 운영자 화면은 항목별로 `[항목] 사유`를 줄마다 보낸다. 물품 확인(검수) 항목은 `[물품 확인 · 상품 상태]`처럼 보낸다.
+ * 서버는 사유 텍스트 하나만 주므로(검수 항목 필드 없음) 이 형식을 풀어 보여 주고, 형식이 아니면 통째로 '심사 의견' 한 항목 */
+export const INSPECTION_PREFIX = '물품 확인 · ';
+export function parseRejection(reason: string | undefined): { field: string; reason: string; inspection: boolean }[] {
+  const text = (reason ?? '').trim(); if (!text) return [];
+  const items = text.split('\n').map(l => /^\[(.+?)\]\s*(.*)$/.exec(l.trim())).filter((m): m is RegExpExecArray => !!m).map(m => ({ field: m[1].replace(INSPECTION_PREFIX, ''), reason: m[2], inspection: m[1].startsWith(INSPECTION_PREFIX) }));
+  return items.length ? items : [{ field: '심사 의견', reason: text, inspection: false }];
+}
 export const PURCHASE_BLOCK_TEXT = { admin: '운영자 계정은 구매할 수 없어요', own: '내가 판매하는 상품이에요' } as const;
 export const defaultAddress: Address = { name: '김서윤', phone: '010-1234-5678', address: '서울시 성동구 연무장길 00', detail: '501호', request: '문 앞에 놓아 주세요.' };
 export function blankDraft(now = Date.now()): Draft {

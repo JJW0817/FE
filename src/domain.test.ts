@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { categoryGroup, listingOptions, validateListing, approveApplication, available, beginPayment, blankDraft, defaultAddress, expireHolds, feeFor, localDateTime, markDelivered, publishDraft, recommendCategory, reserve, resolvePayment, saleState, seedState, purchaseBlock } from './domain';
+import { categoryGroup, listingOptions, validateListing, approveApplication, available, beginPayment, blankDraft, defaultAddress, expireHolds, feeFor, localDateTime, markDelivered, publishDraft, recommendCategory, reserve, resolvePayment, saleState, seedState, purchaseBlock, parseRejection } from './domain';
 import type { Draft } from './domain';
 const NOW = new Date('2026-10-23T14:00:00+09:00').getTime();
 function draft(): Draft { return { ...blankDraft(NOW), images: ['/images/generated-5.png'], name: 'A5 공책', description: '한 권당 80페이지 노트입니다.', category: '문구 › 노트', originalUrl: 'https://shop.example/notebook', reason: '과잉 발주', noOptions: true, options: [{ id: 'base', name: '기본', stock: 10 }], price: 6000, shipping: 3000, faqs: [] }; }
@@ -49,5 +49,12 @@ describe('구매 제한', () => {
     s.activeUserId = 'admin'; expect(purchaseBlock(s, { sellerId: 'seller' })).toBe('admin');
     s.activeUserId = 'seller'; expect(purchaseBlock(s, { sellerId: 'seller' })).toBe('own'); expect(purchaseBlock(s, { sellerId: 'other' })).toBeNull();
     s.activeUserId = 'buyer'; expect(purchaseBlock(s, { sellerId: 'seller' })).toBeNull(); expect(purchaseBlock(s, { sellerId: '' })).toBeNull();
+  });
+});
+describe('판매 심사 반려 사유', () => {
+  it('항목별 사유와 물품 확인(검수) 항목을 나누고, 형식이 아니면 통째로 한 항목', () => {
+    expect(parseRejection('[한정 판매가] 더 낮춰 주세요\n[물품 확인 · 구성품] 설명서가 빠졌어요')).toEqual([{ field: '한정 판매가', reason: '더 낮춰 주세요', inspection: false }, { field: '구성품', reason: '설명서가 빠졌어요', inspection: true }]);
+    expect(parseRejection('사진이 흐려요')).toEqual([{ field: '심사 의견', reason: '사진이 흐려요', inspection: false }]);
+    expect(parseRejection(undefined)).toEqual([]);
   });
 });

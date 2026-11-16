@@ -3,7 +3,7 @@ import { FaqList, SELLER_FAQ_ITEMS } from './account';
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Plus, Check, ChevronRight, FileText, Info, Rocket, ScanSearch, Share2, Truck } from 'lucide-react';
-import { activeUser, feeFor, markDelivered, money, nowOf, saleState, uid } from '../domain';
+import { activeUser, feeFor, markDelivered, money, nowOf, parseRejection, saleState, uid } from '../domain';
 import type { Order, Product, SellerSettings } from '../domain';
 import { atomic, mutate, useStore } from '../store';
 import { endSession } from '../auth';
@@ -22,8 +22,8 @@ export function SellerProductsPage() {
   const live = useLive(async signal => listSellerProducts(user.id, {}, signal), (st, items) => mergeProducts(st, items), [user.id]);
   const month = `${new Date(now).getFullYear()}-${String(new Date(now).getMonth() + 1).padStart(2, '0')}`;
   const summary = useApi(async signal => (USE_MOCK ? null : getSalesSummary(month, signal)), [month]);
-  if (!user.seller) return <Unavailable/>; const settings = s.sellerSettings[user.id]; const allProducts = s.products.filter(p => p.sellerId === user.id); const products = allProducts.filter(p => tab === '전체' || (tab === '심사 중' ? p.reviewStatus === 'IN_REVIEW' : saleState(p, now) === tab)); const thisMonth = summary.data?.confirmedQuantity ?? s.orders.filter(o => o.sellerId === user.id && !['cancelled','refunded'].includes(o.status)).reduce((n, o) => n + o.lines.reduce((a, l) => a + l.quantity, 0), 0); const alarmCount = 226; /* TODO(api-gap): 알림 신청 인원 API 없음(목업) */ const soldOutCount = allProducts.filter(p => saleState(p, now) === '판매 종료').length;
-  const chips: [string, number][] = [['전체', allProducts.length], ['판매 중', allProducts.filter(p => saleState(p, now) === '판매 중').length], ['판매 예정', allProducts.filter(p => saleState(p, now) === '판매 예정').length], ['심사 중', allProducts.filter(p => p.reviewStatus === 'IN_REVIEW').length], ['판매 종료', soldOutCount]];
+  if (!user.seller) return <Unavailable/>; const settings = s.sellerSettings[user.id]; const allProducts = s.products.filter(p => p.sellerId === user.id); const products = allProducts.filter(p => tab === '전체' || (tab === '판매 심사 중' ? p.reviewStatus === 'IN_REVIEW' : saleState(p, now) === tab)); const thisMonth = summary.data?.confirmedQuantity ?? s.orders.filter(o => o.sellerId === user.id && !['cancelled','refunded'].includes(o.status)).reduce((n, o) => n + o.lines.reduce((a, l) => a + l.quantity, 0), 0); const alarmCount = 226; /* TODO(api-gap): 알림 신청 인원 API 없음(목업) */ const soldOutCount = allProducts.filter(p => saleState(p, now) === '판매 종료').length;
+  const chips: [string, number][] = [['전체', allProducts.length], ['판매 중', allProducts.filter(p => saleState(p, now) === '판매 중').length], ['판매 예정', allProducts.filter(p => saleState(p, now) === '판매 예정').length], ['판매 심사 중', allProducts.filter(p => p.reviewStatus === 'IN_REVIEW').length], ['판매 종료', soldOutCount]];
   return <div className="space-y-0">
     <Header title="판매 상품 관리" action={<Link to="/seller/new" aria-label="상품 등록"><Plus size={22}/></Link>}/>
     <div className="flex items-center justify-between py-3"><span className="text-[13px] font-bold">{settings?.displayName ?? user.name}</span><span className="muted text-[12px]">{new Date(now).getMonth()+1}월 기준</span></div>
@@ -53,7 +53,7 @@ export function SellerProductsPage() {
   </div>;
 }
 /** 서버 심사 status → 목록 배지 (승인은 판매 예정·판매 중·판매 종료로 보인다) */
-const REVIEW_LABEL: Record<NonNullable<Product['reviewStatus']>, string> = { DRAFT: '작성 중', IN_REVIEW: '심사 중', REJECTED: '반려됨', APPROVED: '승인' };
+const REVIEW_LABEL: Record<NonNullable<Product['reviewStatus']>, string> = { DRAFT: '작성 중', IN_REVIEW: '판매 심사 중', REJECTED: '판매 심사 반려', APPROVED: '승인' };
 /** 반려 상품: 반려 사유 보기(목록엔 사유가 없어 누를 때 상세를 불러온다) + 수정 후 재요청 — 알림의 심사 결과 화면과 같은 정보·같은 이동 */
 function RejectedActions({ p }: { p: Product }) {
   const [open, setOpen] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState('');
@@ -98,21 +98,21 @@ export function SellerProductPage() {
 
     // 심사 반려
     if (rejected) {
-      const mockReasons: Array<{no: string; field: string; reason: string}> = [
-        { no: '01', field: '한정 판매가', reason: '쿠팡 판매가가 45,900원으로 내려갔어요. 한정 판매가는 URL 판매가보다 낮아야 해요.' },
-        { no: '02', field: '판매 일정', reason: '11월 3일 (화) 21:00 판매 슬롯이 모두 찼어요. 다른 날짜나 시간을 골라 주세요.' },
-      ];
-      const rejectionReasons = USE_MOCK ? mockReasons : [{ no: '01', field: '심사 의견', reason: p.rejectionReason || '반려 사유가 등록되지 않았어요.' }];
+      // 물품 검수는 판매 심사에 포함 — 검수 미통과 항목도 반려 사유 안에서 '물품 확인'으로 묶어 보여 준다. 서버는 사유 텍스트만 준다
+      const MOCK_REJECTION = '[한정 판매가] 쿠팡 판매가가 45,900원으로 내려갔어요. 한정 판매가는 URL 판매가보다 낮아야 해요.\n[물품 확인 · 상품 상태] 등록 사진과 달리 외박스 모서리에 찍힘이 있어요.';
+      const rejectionReasons = parseRejection(p.rejectionReason || (USE_MOCK ? MOCK_REJECTION : '반려 사유가 등록되지 않았어요.'));
+      const saleItems = rejectionReasons.filter(r => !r.inspection), checkItems = rejectionReasons.filter(r => r.inspection);
+      const card = (r: { field: string; reason: string }, i: number) => <div key={i} className="rounded-[6px] border border-[var(--line)] p-4 space-y-3"><div className="flex items-center gap-3"><span className="muted text-[13px] font-bold">{String(i + 1).padStart(2, '0')}</span><span className="text-[15px] font-bold">{r.field}</span></div><p className="text-[13px] text-[#7B7B7B] whitespace-pre-line">{r.reason}</p></div>;
       return <div className="space-y-5">
         <div className="flex items-center justify-between pt-1">
-          <h1 className="text-[18px] font-bold">심사 요청 결과</h1>
+          <h1 className="text-[18px] font-bold">판매 심사 결과</h1>
           <button onClick={() => navigate('/seller/products')} aria-label="닫기" className="p-1"><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M17 5L5 17M5 5l12 12" stroke="#222" strokeWidth="1.8" strokeLinecap="round"/></svg></button>
         </div>
         <div className="relative overflow-hidden rounded-[8px]">
           <ProductImage src={p.images[0]} alt={p.name} className="h-[180px] w-full object-cover"/>
           <div className="absolute inset-0 flex flex-col items-center justify-end bg-black/65 pb-6 text-white">
             <div className="mb-3 flex h-[54px] w-[54px] items-center justify-center rounded-full border border-[#EF6253]/80"><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M15 7L7 15M7 7l8 8" stroke="#EF6253" strokeWidth="2" strokeLinecap="round"/></svg></div>
-            <p className="text-[20px] font-bold">요청이 접수되지 않았어요</p>
+            <p className="text-[20px] font-bold">판매 심사 반려</p>
             <p className="mt-1 text-[13px] text-white/80">{p.brand} {p.name}</p>
           </div>
         </div>
@@ -123,10 +123,8 @@ export function SellerProductPage() {
           <p className="text-[13px] text-[#7B7B7B]">아래 항목만 고치면 바로 다시 요청할 수 있어요.</p>
         </div>
         <div className="space-y-3">
-          {rejectionReasons.map(r => <div key={r.no} className="rounded-[6px] border border-[var(--line)] p-4 space-y-3">
-            <div className="flex items-center gap-3"><span className="muted text-[13px] font-bold">{r.no}</span><span className="text-[15px] font-bold">{r.field}</span></div>
-            <p className="text-[13px] text-[#7B7B7B]">{r.reason}</p>
-          </div>)}
+          {saleItems.map(card)}
+          {checkItems.length > 0 && <><div className="flex items-center justify-between pt-2"><h3 className="text-[15px] font-bold">물품 확인</h3><span className="rounded-[4px] bg-[#FDEFED] px-2 py-0.5 text-[11px] font-bold text-[#E5484D]">{checkItems.length}개 항목 미통과</span></div><p className="text-[12px] text-[#7B7B7B]">운영팀이 상품 상태·구성품 등을 직접 확인한 결과예요.</p>{checkItems.map((r, i) => card(r, saleItems.length + i))}</>}
         </div>
         <div className="flex gap-2"><Button outline className="flex-1" onClick={() => navigate('/seller')}>나중에 하기</Button><Button className="flex-1" onClick={() => navigate(`/seller/new?edit=${p.id}`)}>수정하고 다시 요청</Button></div>
       </div>;
@@ -134,13 +132,13 @@ export function SellerProductPage() {
 
     return <div className="space-y-5">
       <div className="flex items-center justify-between pt-1">
-        <h1 className="text-[18px] font-bold">{approved ? '판매 심사 결과' : '심사 요청 결과'}</h1>
+        <h1 className="text-[18px] font-bold">판매 심사 결과</h1>
         <button onClick={() => navigate('/seller/products')} aria-label="닫기" className="p-1"><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M17 5L5 17M5 5l12 12" stroke="#222" strokeWidth="1.8" strokeLinecap="round"/></svg></button>
       </div>
       <div className="relative overflow-hidden rounded-[8px]">
         <ProductImage src={p.images[0]} alt={p.name} className="h-[220px] w-full object-cover"/>
         <div className="absolute inset-0 flex flex-col items-center justify-end bg-black/60 pb-6 text-white">
-          <p className="text-[20px] font-bold">{approved ? '판매 승인 완료' : USE_MOCK ? '심사 대기 중' : '심사 중'}</p>
+          <p className="text-[20px] font-bold">{approved ? '판매 승인 완료' : '판매 심사 중'}</p>
           <p className="mt-1 text-[13px] text-white/80">{p.brand} {p.name}</p>
         </div>
       </div>
@@ -291,7 +289,7 @@ export function SellerProductPage() {
     <ProductSummary product={{ ...p, image: p.images[0] }} amount={p.price}/>
     <div className="rounded-[4px] bg-[var(--canvas)] p-5"><p className="text-[11px] opacity-70">판매 시작까지</p><p className="font-number my-2 text-[32px] font-bold">{hh2}:{mm2}:{ss2}</p><p className="text-[10px] opacity-70">{dateTime(p.startsAt)} · 자동 시작</p></div>
     <div className="space-y-2"><InfoRow label="판매 시작" value={dateTime(p.startsAt)}/><InfoRow label="판매 종료" value={dateTime(p.endsAt)}/><InfoRow label="최초 판매 수량" value={`${fee.initial}개`}/><InfoRow label="판매가격" value={money(p.price)}/></div>
-    {rev && rev.status !== 'APPROVED' && <Note title={rev.status === 'IN_REVIEW' ? '수정 내용 심사 중' : '수정 심사 반려'}>{rev.status === 'IN_REVIEW' ? '승인되면 구매자 화면에 반영돼요.' : rev.reason ?? ''}</Note>}
+    {rev && rev.status !== 'APPROVED' && <Note title={rev.status === 'IN_REVIEW' ? '수정 내용 판매 심사 중' : '판매 심사 반려 (수정 내용)'}>{rev.status === 'IN_REVIEW' ? '승인되면 구매자 화면에 반영돼요.' : rev.reason ?? ''}</Note>}
     {now < p.startsAt ? <Link className="btn btn-outline w-full" to={`/seller/new?edit=${p.id}`}>상품 정보 수정</Link> : <Note title="핵심 정보는 변경할 수 없어요">판매 시작 후 가격·옵션·최초 수량·종료 시각은 변경할 수 없습니다.</Note>}
     <Link className="btn w-full" to={`/seller/orders?product=${p.id}`}>주문 관리</Link>
   </div>;
@@ -847,11 +845,11 @@ export function SellerSupportPage() {
       <Header title="이용 안내 · 고객지원"/>
       <label className="mb-5 flex h-10 items-center gap-2.5 rounded-[6px] bg-[var(--canvas)] px-3.5">
         <svg width="18" height="18" viewBox="0 0 18 18" fill="none" className="muted shrink-0"><circle cx="8" cy="8" r="6" stroke="#949494" strokeWidth="1.5"/><path d="M13 13l3 3" stroke="#949494" strokeWidth="1.5" strokeLinecap="round"/></svg>
-        <input aria-label="고객지원 검색" placeholder="정산, 출고, 검수 기준 검색" className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-[var(--muted)]" readOnly/>
+        <input aria-label="고객지원 검색" placeholder="정산, 출고, 판매 심사 기준 검색" className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-[var(--muted)]" readOnly/>
       </label>
       <section className="mb-5 space-y-3">
         <h2 className="text-[15px] font-bold">판매 가이드</h2>
-        <div className="grid grid-cols-3 gap-2">{([[Rocket, '첫 드롭\n등록하기', '등록부터\n승인까지 5단계'], [ScanSearch, '검수 기준 안내', '반려 없이 통과하는\n사진 · 상태'], [Truck, '출고 · 배송\n규칙', '결제 후 48시간\n내 출고']] as const).map(([Icon, title, desc]) => (
+        <div className="grid grid-cols-3 gap-2">{([[Rocket, '첫 드롭\n등록하기', '등록부터\n승인까지 5단계'], [ScanSearch, '판매 심사 기준', '반려 없이 통과하는\n사진 · 상태'], [Truck, '출고 · 배송\n규칙', '결제 후 48시간\n내 출고']] as const).map(([Icon, title, desc]) => (
           <div key={title} className="rounded-[8px] bg-[var(--canvas)] p-3">
             <Icon size={18} strokeWidth={1.6}/>
             <p className="mt-3 whitespace-pre-line text-[13px] font-bold leading-snug">{title}</p>
@@ -886,60 +884,6 @@ export function SellerSupportPage() {
       </div>
     </div>
   );
-}
-export function InspectionFailPage() {
-  const { id } = useParams(); const s = useStore(), user = activeUser(s), navigate = useNavigate(); const p = s.products.find(p => p.id === id && p.sellerId === user.id); if (!user.seller) return <Unavailable/>; if (!p) return <Empty title="상품을 찾을 수 없어요"><Link to="/seller" className="btn">판매자 홈</Link></Empty>;
-  const CRITERIA = ['정품 여부', '상품 상태', '구성품', '수량'];
-  // shortcut: 검수 결과 API 전이라 결과가 없으면 Figma 예시 결과를 보여 준다, 검수 API 연결 시 교체
-  const result = ((p as any).inspectionResult ?? { '정품 여부': { pass: true, reason: '브랜드 정품 인증 확인' }, '상품 상태': { pass: false, reason: '등록 사진과 달리 외박스 모서리에 찍힘이 있어요' }, '구성품': { pass: false, reason: '설명서와 품질보증서가 빠져 있어요' }, '수량': { pass: true, reason: `옵션별 한정 수량 ${p.options.reduce((n, o) => n + o.stock, 0)}개 일치` } }) as Record<string, { pass: boolean; reason: string }>;
-  const failCount = CRITERIA.filter(label => result?.[label] && !result[label].pass).length;
-  return <div className="space-y-5">
-    <div className="flex items-center justify-between pt-1">
-      <h1 className="text-[18px] font-bold">판매 심사 결과</h1>
-      <button onClick={() => navigate('/seller/products')} aria-label="닫기" className="p-1"><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M17 5L5 17M5 5l12 12" stroke="#222" strokeWidth="1.8" strokeLinecap="round"/></svg></button>
-    </div>
-    <div className="relative overflow-hidden rounded-[8px]">
-      <ProductImage src={p.images[0]} alt={p.name} className="h-[180px] w-full object-cover"/>
-      <div className="absolute inset-0 flex flex-col items-center justify-end bg-black/65 pb-6 text-white">
-        <div className="mb-3 flex h-[54px] w-[54px] items-center justify-center rounded-full border border-white/60"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 20v-8" stroke="white" strokeWidth="2" strokeLinecap="round"/><circle cx="12" cy="22" r="1" fill="white"/><path d="M20 15V13a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 2 13v6a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l1.3-.75" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/><path d="M2.3 13 12 19l9.7-6" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>
-        <p className="text-[20px] font-bold">물품 검수 미통과</p>
-        <p className="mt-1 text-[13px] text-white/80">{p.brand} {p.name}</p>
-      </div>
-    </div>
-    <div className="space-y-1">
-      <h2 className="text-[22px] font-bold">물품 검수를</h2>
-      <h2 className="text-[22px] font-bold">통과하지 못했어요</h2>
-      <p className="mt-2 text-[13px] text-[#7B7B7B]">운영팀이 상품을 직접 확인한 결과예요.</p>
-      <p className="text-[13px] text-[#7B7B7B]">입력한 정보는 저장돼 있으니 사유를 반영해 재등록해 주세요.</p>
-    </div>
-    <div className="rounded-[6px] border border-[var(--line)] p-4 space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-[15px] font-bold">물품 검수 결과</h2>
-        {failCount > 0 && <span className="rounded-[4px] bg-[#FDEFED] px-2 py-0.5 text-[11px] font-bold text-[#E5484D]">{failCount}개 항목 미통과</span>}
-      </div>
-      <p className="text-[13px] text-[#7B7B7B]">입고된 상품을 운영팀이 아래 4가지 기준으로 확인했어요.</p>
-      <div className="rounded-[6px] bg-[#FBFBFB] divide-y divide-[var(--line)] px-4">
-        {CRITERIA.map(label => {
-          const r = result?.[label];
-          const pass = !r || r.pass;
-          return <div key={label} className="py-3 space-y-1">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${pass ? 'border-[#3FB181]' : 'border-[#E5484D]'}`}>
-                  {pass ? <Check size={11} className="text-[#3FB181]"/> : <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M2 2l7 7M9 2L2 9" stroke="#E5484D" strokeWidth="1.5" strokeLinecap="round"/></svg>}
-                </span>
-                <span className="text-[13px] font-bold">{label}</span>
-              </div>
-              <span className={`text-[12px] font-bold ${pass ? 'text-[#949494]' : 'text-[#E5484D]'}`}>{pass ? '통과' : '미통과'}</span>
-            </div>
-            {r?.reason && <p className="pl-8 text-[12px] text-[#7B7B7B]">{r.reason}</p>}
-          </div>;
-        })}
-      </div>
-    </div>
-    <Note title="운영팀 문의">검수 결과에 이의가 있으면 고객센터로 문의해 주세요.</Note>
-    <div className="flex gap-2"><Button outline className="flex-1" onClick={() => navigate('/seller')}>판매자 홈</Button><Button className="flex-1" onClick={() => navigate(`/seller/new?edit=${p.id}`)}>재등록하기</Button></div>
-  </div>;
 }
 export function TermsPage() {
   const navigate = useNavigate();

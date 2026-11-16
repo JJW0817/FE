@@ -413,7 +413,7 @@ export function WizardPage() {
     </section>
 
     {!editId && <section className="space-y-3">
-      <div><Label hint="· 운영팀 진행">물품 검수</Label><p className="mt-1 text-[12px] text-[var(--aux)]">판매 심사 때 운영팀이 실제 상품을 직접 확인해요</p></div>
+      <div><Label hint="· 판매 심사에 포함">물품 확인</Label><p className="mt-1 text-[12px] text-[var(--aux)]">판매 심사 때 운영팀이 실제 상품을 직접 확인해요</p></div>
       <div className="space-y-3 rounded-[6px] bg-[var(--soft)] p-4">
         {([[ShieldCheck, '정품 여부', '브랜드 정품인지 확인해요'], [ImageIcon, '상품 상태', '등록 사진과 실제 상태가 같은지 봐요'], [Package, '구성품', '설명서·보증서 등 빠진 게 없는지 봐요'], [Hash, '수량', '옵션별 한정 수량과 맞는지 세어요']] as const).map(([Icon, title, desc]) => <div key={title} className="flex items-center gap-2.5"><Icon size={16} className="shrink-0"/><span className="w-[60px] shrink-0 text-[13px] font-bold">{title}</span><span className="text-[12px] text-[var(--aux)]">{desc}</span></div>)}
         <p className="flex items-start gap-1.5 border-t border-[var(--line)] pt-3 text-[12px] text-[var(--meta)]"><Info size={14} className="mt-[2px] shrink-0"/>미통과 시 알림으로 사유를 알려드리고 재등록할 수 있어요.</p>
@@ -423,7 +423,7 @@ export function WizardPage() {
     {blocked && <ErrorBox message="지원하지 않는 상품은 등록할 수 없습니다."/>}
     <ErrorBox message={error}/>
     <div className="space-y-3 pt-4">
-      <p className="text-center text-[12px] text-[var(--meta)]">{editId ? '수정 내용은 판매 심사 후 반영돼요 · 영업일 기준 1일 이내' : '판매 심사와 물품 검수는 영업일 기준 1일 이내에 완료돼요'}</p>
+      <p className="text-center text-[12px] text-[var(--meta)]">{editId ? '수정 내용은 판매 심사 후 반영돼요 · 영업일 기준 1일 이내' : '판매 심사(물품 확인 포함)는 영업일 기준 1일 이내에 완료돼요'}</p>
       <Button className="w-full text-[15px]!" disabled={busy || uploading || blocked} onClick={submit}>{busy ? '요청 중…' : editId ? (editing?.reviewStatus === 'REJECTED' ? '수정하고 재심사 요청' : '수정 내용 저장') : '판매 심사 요청하기'}</Button>
     </div>
 

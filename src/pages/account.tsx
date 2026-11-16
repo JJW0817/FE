@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ChevronDown, Search } from 'lucide-react';
 import { ArrowLeft, Building2, CalendarCheck, Check, Store, UserRound, CheckCircle2, FileText } from 'lucide-react';
-import { activeUser, approveApplication, money, nowOf, saleState, uid } from '../domain';
+import { activeUser, approveApplication, INSPECTION_PREFIX, money, nowOf, saleState, uid } from '../domain';
 import type { Address, Application, DocumentFile } from '../domain';
 import { atomic, mutate, useStore } from '../store';
 import { dateTime, kstShort } from '../hooks';
@@ -25,7 +25,7 @@ function PasswordChangeModal({ onClose }: { onClose: () => void }) {
 }
 export function MyPage() {
   const s = useStore(), user = activeUser(s), navigate = useNavigate(); const app = s.applications.find(a => a.userId === user.id); const [address, setAddress] = useState(false); const [profileEdit, setProfileEdit] = useState(false); const [pwChange, setPwChange] = useState(false); const toast = useToast();
-  const roleLabel = user.seller ? '판매자 모드로 전환' : app?.status === 'pending' ? '심사 현황 보기' : app?.status === 'rejected' ? '심사 결과 확인하기' : '판매자 입점 신청';
+  const roleLabel = user.seller ? '판매자 모드로 전환' : app?.status === 'pending' ? '입점 심사 현황 보기' : app?.status === 'rejected' ? '입점 심사 결과 확인하기' : '판매자 입점 신청';
   const shortTs = (ms: number) => { const d = new Date(ms); return `${d.getMonth()+1}.${d.getDate()} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`; };
   const shortDt = (ms: number) => { const d = new Date(ms); const days = ['일','월','화','수','목','금','토']; return `${d.getMonth()+1}.${d.getDate()} (${days[d.getDay()]})`; };
   const reviewDate = app ? (app.reviewedAt ?? (app.submittedAt + 2 * 86_400_000)) : 0;
@@ -37,7 +37,7 @@ export function MyPage() {
     : app?.status === 'rejected'
     ? `${(app.rejectionItems?.length ?? 0)}개 항목 보완 필요 · ${shortDt(deadlineDate)}까지 제출해 주세요`
     : '';
-  const appStepLabel = app?.status === 'pending' ? '심사 중' : app?.status === 'approved' ? '승인 완료' : app?.status === 'rejected' ? '거절' : '';
+  const appStepLabel = app?.status === 'pending' ? '입점 심사 중' : app?.status === 'approved' ? '입점 승인' : app?.status === 'rejected' ? '입점 심사 반려' : '';
   return <div className="space-y-5"><Header title="구매자 마이페이지" subtitle="내 주문과 계정 정보를 관리하세요." back={false}/><button className="divider w-full flex items-center gap-3 pb-5 text-left" onClick={() => setProfileEdit(true)}><div className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-[4px] bg-[var(--blue-soft)] text-[18px] font-bold">{user.name[0]}</div><div className="min-w-0 flex-1"><h2 className="break-words text-[17px] font-bold">{user.name}</h2><p className="muted mt-1 break-all text-[12px]">{user.email}</p></div><span className="muted text-[11px] shrink-0">수정 ›</span></button><MenuRow to="/orders" label="주문 · 배송 조회"/><section className="note space-y-3"><p className="muted text-[10px]">회원 권한</p><h2 className="text-[22px] font-bold">구매자{user.seller ? ' + 판매자' : ''}</h2><p className="muted text-[12px]">{user.seller ? '개인·사업자 모두 구매할 수 있어요.' : '개인·사업자 모두 구매할 수 있어요.'}</p><p className="muted text-[12px]">판매는 입점 심사 승인 후 시작할 수 있어요.</p>{app && <div className="rounded-[4px] bg-[var(--canvas,#F7F7F7)] p-3 space-y-1"><div className="flex items-center justify-between"><p className="text-[11px] font-bold">판매자 입점 신청</p><span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${app.status === 'approved' ? 'bg-[var(--green-soft)] text-[var(--green)]' : app.status === 'rejected' ? 'bg-[var(--red-soft,#FEF2F2)] text-[var(--red)]' : 'bg-[var(--blue-soft)]'}`}>{appStepLabel}</span></div><p className="muted text-[11px] leading-relaxed">{appStatusDesc}</p></div>}<Button className="w-full" onClick={() => { if (user.seller) { mutate(state => { state.mode = 'seller'; }); navigate('/seller'); } else if (app) navigate('/apply'); else navigate('/seller/terms'); }}>{roleLabel}</Button></section><div><button onClick={() => navigate('/addresses')} className="divider flex h-[52px] w-full items-center justify-between"><span>배송지 관리</span><span className="muted">›</span></button><button onClick={() => navigate(SETTINGS_HREF('/my'))} className="divider flex h-[52px] w-full items-center justify-between"><span>알림 설정</span><span className="muted">›</span></button><button onClick={() => setPwChange(true)} className="divider flex h-[52px] w-full items-center justify-between"><span>비밀번호 변경</span><span className="muted">›</span></button><Link className="divider flex h-[52px] items-center justify-between" to="/support">고객 지원 <span className="muted">›</span></Link></div>{user.admin && <MenuRow to="/admin" label="운영자 · 판매자 신청 검토"/>}<div className="text-center"><LogoutButton/></div>{profileEdit && <ProfileEditModal userId={user.id} name={user.name} phone={user.phone} onClose={() => setProfileEdit(false)}/>}{pwChange && <PasswordChangeModal onClose={() => setPwChange(false)}/>}</div>;
 }
 
@@ -93,7 +93,7 @@ export function ApplicationPage() {
             <div><p className="muted text-[10px]">보완 기한</p><p className="mt-1 text-[12px] font-bold">{shortDt(deadlineDate)}</p></div>
           </div>
           <section className="divider space-y-0 py-2">
-            <h2 className="mb-3 text-[15px] font-bold">심사 결과</h2>
+            <h2 className="mb-3 text-[15px] font-bold">입점 심사 결과</h2>
             <InfoRow label="신청 번호" value={previous.id}/>
             {reviewFields.map(f => (
               <div key={f.label} className="divider flex items-center justify-between py-3">
@@ -498,7 +498,8 @@ export function AdminProductListPage() {
   );
 }
 // Rejection reasons matching Figma "상품 반려" screen
-const REJECT_REASONS = ['한정 판매가', '판매 일정', '타 플랫폼 상품과 다름', '상품 사진 · 정보', '기타'] as const;
+// 물품 검수는 판매 심사에 포함: 검수 미통과 항목도 같은 반려 사유로 보낸다(판매자 화면이 '물품 확인'으로 묶어 보여 준다)
+const REJECT_REASONS = ['한정 판매가', '판매 일정', '타 플랫폼 상품과 다름', '상품 사진 · 정보', ...['정품 여부', '상품 상태', '구성품', '수량'].map(i => INSPECTION_PREFIX + i), '기타'];
 export function AdminProductDetailPage() {
   const { id } = useParams(); const s = useStore(), user = activeUser(s), toast = useToast(), navigate = useNavigate();
   const p = s.products.find(p => p.id === id);
@@ -884,7 +885,7 @@ const FAQ_ITEMS: FaqItem[] = [
 export const SELLER_FAQ_ITEMS: FaqItem[] = [
   { question: '정산은 언제 입금되나요?', answer: '구매 확정된 주문은 정산 주기에 맞춰 등록한 정산 계좌로 입금돼요. 정산 계좌는 마이페이지 › 정산 계좌 관리에서 확인할 수 있어요.' },
   { question: '출고 마감 시간을 넘기면 어떻게 되나요?', answer: '상품에 설정한 출고 기한 안에 송장을 등록해 주세요. 기한을 넘기면 구매자에게 지연 안내가 가고, 반복되면 운영 정책에 따라 판매가 제한될 수 있어요.' },
-  { question: '검수에서 반려되면 다시 신청할 수 있나요?', answer: '네. 반려 사유를 확인하고 내용을 고친 뒤 판매 상품 관리에서 다시 심사를 요청할 수 있어요.' },
+  { question: '판매 심사에서 반려되면 다시 요청할 수 있나요?', answer: '네. 반려 사유를 확인하고 내용을 고친 뒤 판매 상품 관리에서 다시 심사를 요청할 수 있어요.' },
   { question: '구매자가 반품을 요청하면?', answer: '주문 문의로 반품 요청이 들어와요. 판매자 문의함에서 내용을 확인하고 반품지 안내와 함께 답변해 주세요.' },
 ];
 
