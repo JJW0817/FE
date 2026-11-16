@@ -1,7 +1,7 @@
 import { initialAuth } from './domain';
 import type { State } from './domain';
 import { atomic, getState, mutate } from './store';
-import { api, ApiError, errorMessage, homePathFor, rolesToFlags } from './api';
+import { api, ApiError, errorMessage, homePathFor, parseServerTime, rolesToFlags } from './api';
 import type { AccountDto, AuthTokens, ChallengeDto, LoginDto, ResetTokenDto, VerificationTokenDto } from './api';
 import { DEMO_ACCOUNT_IDS, DEMO_LOGIN, USE_MOCK } from './config';
 import { disablePush } from './push';
@@ -40,8 +40,7 @@ export async function logout() {
   api.setAccessToken(null);
   mutate(endSession);
 }
-/** 서버 시각은 나노초(.200089800Z)까지 온다 — 밀리초 3자리로 잘라 파싱한다(Safari 호환) */
-export const parseServerTime = (v: string) => new Date(v.replace(/(\.\d{3})\d+/, '$1')).getTime();
+export { parseServerTime } from './api/mappers';
 const sending = new Map<string, Promise<void>>();
 /** 같은 목적·이메일로 발송 중이면 새 요청을 보내지 않고 진행 중인 것을 돌려준다(중복 클릭·StrictMode) */
 export function sendCode(emailValue: string, purpose: 'signup' | 'reset') {

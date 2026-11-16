@@ -30,4 +30,4 @@ export function resetStore() {
   const next = seed(); localStorage.setItem(KEY, JSON.stringify(next)); current = next; listeners.forEach(l => l());
 }
 window.addEventListener('storage', event => { if (event.key === KEY) { current = read() ?? seed(); listeners.forEach(l => l()); } });
-export function sweep() { const now = nowOf(current); if (current.holds.some(h => h.status === 'reserved' && h.expiresAt <= now)) mutate(s => { expireHolds(s, now); }); }
+export function sweep() { const now = nowOf(current); if (current.holds.some(h => h.status === 'reserved' && h.expiresAt !== undefined && h.expiresAt <= now)) mutate(s => { expireHolds(s, now); }); }

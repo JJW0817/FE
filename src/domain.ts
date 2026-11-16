@@ -43,7 +43,8 @@ export interface Application {
   /** 타 플랫폼 판매 URL — 신청 API 필드 확인 필요 (docs/backend-api-requests.md) */ salesUrl?: string;
 }
 export interface Line { optionId: string; name: string; quantity: number }
-export interface Hold { id: string; userId: string; productId: string; lines: Line[]; createdAt: number; expiresAt: number; status: 'reserved' | 'pending' | 'consumed' | 'released'; orderId?: string }
+/** expiresAt이 없으면 서버가 아직 만료 시각을 주지 않은 것(다시 조회). failureCode가 있으면 만료가 아니라 주문 실패(state FAILED) */
+export interface Hold { id: string; userId: string; productId: string; lines: Line[]; createdAt?: number; expiresAt?: number; status: 'reserved' | 'pending' | 'consumed' | 'released'; orderId?: string; failureCode?: string }
 export type OrderStatus = 'paid' | 'preparing' | 'shipping' | 'delivered' | 'cancelled' | 'refunded';
 export interface Order {
   id: string; userId: string; sellerId: string; productId: string; holdId: string; lines: Line[];
@@ -116,7 +117,7 @@ export function available(s: State, p: Product, optionId: string, now: number): 
   if (p.live) return p.options.find(o => o.id === optionId)?.stock ?? 0;
   const initial = p.options.find(o => o.id === optionId)?.stock ?? 0;
   const sold = s.orders.filter(o => o.productId === p.id && !['cancelled', 'refunded'].includes(o.status)).reduce((sum, o) => sum + o.lines.filter(l => l.optionId === optionId).reduce((a, l) => a + l.quantity, 0), 0);
-  const held = s.holds.filter(h => h.productId === p.id && (h.status === 'pending' || h.status === 'reserved' && h.expiresAt > now)).reduce((sum, h) => sum + h.lines.filter(l => l.optionId === optionId).reduce((a, l) => a + l.quantity, 0), 0);
+  const held = s.holds.filter(h => h.productId === p.id && (h.status === 'pending' || h.status === 'reserved' && (h.expiresAt ?? Infinity) > now)).reduce((sum, h) => sum + h.lines.filter(l => l.optionId === optionId).reduce((a, l) => a + l.quantity, 0), 0);
   return Math.max(0, initial - sold - held);
 }
 /** 상품 전체 최초 수량 */
@@ -125,7 +126,7 @@ export const stockTotal = (p: Product) => p.live?.initial ?? p.options.reduce((n
 export const stockLeft = (s: State, p: Product, now: number) => p.live && !p.options.length ? p.live.available : p.options.reduce((n, o) => n + available(s, p, o.id, now), 0);
 export function expireHolds(s: State, now: number): boolean {
   let changed = false;
-  for (const h of s.holds) if (h.status === 'reserved' && h.expiresAt <= now) { h.status = 'released'; changed = true; }
+  for (const h of s.holds) if (h.status === 'reserved' && h.expiresAt !== undefined && h.expiresAt <= now) { h.status = 'released'; changed = true; }
   return changed;
 }
 export function reserve(s: State, userId: string, productId: string, quantities: Record<string, number>, now: number): Hold {
@@ -133,7 +134,7 @@ export function reserve(s: State, userId: string, productId: string, quantities:
   const p = s.products.find(p => p.id === productId);
   if (!p || saleState(p, now) !== '판매 중') throw new DomainError('판매 시간에만 구매할 수 있습니다.', 'sale-closed');
   expireHolds(s, now);
-  const existing = s.holds.find(h => h.userId === userId && h.productId === p.id && (h.status === 'pending' || h.status === 'reserved' && h.expiresAt > now));
+  const existing = s.holds.find(h => h.userId === userId && h.productId === p.id && (h.status === 'pending' || h.status === 'reserved' && (h.expiresAt ?? Infinity) > now));
   if (existing) throw new DomainError(`진행 중인 주문이 있습니다.`, `existing:${existing.id}`);
   const pairs = Object.entries(quantities).filter(([, quantity]) => quantity > 0);
   if (!pairs.length) throw new DomainError('옵션과 수량을 선택해 주세요.');
@@ -149,7 +150,7 @@ export function beginPayment(s: State, userId: string, holdId: string, now: numb
   const hold = s.holds.find(h => h.id === holdId && h.userId === userId);
   if (!hold) throw new DomainError('주문을 찾을 수 없습니다.');
   if (hold.status === 'consumed') return hold;
-  if (hold.status !== 'pending' && (hold.status !== 'reserved' || hold.expiresAt <= now)) { hold.status = 'released'; throw new DomainError('확보 시간이 만료되었습니다.', 'expired'); }
+  if (hold.status !== 'pending' && (hold.status !== 'reserved' || (hold.expiresAt ?? Infinity) <= now)) { hold.status = 'released'; throw new DomainError('확보 시간이 만료되었습니다.', 'expired'); }
   hold.status = 'pending'; return hold;
 }
 export function resolvePayment(s: State, userId: string, holdId: string, outcome: 'success' | 'failure' | 'pending', address: Address, now: number): Order | undefined {
@@ -158,7 +159,7 @@ export function resolvePayment(s: State, userId: string, holdId: string, outcome
   if (hold.orderId) return s.orders.find(o => o.id === hold.orderId);
   if (hold.status !== 'pending') throw new DomainError('결제 진행 상태를 확인해 주세요.');
   if (outcome === 'pending') return undefined;
-  if (outcome === 'failure') { hold.status = now < hold.expiresAt ? 'reserved' : 'released'; return undefined; }
+  if (outcome === 'failure') { hold.status = now < (hold.expiresAt ?? Infinity) ? 'reserved' : 'released'; return undefined; }
   const p = s.products.find(p => p.id === hold.productId)!;
   const subtotal = hold.lines.reduce((sum, l) => sum + l.quantity * p.price, 0);
   const order: Order = { id: uid('SD-'), holdId: hold.id, userId, sellerId: p.sellerId, productId: p.id, lines: structuredClone(hold.lines), product: { name: p.name, brand: p.brand, image: p.images[0], category: p.category, originalUrl: p.originalUrl, price: p.price }, shipping: p.shipping, total: subtotal + p.shipping, address: { ...address }, status: 'paid', createdAt: now };

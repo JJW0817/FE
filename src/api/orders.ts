@@ -6,7 +6,7 @@
  */
 import type { Hold, Order, State } from '../domain';
 import { api } from './client';
-import { orderStatus, addressFromApi, orderFromApi } from './mappers';
+import { ms, orderStatus, addressFromApi, orderFromApi } from './mappers';
 import type { CheckoutTermsDto, OrderCommandDto, OrderItemDto, OrderListItemDto, OrderDetailDto, OrderState } from './types';
 
 const general = 'general' as const, purchase = 'purchase' as const;
@@ -18,12 +18,15 @@ const lines = (items: OrderItemDto[] | null) => (items ?? []).map(i => ({ option
 const IN_PROGRESS: OrderState[] = ['RESERVING', 'STARTING_PAYMENT', 'APPROVING_PAYMENT', 'VERIFYING_PAYMENT', 'CONFIRMING_STOCK', 'COMPENSATING_PAYMENT', 'RELEASING_STOCK'];
 export const holdStatus = (st: OrderState): Hold['status'] => (st === 'HELD' ? 'reserved' : st === 'CONFIRMED' ? 'consumed' : IN_PROGRESS.includes(st) ? 'pending' : 'released');
 /** 서버 시각 기준 만료 시각을 이 기기 시계 기준 ms로 바꾼다 (기기 시계가 틀려도 5분 카운터가 맞게) */
-export function expiresLocal(expiresAt: string | null, serverTime: string) {
-  return expiresAt ? Date.parse(expiresAt) - (Date.parse(serverTime) - Date.now()) : 0;
+/** 만료 시각이 없거나 못 읽으면 undefined — 0(1970년)으로 바꾸면 즉시 만료로 보인다. 서버 시각을 못 읽으면 보정 없이 쓴다 */
+export function expiresLocal(expiresAt: string | null, serverTime: string | null): number | undefined {
+  const exp = ms(expiresAt); if (exp === undefined) return undefined;
+  const server = ms(serverTime); return server === undefined ? exp : exp - (server - Date.now());
 }
 /** 주문 생성·checkout·배송지 변경 응답 → Hold */
 export function holdFromApi(d: OrderCommandDto, userId: string): Hold {
-  return { id: d.orderId, userId, productId: d.productId ?? '', lines: lines(d.items), createdAt: d.expiresAt ? expiresLocal(d.expiresAt, d.serverTime) - 300_000 : Date.now(), expiresAt: expiresLocal(d.expiresAt, d.serverTime), status: holdStatus(d.state), orderId: d.state === 'CONFIRMED' ? d.orderId : undefined };
+  const expiresAt = expiresLocal(d.expiresAt, d.serverTime);
+  return { id: d.orderId, userId, productId: d.productId ?? '', lines: lines(d.items), createdAt: expiresAt === undefined ? undefined : expiresAt - 300_000, expiresAt, status: holdStatus(d.state), orderId: d.state === 'CONFIRMED' ? d.orderId : undefined, failureCode: d.state === 'FAILED' ? d.failureCode || 'UNKNOWN' : undefined };
 }
 /** 확정된 checkout 응답 → Order (조회 모델 반영 전에도 완료 화면을 보여 주기 위해) */
 export function orderFromCommand(d: OrderCommandDto, userId: string): Order {
@@ -32,7 +35,7 @@ export function orderFromCommand(d: OrderCommandDto, userId: string): Order {
     product: { name: d.productName ?? '', brand: d.brandOrStore ?? '', image: '', category: '', originalUrl: '', price: d.unitPrice ?? 0 },
     shipping: d.shippingFee ?? 0, total: d.totalAmount ?? 0,
     address: d.address ? addressFromApi(d.address) : { name: '', phone: '', address: '', detail: '', request: '' },
-    status: orderStatus(d.state, d.delivery), createdAt: d.confirmedAt ? Date.parse(d.confirmedAt) : Date.now(), carrier: d.carrier ?? undefined, tracking: d.trackingNumber ?? undefined,
+    status: orderStatus(d.state, d.delivery), createdAt: ms(d.confirmedAt) ?? Date.now(), carrier: d.carrier ?? undefined, tracking: d.trackingNumber ?? undefined,
   };
 }
 /** 목록 항목 → Order. 목록에는 단가·배송비·배송지가 없어 0/빈 값 (상세를 이미 받았다면 merge가 유지) */
@@ -40,7 +43,7 @@ export function orderFromListItem(d: OrderListItemDto, userId: string): Order {
   return {
     id: d.orderId, userId, sellerId: '', productId: d.productId, holdId: d.orderId, lines: lines(d.items),
     product: { name: d.productName ?? '', brand: d.brandOrStore ?? '', image: '', category: '', originalUrl: '', price: 0 },
-    shipping: 0, total: d.totalAmount, address: { name: '', phone: '', address: '', detail: '', request: '' }, status: orderStatus(d.state, d.delivery), createdAt: Date.parse(d.createdAt),
+    shipping: 0, total: d.totalAmount, address: { name: '', phone: '', address: '', detail: '', request: '' }, status: orderStatus(d.state, d.delivery), createdAt: ms(d.createdAt) ?? 0,
   };
 }
 
@@ -117,7 +120,9 @@ const emptyAddr = (o: Order) => !o.address.address;
 /** checkout 응답을 hold로, 확정이면 주문으로도 넣는다 */
 export function mergeCheckout(s: State, d: OrderCommandDto) {
   const h = holdFromApi(d, s.activeUserId); const i = s.holds.findIndex(x => x.id === h.id);
-  if (i < 0) s.holds.push(h); else s.holds[i] = { ...h, productId: h.productId || s.holds[i].productId, lines: h.lines.length ? h.lines : s.holds[i].lines, createdAt: s.holds[i].createdAt };
+  const old = s.holds[i];
+  // 만료 시각이 빠진 응답(RESERVING 등)이 이미 받은 시각을 지우지 않게 한다
+  if (i < 0) s.holds.push(h); else s.holds[i] = { ...h, productId: h.productId || old.productId, lines: h.lines.length ? h.lines : old.lines, createdAt: old.createdAt ?? h.createdAt, expiresAt: h.expiresAt ?? old.expiresAt };
   if (d.state === 'CONFIRMED') mergeOrders(s, [orderFromCommand(d, s.activeUserId)]);
 }
 /** 주문(확정)을 store에 넣는다. 상세로 이미 받은 단가·배송지는 목록 요약이 지우지 않게 유지, 이미지는 상품에서 */

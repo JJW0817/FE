@@ -2,7 +2,10 @@
 import type { Address, Order, OrderStatus } from '../domain';
 import type { DeliveryState, OrderAddressDto, OrderDetailDto, OrderState } from './types';
 
-export const ms = (iso?: string | null): number | undefined => (iso ? Date.parse(iso) : undefined);
+/** 서버 시각은 나노초(.200089800Z)까지 온다 — 밀리초 3자리로 잘라 파싱한다(Safari 호환). 못 읽으면 NaN */
+export const parseServerTime = (v: string) => new Date(v.replace(/(\.\d{3})\d+/, '$1')).getTime();
+/** 서버 시각 → ms. 없거나 못 읽으면 undefined (0으로 바꾸지 않는다: 1970년이 되어 즉시 만료로 보인다) */
+export const ms = (iso?: string | null): number | undefined => { const t = iso ? parseServerTime(iso) : NaN; return Number.isFinite(t) ? t : undefined; };
 
 export function rolesToFlags(roles: readonly string[]) {
   const has = (role: string) => roles.some(r => r.toUpperCase() === role);

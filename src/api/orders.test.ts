@@ -22,8 +22,26 @@ describe('변환', () => {
   it('만료 시각은 서버 시각 차이를 보정한다', () => {
     vi.useFakeTimers(); vi.setSystemTime(new Date('2030-01-01T00:01:00Z')); // 시계 고정
     const h = holdFromApi(cmd({ serverTime: new Date(Date.now() - 60_000).toISOString(), expiresAt: new Date(Date.now() - 60_000 + 300_000).toISOString() }), 'u');
-    expect(Math.abs(h.expiresAt - (Date.now() + 300_000))).toBe(0);
+    expect(h.expiresAt).toBe(Date.now() + 300_000);
     expect(h.lines).toEqual([{ optionId: 'op1', name: '크림', quantity: 2 }]);
+  });
+  it('expiresAt이 null이면 만료 시각을 0(1970년)으로 만들지 않고, 이미 받은 시각을 지우지 않는다', () => {
+    const h = holdFromApi(cmd({ state: 'RESERVING', expiresAt: null }), 'u');
+    expect(h.expiresAt).toBeUndefined(); expect(h.createdAt).toBeUndefined(); expect(h.status).toBe('pending');
+    expect(holdFromApi(cmd({ expiresAt: 'not-a-date' }), 'u').expiresAt).toBeUndefined();
+    const s = emptyState(); mergeCheckout(s, cmd()); const first = s.holds[0].expiresAt;
+    mergeCheckout(s, cmd({ expiresAt: null })); expect(s.holds[0].expiresAt).toBe(first);
+  });
+  it('나노초 시각(.200089800Z)도 읽는다', () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date('2030-01-01T00:00:00.200Z'));
+    const h = holdFromApi(cmd({ serverTime: '2030-01-01T00:00:00.200089800Z', expiresAt: '2030-01-01T00:05:00.200999999Z' }), 'u');
+    expect(h.expiresAt).toBe(Date.parse('2030-01-01T00:05:00.200Z'));
+  });
+  it('FAILED는 만료가 아니라 실패 코드로 남는다', () => {
+    const h = holdFromApi(cmd({ state: 'FAILED', expiresAt: null, failureCode: 'PRODUCT_DUPLICATE' }), 'u');
+    expect(h).toMatchObject({ status: 'released', failureCode: 'PRODUCT_DUPLICATE' }); expect(h.expiresAt).toBeUndefined();
+    expect(holdFromApi(cmd({ state: 'FAILED', failureCode: null }), 'u').failureCode).toBe('UNKNOWN');
+    expect(holdFromApi(cmd({ state: 'EXPIRED' }), 'u').failureCode).toBeUndefined();
   });
   it('확정 checkout은 주문으로도 들어가고, 미확정은 주문이 되지 않는다', () => {
     const s = emptyState(); mergeCheckout(s, cmd());

@@ -24,8 +24,8 @@ export function ExpiredCheckout({ hold, product: p, remaining, busy, error, onRe
       <span className="absolute right-0 top-0 rounded-[4px] bg-[var(--soft)] px-2 py-1 text-[11px] font-bold text-[var(--aux)]">재고 해제</span>
     </div>
     <div className="space-y-2">
-      <InfoRow label="재고 확보" value={kstTime(hold.createdAt)} strong/>
-      <InfoRow label="결제 만료" value={<span className="text-[var(--red)]">{kstTime(hold.expiresAt)}</span>} strong/>
+      <InfoRow label="재고 확보" value={hold.createdAt === undefined ? '-' : kstTime(hold.createdAt)} strong/>
+      <InfoRow label="결제 만료" value={<span className="text-[var(--red)]">{hold.expiresAt === undefined ? '-' : kstTime(hold.expiresAt)}</span>} strong/>
       {remaining !== undefined && <InfoRow label="남은 수량" value={`${remaining}개`} strong/>}
     </div>
     <div className="rounded-[6px] bg-[var(--soft)] p-4"><p className="muted text-[12px] leading-relaxed">결제가 승인되지 않아 금액이 빠져나가지 않아요.<br/>입력한 배송지는 다음 주문에 그대로 쓸 수 있어요.</p></div>
