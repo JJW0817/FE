@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react';
-import { USE_MOCK } from '../config';
+import { IMAGE_EXPIRED, USE_MOCK } from '../config';
 import type { State } from '../domain';
 import { mutate } from '../store';
 import { useApi } from './hooks';
+
 
 export interface LiveState { loading: boolean; error: string; reload: () => void; live: boolean }
 const MOCK_STATE: LiveState = { loading: false, error: '', reload: () => {}, live: false };
@@ -20,5 +21,10 @@ export function useLive<T>(load: (signal: AbortSignal) => Promise<T>, apply: (s:
   const applyRef = useRef(apply); applyRef.current = apply;
   // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => { if (state.data !== undefined) mutate(s => applyRef.current(s, state.data as T)); }, [state.data]);
+  // 사진 임시 주소가 만료돼 깨지면 이 화면의 데이터를 다시 받아 새 열람 주소로 바꾼다(여러 장이 한꺼번에 깨져도 15초에 한 번)
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const last = useRef(0);
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => { const on = () => { if (Date.now() - last.current < 15_000) return; last.current = Date.now(); state.reload(); }; window.addEventListener(IMAGE_EXPIRED, on); return () => window.removeEventListener(IMAGE_EXPIRED, on); }, [state.reload]);
   return { loading: state.loading, error: state.error, reload: state.reload, live: true };
 }

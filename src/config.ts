@@ -22,3 +22,5 @@ export const DEMO_ACCOUNTS = [{ id: 'buyer', label: '구매자' }, { id: 'seller
  * 배포는 vercel.json rewrites의 서버 주소와 같게 둔다. 저장 형식을 바꾸면 끝 숫자를 올린다.
  */
 export const STORAGE_TAG = `${import.meta.env.VITE_API_TARGET || 'https://api.stockdrop.cloud'}#2`;
+/** 서버 사진 주소는 5분짜리 임시 주소(X-Amz-Expires=300)다. 만료로 깨지면 이 이벤트로 알려 화면이 열람 주소를 새로 받는다(api/live.ts·등록 화면) */
+export const IMAGE_EXPIRED = 'stockdrop:image-expired';

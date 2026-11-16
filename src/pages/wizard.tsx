@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertCircle, Calendar, Check, ChevronDown, ChevronRight, Hash, Image as ImageIcon, Info, Link2, Minus, Package, Plus, ShieldCheck, Sparkles, Timer } from 'lucide-react';
@@ -9,8 +9,8 @@ import { atomic, getState, mutate, useStore } from '../store';
 import { imageData } from '../files';
 import { Button, Empty, ErrorBox, Header, LiveStatus, Modal, Note, ProductImage, Unavailable, useToast } from '../components/ui';
 import { useClock } from '../hooks';
-import { USE_MOCK } from '../config';
-import { FIELD_LABELS, StageError, sourceUrlProblem, MOCK_REGISTRATION_METADATA, PRODUCT_STATE_MESSAGE, SHIPPING_NOTICE_MAX, ATTRIBUTE_VALUE_MAX, attributeName, composeShippingNotice, warnCriteria, analysisProblems, analyzeDraft, categoriesForCode, criteriaFor, listAddressBook, listingProblems, createProductDraft, deleteProductImage, errorMessage, fieldErrors, isApiError, getRegistrationMetadata, getSellerProductWithImages, mergeProducts, reorderProductImages, submitListing, submitRevisionFromDraft, uploadProductImage, useApi, useLive } from '../api';
+import { IMAGE_EXPIRED, USE_MOCK } from '../config';
+import { getProductImageUrl, FIELD_LABELS, StageError, sourceUrlProblem, MOCK_REGISTRATION_METADATA, PRODUCT_STATE_MESSAGE, SHIPPING_NOTICE_MAX, ATTRIBUTE_VALUE_MAX, attributeName, composeShippingNotice, warnCriteria, analysisProblems, analyzeDraft, categoriesForCode, criteriaFor, listAddressBook, listingProblems, createProductDraft, deleteProductImage, errorMessage, fieldErrors, isApiError, getRegistrationMetadata, getSellerProductWithImages, mergeProducts, reorderProductImages, submitListing, submitRevisionFromDraft, uploadProductImage, useApi, useLive } from '../api';
 
 /* ── 초안 ─────────────────────────────────────────────────────────────────────── */
 const SWATCH: Record<string, string> = { 차콜: '#3F3F3F', 오트밀: '#E6DCC6', 크림: '#F3EBDC', 네이비: '#2B3A55', 블랙: '#222222', 화이트: '#FFFFFF', 내추럴: '#E8DCC8', 그레이: '#9A9A9A', 베이지: '#E3D3B8' };
@@ -146,6 +146,13 @@ export function WizardPage() {
   }, [editId]);
   const [error, setError] = useState(''), [uploading, setUploading] = useState(false), [progress, setProgress] = useState(''), [photoError, setPhotoError] = useState(''), [retryFiles, setRetryFiles] = useState<File[]>([]), [fieldErr, setFieldErr] = useState<Record<string, string>>({}), [busy, setBusy] = useState(false), [photo, setPhoto] = useState<number | null>(null), [activeColor, setActiveColor] = useState(0);
   const picking = params.get('pick') === 'category', meta = useRegistrationMeta();
+  // 초안 사진은 5분짜리 임시 주소라 시간이 지나면 깨진다 → 서버에서 열람 주소를 새로 받아 바꾼다
+  const imgIds = d?.imageIds?.join(','), imgOwner = d?.editingId ?? d?.serverId, lastImg = useRef(0);
+  useEffect(() => {
+    if (USE_MOCK || !imgOwner || !imgIds) return;
+    const on = () => { if (Date.now() - lastImg.current < 15_000) return; lastImg.current = Date.now(); const ids = imgIds.split(','); Promise.all(ids.map(i => getProductImageUrl(imgOwner, i).catch(() => ''))).then(urls => { const cur = getState().drafts[user.id]; if (cur?.imageIds?.join(',') === imgIds) patch({ images: urls.map((u, k) => u || cur.images[k]) }); }); };
+    window.addEventListener(IMAGE_EXPIRED, on); return () => window.removeEventListener(IMAGE_EXPIRED, on);
+  }, [imgOwner, imgIds]);
   // AI 분석이 저장·조건 단계에서 막혔으면 해당 칸 아래에 표시한다
   const aiFields = d?.ai.status === 'failed' ? d.ai.fields : undefined;
   useEffect(() => { if (aiFields) setFieldErr(aiFields); }, [aiFields && JSON.stringify(aiFields)]);

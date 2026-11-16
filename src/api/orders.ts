@@ -130,7 +130,7 @@ export function mergeOrders(s: State, items: Order[]) {
   for (const n of items) {
     const old = s.orders.find(x => x.id === n.id);
     const img = s.products.find(p => p.id === n.productId)?.images[0] ?? '';
-    const merged: Order = old ? { ...old, ...n, sellerId: n.sellerId || old.sellerId, product: { ...old.product, ...n.product, price: n.product.price || old.product.price, image: n.product.image || old.product.image || img }, shipping: n.shipping || old.shipping, address: emptyAddr(n) ? old.address : n.address } : { ...n, product: { ...n.product, image: img } };
+    const merged: Order = old ? { ...old, ...n, sellerId: n.sellerId || old.sellerId, product: { ...old.product, ...n.product, price: n.product.price || old.product.price, image: img || n.product.image || old.product.image }, shipping: n.shipping || old.shipping, address: emptyAddr(n) ? old.address : n.address } : { ...n, product: { ...n.product, image: img } };
     if (old) s.orders[s.orders.indexOf(old)] = merged; else s.orders.push(merged);
   }
 }
