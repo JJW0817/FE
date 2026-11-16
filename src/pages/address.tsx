@@ -52,14 +52,15 @@ export function AddressFormPage() {
   // 주소를 고르고 돌아오면 상세 주소부터 입력하게 한다(저장은 사용자가 직접)
   useEffect(() => { if (ready && focusDetail) { detailRef.current?.focus(); setFocusDetail(false); } }, [ready, focusDetail]);
   const set = (patch: Partial<FormValue>) => { setError(''); setValue(v => ({ ...v, ...patch })); };
-  const valid = value.recipientName.trim() && value.recipientPhone.trim() && value.roadAddress.trim() && value.detailAddress.trim();
+  const valid = value.recipientName.trim() && value.recipientPhone.trim() && /^\d{5}$/.test(value.postalCode.trim()) && value.roadAddress.trim() && value.detailAddress.trim();
   function openSearch() { sessionStorage.setItem(draftKey, JSON.stringify(value)); navigate(`/address-search?returnTo=${encodeURIComponent(location.pathname + location.search)}`); }
   async function submit() {
+    if (!/^\d{5}$/.test(value.postalCode.trim())) { setError('주소 검색으로 우편번호(5자리)를 입력해 주세요.'); return; }
     if (!valid) { setError('받는 분·연락처·주소를 입력해 주세요.'); return; }
-    if (value.postalCode && !/^\d{5}$/.test(value.postalCode.trim())) { setError('우편번호는 5자리 숫자로 입력해 주세요.'); return; }
     setBusy(true);
     try {
-      const { makeDefault, ...body } = value;
+      const { makeDefault: wantDefault, ...body } = value;
+      const makeDefault = wantDefault || (isNew && !(await listAddresses()).length); // 첫 배송지는 기본 배송지
       const saved = await saveAddress(id ?? null, { ...body, label: body.label.trim() || '배송지' }, makeDefault);
       if (saved.defaultAddress || returnTo.startsWith('/checkout')) mutate(state => { state.addresses[user.id] = toAddress(saved); });
       toast('배송지를 저장했습니다.'); navigate(returnTo, { replace: true });
