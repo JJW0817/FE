@@ -10,9 +10,12 @@ import { imageData } from '../files';
 import { Button, Empty, ErrorBox, Header, LiveStatus, Modal, Note, ProductImage, Unavailable, useToast } from '../components/ui';
 import { useClock } from '../hooks';
 import { categoryTree } from '../categoryTree';
-import { INSPECTION_CHECKS, INSPECTION_PHOTOS } from '../domain';
+import { INSPECTION_CHECKS, INSPECTION_PHOTOS, analysisInputOf, analysisStale } from '../domain';
+import { kstTime } from './checkoutExpired';
 import { COLOR_AXIS, optionPresetFor } from '../optionPresets';
 import { IMAGE_EXPIRED, QUICK_SCHEDULE, USE_MOCK } from '../config';
+import { AiDelayedError } from '../api/sellerProducts';
+import { parseServerTime } from '../api';
 import { getProductImageUrl, FIELD_LABELS, StageError, sourceUrlProblem, MOCK_REGISTRATION_METADATA, PRODUCT_STATE_MESSAGE, SHIPPING_NOTICE_MAX, ATTRIBUTE_VALUE_MAX, attributeName, composeShippingNotice, warnCriteria, analysisProblems, analyzeDraft, criteriaFor, listAddressBook, listingProblems, createProductDraft, deleteProductImage, errorMessage, fieldErrors, isApiError, getRegistrationMetadata, getSellerProductWithImages, mergeProducts, reorderProductImages, submitListing, submitRevisionFromDraft, uploadProductImage, useApi, useLive } from '../api';
 
 /* ── 초안 ─────────────────────────────────────────────────────────────────────── */
@@ -84,9 +87,12 @@ async function analyzeReal(userId: string, token: string) {
   const failed: Draft['ai'] = { status: 'failed', signature: token, category: '', reason: '' };
   try {
     const id = await ensureServerDraft(userId), d = getState().drafts[userId];
-    // TODO(api-gap): 점검 질문 → FAQ(suggestionId) 저장 흐름
-    done(aiStateOf(token, await analyzeDraft(d, id), d.images.length));
-  } catch (e) { done({ ...failed, reason: isApiError(e, 'PRODUCT_STATE') ? PRODUCT_STATE_MESSAGE : errorMessage(e), fields: e instanceof StageError && Object.keys(e.fields).length ? e.fields : undefined }); }
+    const track = (r: { status: string; attempts: number; nextAttemptAt: string | null }) => { const cur = getState().drafts[userId]; if (cur && cur.ai.status === 'analyzing' && cur.ai.signature === token) patchDraft(userId, { ai: { ...cur.ai, retry: r.status === 'RETRY' ? { attempts: r.attempts, nextAttemptAt: r.nextAttemptAt } : undefined } }); };
+    done({ ...aiStateOf(token, await analyzeDraft(d, id, { onProgress: track }), d.images.length), input: analysisInputOf(d) });
+  } catch (e) {
+    // 3분이 지나도 끝나지 않으면 실패가 아니다(서버는 계속 분석한다) — "다시 확인"으로 같은 입력으로 다시 요청하면 기존 결과가 온다
+    if (e instanceof AiDelayedError) { done({ status: 'delayed', signature: token, category: '', reason: e.message }); return; }
+    done({ ...failed, reason: isApiError(e, 'PRODUCT_STATE') ? PRODUCT_STATE_MESSAGE : errorMessage(e), fields: e instanceof StageError && Object.keys(e.fields).length ? e.fields : undefined }); }
 }
 /** 화면을 떠나도 계속되는 AI 분석(mock은 목업) */
 const ANALYSIS_MS = 2500;
@@ -102,7 +108,7 @@ function startAnalysis(userId: string) {
     // 미리보기 도구의 AI 결과 선택: uncertain = UNCLEAR, unsupported = NOT_APPLICABLE, failed = 요청 실패
     if (state.aiOutcome === 'failed' || !d.images.length) { patchDraft(userId, { ai: { status: 'failed', signature: token, category: '', reason: '' } }); return; }
     const r = mockAiAnalysis(d), outcome = state.aiOutcome === 'uncertain' ? 'UNCLEAR' : state.aiOutcome === 'unsupported' ? 'NOT_APPLICABLE' : 'RECOMMENDED';
-    patchDraft(userId, { ai: aiStateOf(token, { ...r, outcome }, d.images.length) });
+    patchDraft(userId, { ai: { ...aiStateOf(token, { ...r, outcome }, d.images.length), input: analysisInputOf(d) } });
   }, ANALYSIS_MS);
 }
 function useDraft() {
@@ -173,7 +179,10 @@ export function WizardPage() {
   const setStock = (key: string, n: number) => patch({ stock: { ...stock, [key]: n } });
   // 점검 항목 입력은 attributes로 저장한다. 항목명은 질문 문장이 아니라 고정 표시명(구매자 상품 상세에 그대로 보인다)
   const setExtra = (key: string, value: string) => patch({ extras: d.extras.some(e => e.key === key) ? d.extras.map(e => e.key === key ? { ...e, value } : e) : [...d.extras.filter(e => e.key.trim()), { key, value }] });
-  const criteria = meta.data ? criteriaFor(meta.data, d.category) : undefined, questions = d.ai.result?.questions ?? [];
+  const criteria = meta.data ? criteriaFor(meta.data, d.category) : undefined, stale = analysisStale(d), questions = stale ? [] : (d.ai.result?.questions ?? []);
+  // AI 질문 답은 상품 FAQ(question=AI 질문 원문, suggestionId)로 저장한다. 카테고리별 입력칸(categoryCriteria)은 attributes 그대로
+  const aiAnswer = (suggestionId?: string) => d.faqs.find(f => f.suggestionId && f.suggestionId === suggestionId)?.answer ?? '';
+  const setAiAnswer = (q: AiQuestion, answer: string) => { const sid = q.suggestionId ?? q.question; patch({ faqs: d.faqs.some(f => f.suggestionId === sid) ? d.faqs.map(f => (f.suggestionId === sid ? { ...f, answer } : f)) : [...d.faqs, { id: `faq-${sid}`, question: q.question, answer, confirmed: true, suggestionId: sid }] }); };
   const color = colors[Math.min(activeColor, colors.length - 1)] ?? '';
   const colorTotal = (c: string) => axes.size ? sizes.reduce((n, sz) => n + (stock[optionKey(c, sz)] ?? 0), 0) : stock[optionKey(c, '')] ?? 0;
   const total = d.options.reduce((n, o) => n + o.stock, 0);
@@ -224,7 +233,7 @@ export function WizardPage() {
   }
   function openCategory() {
     if (d.ai.status === 'analyzing') navigate(`/seller/new/ai/analyzing${suffix}`);
-    else if (d.ai.status === 'failed') navigate(`/seller/new/ai/failed${suffix}`);
+    else if (d.ai.status === 'failed' || d.ai.status === 'delayed') navigate(`/seller/new/ai/failed${suffix}`);
     else if (d.ai.result) navigate(`/seller/new/ai${suffix}`);
     else { const next = new URLSearchParams(params); next.set('pick', 'category'); setParams(next); }
   }
@@ -313,16 +322,19 @@ export function WizardPage() {
 
     <section data-field="state" className="space-y-2">
       <Button outline={!!Object.keys(analysisProblems(d, editing?.reviewStatus)).length} className="flex w-full items-center justify-center gap-1.5 text-[14px]!" disabled={d.ai.status === 'analyzing' || uploading} onClick={runAnalysis}><Sparkles size={15}/>{d.ai.status === 'analyzing' ? 'AI가 분석하고 있어요' : d.ai.result || d.ai.status === 'uncertain' ? 'AI 분석 다시 하기' : 'AI로 카테고리 분석하기'}</Button>
-      <p className="text-[12px] text-[var(--meta)]">사진·상품명·짧은 설명·처분 사유를 입력하면 AI가 카테고리를 추천해요</p>
+      <p className="text-[12px] text-[var(--meta)]">사진·상품명·짧은 설명·처분 사유를 입력하면 AI가 카테고리를 추천해요. 분석은 선택이라 건너뛰고 카테고리를 직접 골라도 돼요</p>
+      <ul className="space-y-1 rounded-[6px] bg-[var(--soft)] p-3 text-[12px] leading-[1.6] text-[var(--aux)]"><li>· 상품 전체가 보이는 사진과 라벨(소재·사이즈 표기) 사진을 올려 주세요</li><li>· 설명에 실측 사이즈, 소재, 구성품, 관리 방법을 적으면 AI 질문이 줄어요</li><li>· 분석 뒤에 상품명·설명·브랜드·URL·사진 등을 바꾸면 질문을 다시 받아야 해요. 입력을 마친 뒤 분석하면 한 번에 끝나요</li></ul>
       <FieldError name="state"/>
     </section>
+
+    {stale && <section role="status" className="space-y-2 rounded-[6px] bg-[var(--red-soft)] p-4"><p className="text-[13px] font-bold text-[var(--red)]">정보가 바뀌어 AI 질문을 다시 받아야 해요</p><p className="text-[12px] text-[var(--red)]">분석한 뒤에 상품명·설명·브랜드·URL·카테고리·처분 사유·사진 중 하나가 바뀌었어요. 다시 분석하면 입력이 같을 땐 기존 결과, 다르면 새 분석을 받아요.</p><Button outline className="w-full" disabled={d.ai.status === 'analyzing' || uploading} onClick={runAnalysis}>다시 분석</Button></section>}
 
     <section data-field="category"><Label hint="· AI 추천 또는 직접 선택">카테고리</Label>
       {!d.category && d.ai.status === 'uncertain' && d.ai.reason && <p role="status" className="pb-1 text-[12px] text-[var(--aux)]">{d.ai.reason}</p>}
       <button type="button" onClick={openCategory} className="flex h-12 w-full items-center gap-2 border-b border-[var(--line)] text-left">
         <Sparkles size={16} className="shrink-0"/>
         <span className={`min-w-0 flex-1 truncate text-[16px] ${d.category ? '' : 'text-[var(--placeholder)]'}`}>{d.category || (d.ai.status === 'analyzing' ? '사진을 분석하고 있어요' : '카테고리를 선택해 주세요')}</span>
-        {(d.category || d.ai.result || d.ai.status === 'analyzing' || d.ai.status === 'failed') && <span className="flex shrink-0 items-center text-[13px] text-[var(--aux)]">분석 결과<ChevronRight size={16}/></span>}
+        {(d.category || d.ai.result || d.ai.status === 'analyzing' || d.ai.status === 'failed' || d.ai.status === 'delayed') && <span className="flex shrink-0 items-center text-[13px] text-[var(--aux)]">분석 결과<ChevronRight size={16}/></span>}
       </button>
       <FieldError name="category"/>
     </section>
@@ -330,12 +342,20 @@ export function WizardPage() {
     {/* 카테고리별 점검 기준(registration-metadata categoryCriteria) → 입력칸. 값은 2단계 attributes(항목명+값)로 저장. AI 질문은 checkCode가 같은 칸 옆에 */}
     {criteria && <section className="space-y-4" data-field="attributes">
       <div><Label hint="· 심사 때 확인해요">카테고리별 상품 정보</Label><p className="mt-1 text-[12px] text-[var(--meta)]">카테고리마다 확인하는 항목이 달라요</p></div>
-      {criteria.checks.map(c => { const q = questions.find(x => x.checkCode === c.code), name = attributeName(c.code); return <div key={c.code}>
+      {criteria.checks.map(c => { const name = attributeName(c.code); return <div key={c.code}>
         <p className="text-[13px]">{name}</p>
-        {q && <p className="mt-1 flex items-start gap-1 text-[12px] text-[var(--aux)]"><Sparkles size={12} className="mt-[3px] shrink-0"/><span>{q.question}{q.reason && <span className="text-[var(--meta)]"> · {q.reason}</span>}</span></p>}
         <input aria-label={name} className="field-line" value={d.extras.find(e => e.key === name)?.value ?? ''} maxLength={ATTRIBUTE_VALUE_MAX} onChange={e => setExtra(name, e.target.value)}/>
       </div>; })}
-      {questions.filter(q => !criteria.checks.some(c => c.code === q.checkCode)).map((q, i) => <p key={i} className="flex items-start gap-1 rounded-[6px] bg-[var(--soft)] p-3 text-[12px] text-[var(--aux)]"><Sparkles size={12} className="mt-[3px] shrink-0"/>{q.question}{q.reason && ` · ${q.reason}`}</p>)}
+    </section>}
+
+    {questions.length > 0 && <section className="space-y-4" data-field="aiQuestions">
+      <div><Label hint="· 선택">AI 질문</Label><p className="mt-1 text-[12px] text-[var(--meta)]">AI가 분석하며 궁금했던 점이에요. 답하지 않아도 판매 심사를 요청할 수 있어요</p></div>
+      {questions.map((q, i) => <div key={q.suggestionId ?? i} className="space-y-1.5">
+        <p className="flex items-start gap-1 text-[13px] font-bold"><Sparkles size={13} className="mt-[3px] shrink-0"/>{q.question}</p>
+        {q.reason && <p className="text-[12px] text-[var(--meta)]">{q.reason}</p>}
+        <textarea aria-label={`AI 질문 답: ${q.question}`} className="field-line min-h-[72px] py-2" maxLength={4000} value={aiAnswer(q.suggestionId ?? q.question)} onChange={e => setAiAnswer(q, e.target.value)}/>
+        <p className="text-[11px] text-[var(--meta)]">이 답은 상품 FAQ로 구매자에게도 공개돼요</p>
+      </div>)}
     </section>}
 
     <section className="space-y-3" data-field="sourceUrl">
@@ -499,13 +519,13 @@ export function AiAnalysisPage() {
 
 export function AiAnalyzingPage() {
   const { user, d, suffix } = useDraft(); const navigate = useNavigate();
-  useEffect(() => { if (d && d.ai.status !== 'analyzing') navigate(d.ai.status === 'uncertain' ? `/seller/new${suffix}` : `/seller/new/ai${d.ai.status === 'failed' ? '/failed' : ''}${suffix}`, { replace: true }); }, [d?.ai.status]);
+  useEffect(() => { if (d && d.ai.status !== 'analyzing') navigate(d.ai.status === 'uncertain' ? `/seller/new${suffix}` : `/seller/new/ai${d.ai.status === 'failed' || d.ai.status === 'delayed' ? '/failed' : ''}${suffix}`, { replace: true }); }, [d?.ai.status]);
   if (!user.seller) return <Unavailable message="승인된 판매자만 상품을 등록할 수 있습니다."/>;
   if (!d) return null;
   return <AiFrame footer={<Button outline className="w-full text-[15px]!" onClick={() => navigate(`/seller/new${suffix}`)}>기다리지 않고 등록 계속하기</Button>}>
     <Thumbs images={d.images}/>
     <span className="grid h-11 w-11 place-items-center rounded-full bg-[var(--soft)]"><Sparkles size={18}/></span>
-    <div className="space-y-3"><h1 className="text-[24px] font-bold leading-[1.45] tracking-[-.7px]">등록한 사진 {d.images.length}장을<br/>분석하고 있어요</h1><p className="text-[13px] text-[var(--aux)]">보통 10초 안에 끝나요.</p></div>
+    <div className="space-y-3"><h1 className="text-[24px] font-bold leading-[1.45] tracking-[-.7px]">등록한 사진 {d.images.length}장을<br/>분석하고 있어요</h1>{d.ai.retry ? <p role="status" className="text-[13px] text-[var(--aux)]">잠시 후 다시 분석해요{d.ai.retry.nextAttemptAt ? ` (다음 시도 ${kstTime(parseServerTime(d.ai.retry.nextAttemptAt)).slice(0, 5)})` : ''} · {d.ai.retry.attempts}번째 시도 중</p> : <p className="text-[13px] text-[var(--aux)]">보통 10초 안에 끝나요.</p>}</div>
     <div className="h-1 w-full overflow-hidden rounded-full bg-[var(--line)]"><div className="h-1 w-[60%] rounded-full bg-[var(--ink)]"/></div>
     <div className="space-y-3.5">{([['카테고리', 60], ['점검 질문', 44]] as const).map(([label, w]) => <div key={label} className="flex items-center justify-between"><span className="text-[12px] text-[var(--muted)]">{label}</span><span className="h-3 rounded-[2px] bg-[var(--soft)]" style={{ width: `${w}%` }}/></div>)}</div>
     <div className="flex gap-2 rounded-[6px] bg-[var(--soft)] p-4"><Info size={15} className="mt-[2px] shrink-0 text-[var(--aux)]"/><p className="text-[12px] leading-[1.6] text-[var(--aux)]">분석을 기다리지 않아도 돼요. 상품 등록은 계속 진행할 수 있고, 결과는 확인한 뒤에만 반영돼요.</p></div>
@@ -516,11 +536,12 @@ export function AiFailedPage() {
   const { user, d, suffix } = useDraft(); const navigate = useNavigate();
   if (!user.seller) return <Unavailable message="승인된 판매자만 상품을 등록할 수 있습니다."/>;
   if (!d) return null;
-  return <AiFrame footer={<div className="flex gap-2"><Button outline className="w-[128px] text-[15px]!" onClick={() => navigate(`/seller/new${suffix}${suffix ? '&' : '?'}pick=category`, { replace: true })}>직접 입력하기</Button><Button className="flex-1 text-[15px]!" onClick={() => { startAnalysis(user.id); navigate(`/seller/new/ai/analyzing${suffix}`, { replace: true }); }}>다시 분석</Button></div>}>
+  const delayed = d.ai.status === 'delayed'; // 3분이 지나도 끝나지 않음 — 실패가 아니다(서버는 계속 분석한다)
+  return <AiFrame footer={<div className="flex gap-2"><Button outline className="w-[128px] text-[15px]!" onClick={() => navigate(`/seller/new${suffix}${suffix ? '&' : '?'}pick=category`, { replace: true })}>직접 입력하기</Button><Button className="flex-1 text-[15px]!" onClick={() => { startAnalysis(user.id); navigate(`/seller/new/ai/analyzing${suffix}`, { replace: true }); }}>{delayed ? '다시 확인' : '다시 분석'}</Button></div>}>
     <Thumbs images={d.images}/>
     <span className="grid h-11 w-11 place-items-center rounded-full bg-[var(--red-soft)]"><AlertCircle size={18} className="text-[var(--action)]"/></span>
     {d.ai.fields && <div role="alert" className="space-y-2 rounded-[6px] bg-[var(--red-soft)] p-4"><p className="text-[13px] font-bold text-[var(--red)]">분석 요청 전에 확인할 정보가 있어요</p>{Object.entries(d.ai.fields).map(([k, v]) => <p key={k} className="text-[12px] text-[var(--red)]">{FIELD_LABELS[k] ?? k} · {v}</p>)}<Button outline className="w-full" onClick={() => navigate(`/seller/new${suffix}`, { replace: true })}>입력 정보 확인하기</Button></div>}
-    <div className="space-y-2"><h1 className="text-[24px] font-bold tracking-[-.7px]">사진을 분석하지 못했어요</h1><p className="text-[13px] text-[var(--aux)]">{d.ai.reason ? d.ai.reason : '사진이 흐리거나 상품이 잘 보이지 않으면 분석이 어려워요.'}</p></div>
+    <div className="space-y-2"><h1 className="text-[24px] font-bold tracking-[-.7px]">{delayed ? '분석이 지연되고 있어요' : '사진을 분석하지 못했어요'}</h1><p className="text-[13px] text-[var(--aux)]">{delayed ? '나중에 다시 확인해 주세요. 서버는 계속 분석하고 있어요. 다시 확인해도 비용은 들지 않아요.' : d.ai.reason ? d.ai.reason : '사진이 흐리거나 상품이 잘 보이지 않으면 분석이 어려워요.'}</p></div>
     <div className="space-y-2 rounded-[6px] bg-[var(--infobar)] p-4"><p className="text-[13px] font-bold">이렇게 하면 더 잘 분석돼요</p><p className="whitespace-pre-line text-[12px] leading-[1.7] text-[var(--aux)]">{'· 상품 전체가 보이도록 밝은 곳에서 촬영\n· 라벨·택이 보이는 사진을 함께 등록\n· 한 사진에 상품 하나만'}</p></div>
     <div className="flex gap-2 rounded-[6px] bg-[var(--soft)] p-4"><Info size={15} className="mt-[2px] shrink-0 text-[var(--aux)]"/><p className="text-[12px] leading-[1.6] text-[var(--aux)]">AI 분석 없이 카테고리를 직접 선택해도 판매 심사를 요청할 수 있어요. 입력한 내용은 그대로 저장돼 있어요.</p></div>
   </AiFrame>;

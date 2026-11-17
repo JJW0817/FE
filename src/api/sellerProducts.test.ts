@@ -135,9 +135,9 @@ describe('AI 분석', () => {
   it('폴링: RETRY는 계속, COMPLETED면 결과, 끝내 안 오면 안내', async () => {
     let n = 0;
     fake(() => (++n < 3 ? { status: n === 1 ? 'PENDING' : 'RETRY', result: null } : { status: 'COMPLETED', result: { outcome: 'RECOMMENDED', recommendedCategory: 'CLOTHING', questions: [] } }));
-    expect((await pollAiAnalysis('r1', { interval: 0 })).outcome).toBe('RECOMMENDED'); expect(n).toBe(3);
+    expect((await pollAiAnalysis('r1', { schedule: [0, 0, 0] })).outcome).toBe('RECOMMENDED'); expect(n).toBe(3);
     fake(() => ({ status: 'RUNNING', result: null }));
-    await expect(pollAiAnalysis('r1', { interval: 0, tries: 2 })).rejects.toThrow('지연');
+    await expect(pollAiAnalysis('r1', { schedule: [0, 0] })).rejects.toThrow('지연');
   });
   const img = { id: 'i1', objectKey: 'k', contentType: 'image/png', sizeBytes: 100, position: 0, representative: true };
   it('analyzeDraft: 기본 정보 저장 → 요청(새 version) → 폴링, 코드는 점검 기준 이름으로', async () => {
@@ -145,7 +145,7 @@ describe('AI 분석', () => {
     const calls = fake(c => c.url.includes('registration-metadata') ? { categories: ['의류'], categoryCriteria: [{ code: 'CLOTHING', name: '의류', checks: [] }] }
       : c.url.includes('/ai-analyses') ? { requestId: 'r1' } : c.url.includes('/ai/product-analyses/') ? { status: 'COMPLETED', result: { outcome: 'RECOMMENDED', recommendedCategory: 'CLOTHING', questions: [{ suggestionId: 's', checkCode: 'c', question: 'q', reason: 'r' }] } }
       : c.url.endsWith('/images') ? [img] : c.method === 'PUT' ? (saved = dto({ version: 6, name: '상품', description: '설명', disposalReason: '재고' })) : saved);
-    const r = await analyzeDraft({ ...blankDraft(), name: '상품', description: '설명', reason: '재고', images: ['x'] }, 'p1', { interval: 0 });
+    const r = await analyzeDraft({ ...blankDraft(), name: '상품', description: '설명', reason: '재고', images: ['x'] }, 'p1', { schedule: [0, 0, 0] });
     expect(r).toMatchObject({ outcome: 'RECOMMENDED', category: '의류' }); expect(r.questions).toHaveLength(1);
     expect(calls.find(c => c.url.includes('basic-info'))!.body.expectedVersion).toBe(5); expect(calls.find(c => c.url.includes('/ai-analyses'))!.body.expectedVersion).toBe(6);
   });
@@ -153,7 +153,7 @@ describe('AI 분석', () => {
     const calls = fake(c => c.url.includes('registration-metadata') ? { categories: ['의류'], categoryCriteria: [] }
       : c.url.includes('/ai-analyses') ? { requestId: 'r1' } : c.url.includes('/ai/product-analyses/') ? { status: 'COMPLETED', result: { outcome: 'NOT_APPLICABLE', recommendedCategory: null, questions: [] } }
       : c.url.endsWith('/images') ? [img] : dto({ version: 9, name: '상품', description: '설명', disposalReason: '재고 정리' }));
-    await analyzeDraft({ ...blankDraft(), name: '상품', description: '설명', reason: '재고 정리', images: ['x'] }, 'p1', { interval: 0 });
+    await analyzeDraft({ ...blankDraft(), name: '상품', description: '설명', reason: '재고 정리', images: ['x'] }, 'p1', { schedule: [0, 0, 0] });
     expect(calls.filter(c => c.method === 'PUT')).toHaveLength(0);
     expect(calls.find(c => c.url.includes('/ai-analyses'))!.body.expectedVersion).toBe(9);
   });

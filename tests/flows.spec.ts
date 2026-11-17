@@ -162,3 +162,10 @@ test('정산 은행은 직접 입력이 아니라 아래에서 올라오는 선�
   await list.getByRole('option', { name: '카카오뱅크' }).click(); await expect(list).toHaveCount(0);
   await expect(page.getByRole('button', { name: '정산 은행' })).toContainText('카카오뱅크');
 });
+
+test('운영자 판매 심사 상세: AI 질문에서 온 FAQ는 배지와 함께 질문·판매자 답을 보여 준다', async ({ page }) => {
+  await editState(page, s => { const p = s.products.find((x: any) => x.id === 'ecobag'); p.published = false; p.rejectionReason = undefined; p.faqs = [{ id: 'f1', question: '실측 사이즈를 알려 주세요', answer: '가로 30cm', confirmed: true, suggestionId: 's1' }, { id: 'f2', question: '세탁은 어떻게 하나요?', answer: '손세탁', confirmed: true }]; });
+  await actor(page, 'admin'); await page.goto('/#/admin/products/ecobag');
+  const faqs = page.getByTestId('admin-faqs'); await expect(faqs).toBeVisible(); await expect(faqs.getByText('AI 질문')).toHaveCount(1);
+  await expect(faqs.getByText('Q. 실측 사이즈를 알려 주세요')).toBeVisible(); await expect(faqs.getByText('A. 가로 30cm')).toBeVisible(); await expect(faqs.getByText('Q. 세탁은 어떻게 하나요?')).toBeVisible();
+});

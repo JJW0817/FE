@@ -6,7 +6,7 @@
  * 실제 모드 전용: mock 모드는 화면이 기존 로컬 동작(publishDraft 등)을 그대로 쓴다.
  */
 import type { Draft, Inquiry, Product } from '../domain';
-import { CATEGORY_PATHS, optionKey } from '../domain';
+import { CATEGORY_PATHS, analysisStale, optionKey } from '../domain';
 import { ApiError, api } from './client';
 import { ms } from './mappers';
 import { errorMessage } from './errors';
@@ -26,7 +26,7 @@ export function sellerProductFromApi(d: SellerProductDto): Product {
     price: d.price ?? 0, shipping: d.shippingFee ?? 0, maxPerAccount: d.perAccountLimit ?? 0, dispatchDays: d.dispatchBusinessDays ?? 0, startsAt: ms(d.startsAt) ?? 0, endsAt: ms(d.endsAt) ?? 0,
     published: d.status === 'APPROVED', options: (d.options ?? []).map(o => ({ id: o.id, name: o.label, stock: o.initialQuantity })),
     dimensions: (d.optionDimensions ?? []).map(x => ({ name: x.name, values: (x.values ?? []).join(', ') })), extras: (d.attributes ?? []).map(a => ({ key: a.name, value: a.value })), reason: d.disposalReason ?? '',
-    faqs: (d.faqs ?? []).map(f => ({ id: f.id, question: f.question, answer: f.answer, confirmed: true })),
+    faqs: (d.faqs ?? []).map(f => ({ id: f.id, question: f.question, answer: f.answer, confirmed: true, ...(f.suggestionId ? { suggestionId: f.suggestionId } : {}) })),
     shippingNotice: d.shippingNotice ?? '', rejectionReason: d.status === 'REJECTED' ? (d.reviewReason ?? '') : undefined, version: d.version, reviewStatus: d.status,
   };
 }
@@ -196,14 +196,18 @@ export const requestAiAnalysis = (id: string, expectedVersion: number) => api.po
 /** GET /v1/ai/product-analyses/{requestId} — 상품 id가 아니라 requestId. 완료 전 result=null, RETRY는 실패가 아니다 */
 export const getAiAnalysis = (requestId: string, signal?: AbortSignal) => api.get<AiAnalysisDto>(`/v1/ai/product-analyses/${enc(requestId)}`, { service: general, signal });
 const sleep = (t: number) => new Promise(r => setTimeout(r, t));
-/** 완료(COMPLETED)까지 폴링. 추측(명세 없음): 2초 간격 최대 30회. 이벤트 지연으로 생기는 404 AI_NOT_FOUND는 재시도한다 */
-export async function pollAiAnalysis(requestId: string, o: { interval?: number; tries?: number; signal?: AbortSignal } = {}): Promise<NonNullable<AiAnalysisDto['result']>> {
-  for (let i = 0; i < (o.tries ?? 30); i++) {
-    try { const r = await getAiAnalysis(requestId, o.signal); if (r.status === 'COMPLETED' && r.result) return r.result; }
+/** 분석 확인 간격: 처음 1분은 2초(30번), 이어서 2분은 5초(24번) — 최대 약 3분 */
+export const AI_POLL_MS = [...Array<number>(30).fill(2000), ...Array<number>(24).fill(5000)];
+/** 3분이 지나도 끝나지 않음 — 실패가 아니다(서버는 계속 분석한다). 화면은 "다시 확인"을 보여 준다 */
+export class AiDelayedError extends Error { constructor() { super('분석이 지연되고 있어요. 나중에 다시 확인해 주세요.'); this.name = 'AiDelayedError'; } }
+/** 완료(COMPLETED)까지 폴링. 상태: PENDING 대기 · RUNNING 처리 중 · RETRY 서버가 nextAttemptAt에 자동 재시도(실패 아님) · COMPLETED. FAILED는 없다. 이벤트 지연으로 생기는 404 AI_NOT_FOUND는 재시도한다 */
+export async function pollAiAnalysis(requestId: string, o: { schedule?: number[]; signal?: AbortSignal; onProgress?: (r: Pick<AiAnalysisDto, 'status' | 'attempts' | 'nextAttemptAt'>) => void; sleep?: (ms: number) => Promise<unknown> } = {}): Promise<NonNullable<AiAnalysisDto['result']>> {
+  for (const wait of o.schedule ?? AI_POLL_MS) {
+    try { const r = await getAiAnalysis(requestId, o.signal); o.onProgress?.(r); if (r.status === 'COMPLETED' && r.result) return r.result; }
     catch (e) { if (!(e instanceof ApiError && e.code === 'AI_NOT_FOUND')) throw e; }
-    await sleep(o.interval ?? 2000);
+    await (o.sleep ?? sleep)(wait);
   }
-  throw new Error('AI 분석이 지연되고 있어요. 잠시 후 다시 시도해 주세요.');
+  throw new AiDelayedError();
 }
 
 /* ── 문의 답변 ── */
@@ -244,6 +248,19 @@ const detailsOf = (d: Draft) => ({ attributes: d.extras.filter(e => e.key.trim()
 export const sameBasic = (b: ReturnType<typeof basicInfoOf>, p: Product) => (b.name ?? '') === p.name && (b.description ?? '') === p.description && (b.brandOrStore ?? '') === p.brand && (b.sourceUrl ?? '') === p.originalUrl && (b.category ?? '') === p.category;
 export const sameDetails = (x: ReturnType<typeof detailsOf>, p: Product) => (x.disposalReason ?? '') === p.reason && JSON.stringify(x.attributes) === JSON.stringify(p.extras.map(e => ({ name: e.key, value: e.value })));
 
+/** 저장할 FAQ: 직접 쓴 FAQ + AI 질문 답(suggestionId, question은 AI 질문 원문). 분석 뒤 입력이 바뀌었으면 그 분석의 질문 답은 쓸 수 없어 뺀다 */
+export function faqsToSave(d: Draft): FaqInput[] {
+  const stale = analysisStale(d), old = new Set((d.ai.result?.questions ?? []).map(q => q.suggestionId));
+  return d.faqs.filter(f => f.question.trim() && f.answer.trim() && !(stale && f.suggestionId && old.has(f.suggestionId)))
+    .map(f => ({ id: f.id.startsWith('faq-') ? undefined : f.id, question: f.question, answer: f.answer, ...(f.suggestionId ? { suggestionId: f.suggestionId } : {}) }));
+}
+/** 분석이 막 끝난 직후 1~2초는 FAQ 저장이 거절될 수 있다 → 1초 간격으로 2번 더(총 3번). AI 질문 답이 없으면 재시도하지 않는다 */
+export async function withFaqRetry<T>(run: () => Promise<T>, retry: boolean, wait: (ms: number) => Promise<unknown> = sleep): Promise<T> {
+  for (let i = 1; ; i++) {
+    try { return await run(); }
+    catch (e) { if (!retry || i >= 3 || !(e instanceof ApiError && e.status >= 400 && e.status < 500 && ![401, 403].includes(e.status))) throw e; await wait(1000); }
+  }
+}
 /**
  * 등록 화면 제출(실제 모드): 최신 version을 읽고 → 기본 정보 → 상세 → 옵션 → 가격·배송 → 일정 → (FAQ) → 심사 제출.
  * 단계마다 응답의 새 version을 다음 요청에 넘긴다. 이미지는 올릴 때 이미 서버에 연결되어 있다.
@@ -258,7 +275,8 @@ export async function submitListing(d: Draft, id: string): Promise<Product> {
   p = await withStage('옵션 저장 실패', () => saveOptions(id, v(), o));
   p = await withStage('가격·배송 저장 실패', () => savePricingShipping(id, v(), { price: d.price, shippingFee: d.shipping, dispatchBusinessDays: d.dispatchDays, perAccountLimit: d.maxPerAccount, shippingNotice: d.shippingNotice?.trim() || undefined, dispatchAddressId: d.dispatchAddressId, returnAddressId: d.returnAddressId }));
   p = await withStage('판매 일정 저장 실패', () => saveSchedule(id, v(), startIso(d)));
-  if (d.faqs.length) p = await withStage('FAQ 저장 실패', () => saveRegistrationFaqs(id, v(), d.faqs.filter(f => f.question.trim() && f.answer.trim()).map(f => ({ id: f.id.startsWith('faq-') ? undefined : f.id, question: f.question, answer: f.answer }))));
+  const faqs = faqsToSave(d);
+  if (faqs.length) p = await withStage('FAQ 저장 실패', () => withFaqRetry(() => saveRegistrationFaqs(id, v(), faqs), faqs.some(f => f.suggestionId)));
   return withStage('심사 요청 실패', () => submitReview(id, v()));
 }
 /** 승인 상품 수정 제출(실제 모드): 가격·옵션·수량은 수정 대상이 아니다. 이미지는 draft.imageIds 순서, 대표=첫 장 */
@@ -341,7 +359,7 @@ export function listingProblems(d: Draft, o: { categories: string[]; now: number
   return f;
 }
 /** AI 점검(실제 모드): 현재 입력을 기본 정보로 저장 → 요청 → 폴링. 결과의 카테고리 코드는 점검 기준 이름으로 바꾼다 */
-export async function analyzeDraft(d: Draft, id: string, o?: { interval?: number; tries?: number }) {
+export async function analyzeDraft(d: Draft, id: string, o?: Parameters<typeof pollAiAnalysis>[1]) {
   const local = analysisProblems(d); if (Object.keys(local).length) throw new StageError('AI 분석 전 확인', local);
   // 단계 이름과 칸(violations)을 붙여 던진다 — 'AI 분석 실패'만 보여 원인을 알 수 없던 문제. 상태 오류는 화면이 코드로 구분하도록 그대로
   const at_ = withStage;
@@ -360,5 +378,5 @@ export async function analyzeDraft(d: Draft, id: string, o?: { interval?: number
   const accepted = await at_('AI 분석 요청 실패', () => requestAiAnalysis(id, fresh.version ?? 0));
   const r = await at_('AI 분석 결과 확인 실패', () => pollAiAnalysis(accepted.requestId, o));
   // 추천 코드(예 CLOTHING)는 registration-metadata로 등록 카테고리 이름으로 바꾼다(목록에 없으면 '' → 직접 선택)
-  return { outcome: r.outcome, code: r.recommendedCategory ?? '', category: categoryForCode(meta, r.recommendedCategory), questions: (r.questions ?? []).map(q => ({ checkCode: q.checkCode, question: q.question, reason: q.reason })), categories: meta.categories };
+  return { outcome: r.outcome, code: r.recommendedCategory ?? '', category: categoryForCode(meta, r.recommendedCategory), questions: (r.questions ?? []).map(q => ({ checkCode: q.checkCode, suggestionId: q.suggestionId, question: q.question, reason: q.reason })), categories: meta.categories };
 }
