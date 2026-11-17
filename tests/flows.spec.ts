@@ -176,3 +176,14 @@ test('토스 결제창에서 돌아오면(해시 앞 쿼리) 결제 처리 화�
   await expect(page.getByRole('navigation', { name: '하단 메뉴' })).toHaveCount(0);
   await page.goto('/#/payments/toss/fail?code=PAY_PROCESS_CANCELED&orderId=o1'); await expect(page).toHaveURL(/#\/payments\/toss\/fail$/);
 });
+
+test('알림 설정: 개인 맞춤 상품 추천 자리에 조회 기록 분석 토글 하나, 마케팅 동의 아래 안내', async ({ page }) => {
+  await page.goto('/#/notifications/settings?mode=settings&next=%2Fmy');
+  await expect(page.getByRole('switch', { name: '개인 맞춤 상품 추천' })).toHaveCount(0);
+  const sw = page.getByRole('switch', { name: '관심 상품 알림을 위한 조회 기록 분석' }); await expect(sw).toHaveCount(1);
+  await expect(page.getByText('상품 조회 기록을 Google Analytics로 분석해, 관심 있을 만한 새 상품을 알려드려요')).toBeVisible();
+  await expect(page.getByText('맞춤 알림을 받으려면 위 두 가지 모두 동의가 필요해요')).toBeVisible();
+  // 토글은 다른 설정처럼 하단 '저장'에서 저장된다
+  const before = await sw.getAttribute('aria-checked'); await sw.click(); await expect(sw).not.toHaveAttribute('aria-checked', before!);
+  await page.getByRole('button', { name: '저장' }).click(); await expect(page).toHaveURL(/#\/my$/);
+});
