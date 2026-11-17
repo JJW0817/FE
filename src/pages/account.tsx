@@ -640,6 +640,15 @@ export function AdminProductDetailPage() {
         </div>
         <p className="muted text-[11px]">사진을 누르면 크게 보고 검수 항목을 확인할 수 있어요.</p>
       </div>
+      {/* FAQ: AI 질문에서 온 항목(suggestionId)은 배지로 구분한다 */}
+      {p.faqs.length > 0 && <div className="mb-6 space-y-3" data-testid="admin-faqs">
+        <h2 className="text-[15px] font-bold">상품 FAQ <span className="muted text-[12px] font-normal">{p.faqs.length}개</span></h2>
+        {p.faqs.map(f => <div key={f.id} className="space-y-1 rounded-[6px] bg-[var(--soft)] p-3">
+          {f.suggestionId && <span className="inline-flex h-[18px] items-center rounded-[4px] bg-[var(--ink)] px-2 text-[10px] font-bold text-[var(--surface)]">AI 질문</span>}
+          <p className="text-[13px] font-bold">Q. {f.question}</p>
+          <p className="whitespace-pre-wrap break-words text-[12px] text-[var(--aux)]">A. {f.answer}</p>
+        </div>)}
+      </div>}
       {/* Product info */}
       <div className="mb-4 space-y-2 border-b border-[#F2F2F2] pb-4">
         <p className="text-[11px] font-bold text-[#949494]">상품</p>
