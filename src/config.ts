@@ -26,3 +26,5 @@ export const STORAGE_TAG = `${import.meta.env.VITE_API_TARGET || 'https://api.st
 /** 테스트용 빠른 판매 시작: 개발 서버·미리보기에서만 `VITE_QUICK_SCHEDULE=true`. 켜면 판매 일정에 '5분 뒤 시작' 버튼과 분 단위 선택. 운영 배포는 설정하지 않는다(30분 단위) */
 export const QUICK_SCHEDULE = import.meta.env.VITE_QUICK_SCHEDULE === 'true';
 export const IMAGE_EXPIRED = 'stockdrop:image-expired';
+/** 푸시 상태 점검 영역: 개발 서버와 Vercel 미리보기(preview) 빌드에서만, 실제 API 모드일 때 */
+export const PUSH_DEBUG = !USE_MOCK && (import.meta.env.DEV || (typeof __VERCEL_ENV__ !== 'undefined' && __VERCEL_ENV__ === 'preview'));

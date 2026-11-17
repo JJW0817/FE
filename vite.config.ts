@@ -25,7 +25,8 @@ export default defineConfig(({ mode }) => {
   const pgTarget = env.VITE_PG_TARGET || 'http://localhost:8001';
   // changeOrigin: 터널이 Host 헤더로 라우팅한다. secure:false: 개발 중 인증서 문제로 막히지 않게. cookieDomainRewrite: 서버 쿠키 Domain을 localhost로
   const proxy = { changeOrigin: true, secure: false, headers: { 'ngrok-skip-browser-warning': 'true' }, cookieDomainRewrite: 'localhost' };
-  return { base: './', plugins: [react(), tailwindcss(), saveRegistrationMetadata()], server: { port: 5173, strictPort: true, proxy: {
+  // Vercel 빌드 환경(preview·production). 미리보기에서만 보이는 점검 화면에 쓴다
+  return { base: './', define: { __VERCEL_ENV__: JSON.stringify(env.VERCEL_ENV ?? '') }, plugins: [react(), tailwindcss(), saveRegistrationMetadata()], server: { port: 5173, strictPort: true, proxy: {
     '/pg': { ...proxy, target: pgTarget, rewrite: (p: string) => p.replace(/^\/pg/, '') },
     '/api': { ...proxy, target: apiTarget },
   } } };

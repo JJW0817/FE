@@ -11,7 +11,8 @@ import { applyRecommendation, recommendationOn } from '../recommendation';
 import type { ApiError } from '../api';
 import { errorMessage, fieldErrors, fetchMySettings, saveMarketingConsent, saveNotificationSettings } from '../api';
 import { SignupLoginError, ensureSession, flushPendingPrefs, setPendingPrefs, loginHref, homePath, login, logout, normalizeEmail, resetPassword, safeNext, sendCode, signedIn, signup, validEmail, validPassword, verifyCode, demoLogin } from '../auth';
-import { DEMO_ACCOUNTS, DEMO_LOGIN, USE_MOCK } from '../config';
+import { DEMO_ACCOUNTS, DEMO_LOGIN, PUSH_DEBUG, USE_MOCK } from '../config';
+import { PushDebug } from '../components/PushDebug';
 import { canSubscribePush, enablePush } from '../push';
 const inputClass = 'w-full min-w-0 border-0 border-b border-[var(--line)] bg-transparent py-3 text-[14px] outline-none placeholder:text-[var(--muted)] focus:border-[var(--ink)] disabled:opacity-50';
 function useAuthNow() { const [now, setNow] = useState(Date.now()); useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []); return now; }
@@ -300,6 +301,7 @@ export function NotificationSettingsPage() {
       </label>
       <p className="muted text-[12px]">맞춤 알림을 받으려면 위 두 가지 모두 동의가 필요해요</p>
       {!pushReady && <Note title="푸시 알림"><p>홈 화면에 추가하면 알림을 받을 수 있어요. 사파리 공유 버튼 → ‘홈 화면에 추가’ 후 홈 화면의 STOCKDROP 앱으로 열어 주세요.</p></Note>}
+      {PUSH_DEBUG && <PushDebug/>}
     </div>
     <div className="pb-6 pt-4"><Button className="w-full" disabled={saving} onClick={() => proceed(pushReady)}>{settingsMode ? (saving ? '저장 중…' : '저장') : pushReady ? '알림 받기 시작' : '설정 저장하고 시작'}</Button></div>
   </div>;
