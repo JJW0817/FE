@@ -11,7 +11,7 @@ import { loginHref, signedIn } from '../auth';
 import { trackViewItem } from '../analytics';
 import { addressLine, listAddresses, toAddress } from './address';
 import { ExpiredCheckout } from './checkoutExpired';
-import { changeShippingAddress, confirmPayment, createOrder, createOrderInquiry, retryWhileUnavailable, errorMessage, getCheckout, getCheckoutTerms, getOrder, getProduct, isApiError, fetchUnreadCount, listNotifications, listOrders, markAllNotificationsRead, markNotificationRead, notificationPath, useApi, listProducts, mergeCheckout, mergeInquiries, mergeOrderList, mergeOrders, mergeProducts, openTossPayment, uploadInquiryImage, deleteInquiryImage, useLive } from '../api';
+import { changeShippingAddress, createOrder, createOrderInquiry, retryWhileUnavailable, errorMessage, getCheckout, getCheckoutTerms, getOrder, getProduct, isApiError, fetchUnreadCount, listNotifications, listOrders, markAllNotificationsRead, markNotificationRead, notificationPath, useApi, listProducts, mergeCheckout, mergeInquiries, mergeOrderList, mergeOrders, mergeProducts, openTossPayment, uploadInquiryImage, deleteInquiryImage, useLive } from '../api';
 import type { CheckoutTermsDto, InboxItem } from '../api';
 import { USE_MOCK } from '../config';
 import type { SavedAddress } from './address';
@@ -163,15 +163,15 @@ function OptionSheet({ product: p, onClose, initial, resume }: { product: Produc
 const DUPLICATE = 'PRODUCT_DUPLICATE';
 /** 재고 관련 실패만 '재고 확보 실패' 안내로. 그 밖(PAYMENT_NOT_COMPLETED 등 결제 단계)은 '결제 실패와 취소' 화면 */
 export const isStockFailure = (code: string) => /STOCK|SOLD_OUT/.test(code);
-const FAILURE_REASON: Record<string, string> = { PAYMENT_NOT_COMPLETED: '결제가 승인되지 않았어요' };
+const FAILURE_REASON: Record<string, string> = { PAYMENT_NOT_COMPLETED: '결제가 승인되지 않았어요', AMOUNT_MISMATCH: '결제 금액이 주문 금액과 달라 결제를 진행하지 않았어요', PAY_PROCESS_CANCELED: '결제창을 닫아 결제가 진행되지 않았어요', EXPIRED: '재고 확보 시간이 지났어요' };
 /** Figma 03 "결제 실패와 취소" — held: 아직 재고 확보 중(남은 시간 안에 다시 결제 가능). 아니면 주문이 실패로 끝나 재고가 반환된 상태 */
-function PaymentFailed({ hold, product: p, now, reason, held = false }: { hold: Hold; product: Product; now: number; reason: string; held?: boolean }) {
+function PaymentFailed({ hold, product: p, now, reason, held = false, title, onRetry }: { hold: Hold; product: Product; now: number; reason: string; held?: boolean; title?: string; onRetry?: () => void }) {
   const amount = hold.lines.reduce((n, l) => n + l.quantity * p.price, 0) + p.shipping;
-  return <div className="space-y-4">{!held && <Header title="주문 / 결제"/>}<h2 className="text-[22px] font-bold">결제가 완료되지 않았어요</h2><p className="muted text-[13px] leading-relaxed">결제가 승인되지 않아 금액이 빠져나가지 않아요.</p>
+  return <div className="space-y-4">{!held && <Header title="주문 / 결제"/>}<h2 className="text-[22px] font-bold">{title ?? '결제가 완료되지 않았어요'}</h2><p className="muted text-[13px] leading-relaxed">결제가 승인되지 않아 금액이 빠져나가지 않아요.</p>
     <section className="space-y-2 rounded-[4px] bg-[var(--soft)] p-4"><h3 className="mb-2 text-[13px] font-bold">결제 정보</h3><InfoRow label="사유" value={reason}/><InfoRow label="주문번호" value={hold.id}/><InfoRow label="최종 결제금액" value={money(amount)}/></section>
     {!held && <ProductSummary product={{ ...p, image: p.images[0] }} option={hold.lines.map(l => `${l.name} / ${l.quantity}개`).join('\n')}/>}
     <section className="space-y-2 rounded-[4px] bg-[var(--soft)] p-4"><h3 className="mb-2 text-[13px] font-bold">현재 확보 상태</h3>{held ? <><div className="flex items-center justify-between"><span className="muted text-[12px]">재고 확보 중</span><span className="text-[12px] font-semibold text-[var(--green)]">{countdown(hold.expiresAt, now)} 안에 결제</span></div><p className="muted mt-1 text-[11px]">남은 시간 안에 다시 결제하면 같은 수량으로 구매할 수 있어요. 새로고침·재시도로 확보 시간이 연장되지 않습니다.</p></> : <><div className="flex items-center justify-between"><span className="muted text-[12px]">확보한 재고를 반환했어요</span></div><p className="muted mt-1 text-[11px]">다시 구매하려면 상품에서 새로 주문해 주세요.</p></>}</section>
-    <div className="flex gap-2"><Link className="btn btn-outline flex-1" to={`/product/${p.id}`}>상품으로 돌아가기</Link><Link className="btn flex-1" to="/orders">주문 상태</Link></div></div>;
+    {onRetry ? <div className="flex gap-2"><Link className="btn btn-outline flex-1" to="/orders">주문 상태</Link><Button className="flex-1" onClick={onRetry}>다시 결제하기</Button></div> : <div className="flex gap-2"><Link className="btn btn-outline flex-1" to={`/product/${p.id}`}>상품으로 돌아가기</Link><Link className="btn flex-1" to="/orders">주문 상태</Link></div>}</div>;
 }
 export function CheckoutPage() {
   const { id } = useParams(); const s = useStore(), now = useClock(), navigate = useNavigate(), toast = useToast(); const user = activeUser(s); const hold = s.holds.find(h => h.id === id && h.userId === user.id); const p = s.products.find(p => p.id === hold?.productId); const [terms, setTerms] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(''), [selecting, setSelecting] = useState(false);
@@ -187,16 +187,9 @@ export function CheckoutPage() {
   // 결제 진행 중(pending)이거나 만료 시각을 아직 못 받았으면 2초 뒤 다시 조회한다
   const waiting = hold?.status === 'pending' || hold?.status === 'reserved' && hold.expiresAt === undefined;
   useEffect(() => { if (USE_MOCK || !waiting || busy || live.loading) return; const t = setTimeout(live.reload, 2000); return () => clearTimeout(t); }, [waiting, busy, live.loading]);
-  // 토스 결제창에서 돌아온 경우(successUrl: ?paymentKey=…, failUrl: ?payFail=1) — 추측(명세 없음): 약관은 현재 버전을 다시 조회해 보낸다
-  const paymentKey = params.get('paymentKey'), payFail = params.has('payFail');
-  useEffect(() => {
-    if (USE_MOCK || sent.current || (!paymentKey && !payFail)) return; sent.current = true; setParams({}, { replace: true });
-    if (!paymentKey) { setError('결제가 완료되지 않았어요'); return; }
-    setBusy(true);
-    getCheckoutTerms().then(t => confirmPayment(id!, { paymentKey, termsVersion: t.version }, d => mutate(st => mergeCheckout(st, d)))).then(d => { if (d.state === 'FAILED') setError('결제가 완료되지 않았어요'); }).catch(e => setError(errorMessage(e))).finally(() => setBusy(false));
-  }, [paymentKey, payFail]);
   // 실패(FAILED)는 만료가 아니다. 만료 화면은 실제로 만료됐을 때만
   const failure = hold?.failureCode;
+  const payFailure = (useLocation().state as { payFailure?: { code: string; message?: string } } | null)?.payFailure;
   const expired = !!hold && !failure && (hold.status === 'released' || hold.status === 'reserved' && hold.expiresAt !== undefined && hold.expiresAt <= now);
   // 재고 관련 실패는 상품 화면의 '재고 확보 실패' 안내로 보낸다 (같은 옵션·수량으로 다시 고를 수 있게)
   useEffect(() => { if (!hold || !failure || !isStockFailure(failure)) return; navigate(`/product/${hold.productId}`, { replace: true, state: { rebuy: { quantities: Object.fromEntries(hold.lines.map(l => [l.optionId, l.quantity])), error: '', failedOptionId: null } satisfies RebuyFailure } }); }, [failure]);
@@ -205,6 +198,8 @@ export function CheckoutPage() {
   useEffect(() => { if (!expired || USE_MOCK || expiredShown.current) return; expiredShown.current = true; live.reload(); }, [expired]);
   if (failure === DUPLICATE) return <Empty title="이미 이 상품을 주문했어요" message="주문 내역에서 확인해 주세요."><Link className="btn" to="/orders">주문 내역</Link></Empty>;
   if (!hold || !p) return live.loading || live.error ? <LiveStatus state={live}/> : <Empty title="진행 중인 주문이 없어요"><Link className="btn" to="/">상품 둘러보기</Link></Empty>;
+  // 결제창에서 실패·취소하고 돌아왔고 아직 재고 확보 중이면 같은 주문으로 다시 결제할 수 있다
+  if (payFailure && !failure && hold.status === 'reserved') return <PaymentFailed hold={hold} product={p} now={now} held={!expired} title={payFailure.code === 'PAY_PROCESS_CANCELED' ? '결제를 취소했어요' : undefined} reason={payFailure.message || FAILURE_REASON[payFailure.code] || `결제를 완료하지 못했어요 (${payFailure.code})`} onRetry={() => navigate(`/checkout/${id}`, { replace: true, state: null })}/>;
   if (failure) return isStockFailure(failure) ? <LiveStatus state={{ loading: true, error: '', reload: () => {} }}/> : <PaymentFailed hold={hold} product={p} now={now} reason={FAILURE_REASON[failure] ?? `결제를 완료하지 못했어요 (${failure})`}/>;
   if (expired) {
     const remaining = USE_MOCK ? p.options.reduce((n, o) => n + available(s, p, o.id, now), 0) : p.live?.available;

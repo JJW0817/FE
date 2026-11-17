@@ -169,3 +169,10 @@ test('운영자 판매 심사 상세: AI 질문에서 온 FAQ는 배지와 함�
   const faqs = page.getByTestId('admin-faqs'); await expect(faqs).toBeVisible(); await expect(faqs.getByText('AI 질문')).toHaveCount(1);
   await expect(faqs.getByText('Q. 실측 사이즈를 알려 주세요')).toBeVisible(); await expect(faqs.getByText('A. 가로 30cm')).toBeVisible(); await expect(faqs.getByText('Q. 세탁은 어떻게 하나요?')).toBeVisible();
 });
+
+test('토스 결제창에서 돌아오면(해시 앞 쿼리) 결제 처리 화면이 받고, 주소의 paymentKey는 지운다', async ({ page }) => {
+  await page.goto('/?paymentKey=pk_test&orderId=o1&amount=21000#/payments/toss/success');
+  await expect(page).toHaveURL(/#\/payments\/toss\/success$/); expect(page.url()).not.toContain('paymentKey');
+  await expect(page.getByRole('navigation', { name: '하단 메뉴' })).toHaveCount(0);
+  await page.goto('/#/payments/toss/fail?code=PAY_PROCESS_CANCELED&orderId=o1'); await expect(page).toHaveURL(/#\/payments\/toss\/fail$/);
+});
