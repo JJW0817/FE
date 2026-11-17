@@ -49,3 +49,16 @@ test('시작 화면: 처음 켤 때 한 번만 나오고, 화면 이동에서는
   expect(await calm.locator('svg').first().evaluate(el => getComputedStyle(el).animationName)).toBe('none');
   await expect(calm).toHaveCount(0, { timeout: 4000 });
 });
+
+test('첫 프레임: 검은 #boot가 스플래시에 이어지고, 스플래시 뒤에는 앱 배경(흰색)으로 넘어간다', async ({ page }) => {
+  await page.addInitScript(() => Object.defineProperty(navigator, 'webdriver', { get: () => false }));
+  // 앱 스크립트를 늦춰 첫 프레임(스크립트 전)을 붙잡는다
+  await page.route('**/src/main.tsx*', async route => { await new Promise(r => setTimeout(r, 1500)); await route.continue(); });
+  await page.goto('about:blank'); const nav = page.goto('/#/welcome', { waitUntil: 'commit' }); await nav;
+  await expect(page.locator('#boot')).toBeAttached();
+  expect(await page.evaluate(() => [getComputedStyle(document.documentElement).backgroundColor, getComputedStyle(document.body).backgroundColor, getComputedStyle(document.getElementById('boot')!).backgroundColor])).toEqual(['rgb(14, 14, 15)', 'rgb(14, 14, 15)', 'rgb(14, 14, 15)']);
+  const splash = page.getByRole('img', { name: 'STOCKDROP' }); await expect(splash).toBeVisible(); await expect(page.locator('#boot')).toHaveCount(0); // 스플래시가 뜬 같은 시점에 첫 프레임을 걷는다
+  await expect(splash).toHaveCount(0, { timeout: 6000 });
+  expect(await page.evaluate(() => [document.documentElement.style.background, document.body.style.background])).toEqual(['', '']);
+  expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).not.toBe('rgb(14, 14, 15)');
+});

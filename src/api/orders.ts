@@ -8,6 +8,7 @@ import type { Hold, Order, State } from '../domain';
 import { api } from './client';
 import { isApiError } from './errors';
 import { ms, orderStatus, addressFromApi, orderFromApi } from './mappers';
+import { rememberTossPending, tossReturnUrls } from './tossReturn';
 import type { CheckoutTermsDto, OrderCommandDto, OrderItemDto, OrderListItemDto, OrderDetailDto, OrderState } from './types';
 
 const general = 'general' as const, purchase = 'purchase' as const;
@@ -83,7 +84,7 @@ export const getCheckoutTermsVersion = (version: string, signal?: AbortSignal) =
 /** GET /v1/payments/client-configuration — 토스 결제창 공개 clientKey */
 export const getPaymentClientKey = async (signal?: AbortSignal) => (await api.get<{ clientKey: string }>('/v1/payments/client-configuration', { service: general, signal })).clientKey;
 /** POST /v1/orders/{id}/payment-attempts — 토스 인증 후 paymentKey로 승인 요청 (202는 성공이 아님 → checkout 재조회) */
-export function requestPayment(id: string, b: { paymentKey: string; termsVersion: string }): Promise<OrderCommandDto> {
+export function requestPayment(id: string, b: { paymentKey: string; termsVersion: string; requestKey?: string }): Promise<OrderCommandDto> {
   return api.post<OrderCommandDto>(`/v1/orders/${enc(id)}/payment-attempts`, { requestKey: crypto.randomUUID(), agreed: true, ...b }, { service: purchase });
 }
 /** PATCH /v1/orders/{id}/shipping-address — 결제 전 배송지 변경 (직전 checkout의 version 필요) */
@@ -109,25 +110,18 @@ function loadToss(): Promise<any> {
     const s = document.createElement('script'); s.src = TOSS.sdk; s.onload = () => res(w.TossPayments); s.onerror = () => rej(new Error('결제창을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.')); document.head.appendChild(s);
   });
 }
-/** 결제창을 연다. 성공/실패 시 successUrl/failUrl로 이동한다(HashRouter 경로: `#/checkout/{id}`). 반환하지 않고 페이지가 이동한다 */
+/** 결제창을 연다. 성공/실패 시 successUrl/failUrl(#/payments/toss/…)로 이동한다. 반환하지 않고 페이지가 이동한다 */
 /** amount·orderName은 서버의 checkout 응답(totalAmount·productName) 값을 그대로 넘긴다 */
 export async function openTossPayment(o: { orderId: string; orderName: string; amount: number }, signal?: AbortSignal) {
   const [Toss, clientKey] = await Promise.all([loadToss(), getPaymentClientKey(signal)]);
-  const base = `${location.origin}${location.pathname}#/checkout/${enc(o.orderId)}`;
-  // 추측(명세 없음): 토스 orderId는 우리 주문 UUID(36자, 토스 허용 6~64자)를 쓴다
+  // 돌아오는 주소는 해시 경로(#/payments/toss/success|fail). 토스가 붙이는 paymentKey·orderId·amount(실패면 code·message)는 tossReturn.ts가 읽는다
+  const { successUrl, failUrl } = tossReturnUrls(location.origin, location.pathname);
+  // 추측(명세 없음): 토스 orderId는 우리 주문 UUID(36자, 토스 허용 6~64자)를 쓴다. 돌아와서 금액·주문을 확인하려고 결제창을 열기 직전에 보관한다
+  rememberTossPending({ orderId: o.orderId, tossOrderId: o.orderId, amount: o.amount });
   await Toss(clientKey).payment({ customerKey: TOSS.customerKey(Toss) }).requestPayment({
-    method: TOSS.method, amount: { currency: TOSS.currency, value: o.amount }, orderId: o.orderId, orderName: o.orderName, successUrl: base, failUrl: `${base}?payFail=1`,
+    method: TOSS.method, amount: { currency: TOSS.currency, value: o.amount }, orderId: o.orderId, orderName: o.orderName, successUrl, failUrl,
   });
 }
-const FINAL: OrderState[] = ['CONFIRMED', 'FAILED', 'EXPIRED'];
-const sleep = (t: number) => new Promise(r => setTimeout(r, t));
-/** 결제 승인 요청 후 checkout을 폴링해 최종 상태(CONFIRMED/FAILED/EXPIRED)를 돌려준다. 추측(명세 없음): 2초 간격 최대 20회, 못 정하면 마지막 상태 */
-export async function confirmPayment(id: string, b: { paymentKey: string; termsVersion: string }, onUpdate: (d: OrderCommandDto) => void): Promise<OrderCommandDto> {
-  let d = await requestPayment(id, b); onUpdate(d);
-  for (let i = 0; i < 20 && !FINAL.includes(d.state); i++) { await sleep(2000); d = await getCheckout(id); onUpdate(d); }
-  return d;
-}
-
 /* ── store 반영 ── */
 const emptyAddr = (o: Order) => !o.address.address;
 /** checkout 응답을 hold로, 확정이면 주문으로도 넣는다 */

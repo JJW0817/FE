@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import { LOGO_LETTERS, LOGO_VIEWBOX } from '../splashLogo';
 import { authReady } from '../splash';
 
@@ -10,8 +10,14 @@ const delay = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 /** 글자별 시작 시각: S·T·O·C·K 70ms 간격, 단어 사이 140ms, 이어서 D·R·O·P */
 const startAt = (i: number) => (i < 5 ? i * LETTER_GAP : 4 * LETTER_GAP + WORD_GAP + (i - 5) * LETTER_GAP);
 
+/** index.html의 검은 첫 프레임(#boot)과 html·body 인라인 배경을 넘겨받는다: 스플래시가 같은 검정으로 덮은 뒤에 걷어 깜빡임이 없다 */
+const releaseBoot = () => { document.getElementById('boot')?.remove(); };
+const releaseBackground = () => { document.documentElement.style.background = ''; document.body.style.background = ''; };
+
 export function Splash() {
   const [phase, setPhase] = useState<'show' | 'out' | 'gone'>(() => (played ? 'gone' : 'show'));
+  useLayoutEffect(() => { releaseBoot(); if (phase === 'gone') releaseBackground(); }, []); // 같은 커밋에서 스플래시(또는 앱)가 이미 그려졌다
+  useEffect(() => { if (phase === 'gone') releaseBackground(); }, [phase]);
   const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
   useEffect(() => {
     if (played) return; played = true;

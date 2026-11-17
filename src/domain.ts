@@ -5,7 +5,7 @@ export const CATEGORY_PATHS = ['패션 › 상의 › 니트/스웨터', '패션
 /** 홈 카테고리 탭(의류·패션잡화·문구·생활잡화)에 해당하는 묶음 */
 export function categoryGroup(path: string): Category | undefined { if ((CATEGORIES as string[]).includes(path)) return path as Category; /* 서버 카테고리 이름(예: 의류) — 추측: 체계 매핑 미확정, docs/api-gap.md */ if (path.startsWith('패션 › 잡화')) return '패션잡화'; if (path.startsWith('패션')) return '의류'; if (path.startsWith('문구')) return '문구'; if (path.startsWith('생활잡화')) return '생활잡화'; }
 export interface Extra { key: string; value: string }
-export interface Faq { id: string; question: string; answer: string; confirmed: boolean }
+export interface Faq { id: string; question: string; answer: string; confirmed: boolean; /** AI 질문에서 온 FAQ(서버 suggestionId) */ suggestionId?: string }
 export interface Option { id: string; name: string; stock: number }
 export interface Dimension { name: string; values: string }
 export interface Product {
@@ -57,7 +57,7 @@ export interface Inquiry { id: string; userId: string; sellerId: string; product
   /** 문의한 주문 수량 — 백엔드 요청 필드 (docs/backend-api-requests.md) */ quantity?: number; images?: string[]
   /** 판매자 상품 문의 답변용 낙관적 잠금 version */ version?: number
   /** 실제 API 주문 문의: 메시지 전체(seller=true는 판매자)와 첨부 imageId (열람은 download API) */ messages?: { seller: boolean; body: string; createdAt: number }[]; imageIds?: string[] }
-export type AiStatus = 'before' | 'analyzing' | 'recommended' | 'uncertain' | 'failed' | 'unsupported' | 'stale';
+export type AiStatus = 'before' | 'analyzing' | 'recommended' | 'uncertain' | 'failed' | 'unsupported' | 'stale' | 'delayed';
 export interface Draft {
   editingId?: string; step: number; name: string; brand: string; description: string; images: string[];
   category: string; originalUrl: string; extras: Extra[]; reason: string; dimensions: Dimension[];
@@ -65,7 +65,7 @@ export interface Draft {
   maxPerAccount: number; startsAt: string; faqs: Faq[];
   /** 물품 검수에서 체크한 항목(INSPECTION_CHECKS 순서 번호). 화면 시연용 — 서버로 보내지 않는다 */ inspection?: number[];
   /** 택배사·반품 배송비·교환 배송비 입력(숫자는 문자열, 빈 값 = 미입력)과 이 값으로 만든 shippingNotice(판매자가 직접 고칠 수 있다) */ carrier?: string; returnFee?: string; exchangeFee?: string; shippingNotice?: string;
-  ai: { status: AiStatus; signature: string; category: string; reason: string; result?: AiAnalysis; /** 분석 전 단계에서 막힌 칸별 문구(등록 화면 칸 아래 표시) */ fields?: Record<string, string> };
+  ai: { status: AiStatus; signature: string; category: string; reason: string; result?: AiAnalysis; /** 분석을 요청한 시점의 입력 — 이후 바뀌면 이전 AI 질문은 쓸 수 없다 */ input?: AnalysisInput; /** 서버가 자동 재시도 중(RETRY)일 때 표시용 */ retry?: { attempts: number; nextAttemptAt: string | null }; /** 분석 전 단계에서 막힌 칸별 문구(등록 화면 칸 아래 표시) */ fields?: Record<string, string> };
   /** 단일 화면 등록(Figma 판매 상품 등록): 옵션 축, 색상·사이즈, 조합별 수량, 추가 URL, 타 플랫폼 확인 결과 */
   /** 실제 API: 서버에 만든 초안 상품 id·서버 이미지 id(images와 같은 순서) */ serverId?: string; imageIds?: string[];
   /** 사진 바이트 수(images와 같은 순서) — AI 분석 30MB 한도 확인용 */ imageSizes?: number[];
@@ -76,7 +76,16 @@ export interface ReferenceListing { platform: string; title: string; price: numb
 /** AI 분석 결과(RECOMMENDED). 서버는 outcome·추천 카테고리 코드·점검 질문만 준다 — 신뢰도·대안·속성은 없다 */
 export interface AiAnalysis { /** 점검 기준 코드(예 CLOTHING) */ code: string; /** 기본 선택할 등록 카테고리 이름 */ category: string; photos: number; questions: AiQuestion[] }
 /** AI 점검 질문. checkCode는 registration-metadata 점검 기준 항목 코드 */
-export interface AiQuestion { checkCode?: string; question: string; reason: string }
+export interface AiQuestion { checkCode?: string; /** 서버 질문 id — FAQ 저장 때 그대로 보낸다 */ suggestionId?: string; question: string; reason: string }
+/** AI 분석에 쓰이는 입력. 이 중 하나라도 바뀌면 이전 분석의 질문은 쓸 수 없다(카테고리를 AI 추천값으로 바꾼 것은 예외) */
+export interface AnalysisInput { name: string; description: string; brand: string; originalUrl: string; category: string; reason: string; images: string[] }
+export const analysisInputOf = (d: Pick<Draft, 'name' | 'description' | 'brand' | 'originalUrl' | 'category' | 'reason' | 'images' | 'imageIds'>): AnalysisInput => ({ name: d.name.trim(), description: d.description.trim(), brand: d.brand.trim(), originalUrl: d.originalUrl.trim(), category: d.category, reason: d.reason.trim(), images: d.imageIds ? d.imageIds.filter(Boolean) : d.images });
+/** 분석 뒤에 입력이 바뀌었는지(분석 결과가 있고 당시 입력을 기억할 때만). 카테고리가 분석 때 값이거나 AI 추천값이면 바뀐 게 아니다 */
+export function analysisStale(d: Draft): boolean {
+  const a = d.ai.input; if (!a || !d.ai.result) return false;
+  const now = analysisInputOf(d), { category: c0, ...rest } = a, { category: c1, ...cur } = now;
+  return JSON.stringify(rest) !== JSON.stringify(cur) || (c1 !== c0 && c1 !== d.ai.result.category);
+}
 /** 사업자 정보 — 사업자등록증 기준. 값이 없으면 화면에서 해당 행을 숨긴다 */
 export interface BusinessInfo { name?: string; representative?: string; registrationNumber?: string; businessType?: string; openedAt?: string; address?: string }
 export interface SellerSettings { business?: BusinessInfo; displayName: string; bank: string; account: string; holder: string; shippingAddress: string; returnAddress: string; shippingPostal?: string; returnPostal?: string; shippingDetail?: string; returnDetail?: string; notifications: Record<string, boolean> }
@@ -276,5 +285,5 @@ export function lookupReference(url: string): ReferenceListing | undefined {
 }
 /** AI 상품 분석 목업 — 서버 결과와 같은 모양(코드 + 점검 질문) */
 export function mockAiAnalysis(d: Draft): AiAnalysis {
-  return { code: 'CLOTHING_MOCK_01', category: '패션 › 상의 › 니트/스웨터', photos: d.images.length, questions: [{ checkCode: 'CLOTHING_MOCK_01__CLOTHING_MEASUREMENTS', question: '실측 사이즈(총장·가슴 단면)를 알려 주세요', reason: '사진만으로는 사이즈를 확인할 수 없어요' }] };
+  return { code: 'CLOTHING_MOCK_01', category: '패션 › 상의 › 니트/스웨터', photos: d.images.length, questions: [{ checkCode: 'CLOTHING_MOCK_01__CLOTHING_MEASUREMENTS', suggestionId: 'mock-suggestion-1', question: '실측 사이즈(총장·가슴 단면)를 알려 주세요', reason: '사진만으로는 사이즈를 확인할 수 없어요' }] };
 }

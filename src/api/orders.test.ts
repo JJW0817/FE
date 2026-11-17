@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api, ApiError } from './client';
-import { changeShippingAddress, confirmPayment, createOrder, getCheckout, getCheckoutTerms, getOrder, getPaymentClientKey, holdFromApi, holdStatus, listOrders, mergeCheckout, mergeOrderList, orderFromCommand, requestPayment, retryWhileUnavailable } from './orders';
+import { changeShippingAddress, createOrder, getCheckout, getCheckoutTerms, getOrder, getPaymentClientKey, holdFromApi, holdStatus, listOrders, mergeCheckout, mergeOrderList, orderFromCommand, requestPayment, retryWhileUnavailable } from './orders';
 import { emptyState } from '../domain';
 import type { OrderCommandDto, OrderListItemDto } from './types';
 
@@ -82,11 +82,6 @@ describe('API 호출', () => {
     expect(calls[0]).toMatchObject({ method: 'POST', body: { paymentKey: 'pk', termsVersion: 'v1', agreed: true } }); expect(calls[0].url).toContain('/v1/orders/o1/payment-attempts');
     expect(calls[1]).toMatchObject({ method: 'PATCH', body: { addressId: 'a2', expectedVersion: 3 } }); expect(calls[1].url).toContain('/v1/orders/o1/shipping-address');
   });
-  it('승인 요청 후 최종 상태까지 checkout을 다시 본다', async () => {
-    let n = 0; fake(c => ok(c.method === 'POST' ? cmd({ state: 'VERIFYING_PAYMENT' }) : cmd({ state: ++n > 0 ? 'CONFIRMED' : 'HELD' }), c.method === 'POST' ? 202 : 200));
-    const seen: string[] = []; const d = await confirmPayment('o1', { paymentKey: 'pk', termsVersion: 'v1' }, x => seen.push(x.state));
-    expect(d.state).toBe('CONFIRMED'); expect(seen).toEqual(['VERIFYING_PAYMENT', 'CONFIRMED']);
-  }, 10_000);
 });
 
 describe('판매 시작 직후 ORDER_UNAVAILABLE 재시도', () => {
