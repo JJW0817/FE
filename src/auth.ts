@@ -5,7 +5,7 @@ import { applyAnalyticsId, syncAnalyticsIdentity } from './analytics';
 import { api, ApiError, errorMessage, getAccessToken, homePathFor, parseServerTime, rolesToFlags, saveMarketingConsent, saveNotificationSettings } from './api';
 import type { AccountDto, AuthTokens, ChallengeDto, LoginDto, ResetTokenDto, VerificationTokenDto } from './api';
 import { DEMO_ACCOUNT_IDS, DEMO_LOGIN, USE_MOCK } from './config';
-import { disablePush } from './push';
+import { disablePush, resyncPush } from './push';
 export const DEMO_PASSWORD = 'Stockdrop123!';
 export const normalizeEmail = (value: string) => value.trim().toLowerCase();
 export const validEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizeEmail(value));
@@ -122,6 +122,7 @@ export async function login(emailValue: string, password: string): Promise<strin
   api.get<AccountDto>('/v1/accounts/me').then(me => { if (me?.name) mutate(s => { const u = s.users.find(u => u.id === data.accountId); if (u) u.name = me.name; }); }).catch(() => {});
   syncAnalyticsIdentity().catch(() => {}); // 분석 참여 상태는 로그인할 때마다 서버에서 다시 받는다
   await flushPendingPrefs(); // 로그인 전에 고른 알림 설정이 있으면 지금 저장
+  void resyncPush(); // 로그아웃 때 푸시 구독을 해제했으니, 권한이 이미 허용돼 있으면 다시 등록
   return homePath();
 }
 /** 가입은 성공했지만 자동 로그인이 실패했다 */
@@ -145,7 +146,7 @@ export async function signup(input: { email: string; password: string; name: str
 }
 /** 앱을 다시 열었을 때 Refresh 쿠키로 Access JWT를 복원한다. 서버가 거절(401·403)하면 이 기기의 로그인을 끝낸다 */
 export async function restoreSession(): Promise<boolean> {
-  try { await api.refresh(); syncAnalyticsIdentity().catch(() => {}); return true; }
+  try { await api.refresh(); syncAnalyticsIdentity().catch(() => {}); void resyncPush(); return true; }
   catch (e) {
     // 네트워크 오류·서버 오류·mock 모드에서는 저장된 세션을 그대로 둔다
     if (e instanceof ApiError && (e.status === 401 || e.status === 403)) mutate(endSession);
