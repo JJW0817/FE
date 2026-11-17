@@ -42,7 +42,7 @@ export function HomePage() {
     <div className="flex items-end justify-between pt-6"><div><h2 className="text-[18px] font-bold">{query ? `검색 결과 ${products.length}개` : '새로 올라온 상품'}</h2><p className="mt-1 text-[12px] text-[var(--meta)]">의류 · 패션잡화 · 문구 · 생활잡화</p></div>{showHero && <button className="text-[12px] text-[var(--aux)]" onClick={() => setParam('state', '판매 예정')}>더보기</button>}</div>
     {products.length ? <div className="grid grid-cols-2 gap-x-3 gap-y-6">{products.map(p => <ProductCard key={p.id} product={p} now={now} availableCount={left(p)} notified={notified.includes(p.id)} onNotify={() => toggleNotify(p.id)}/>)}</div> : live.loading || live.error ? <LiveStatus state={live}/> : <Empty title="검색 결과가 없어요" message="검색어나 카테고리를 바꿔 보세요."><Button outline onClick={() => setParams({})}>필터 초기화</Button></Empty>}
     <p className="py-4 text-[11px] text-[var(--meta)]">미판매 새 상품만 판매합니다. 중고·전시·하자 상품은 제외돼요.</p>
-    {seller && <Link to="/seller/new" className="fixed bottom-[88px] right-[max(16px,calc(50%-179px))] z-30 flex h-12 items-center gap-2 rounded-full bg-[var(--ink)] pl-3 pr-5 text-[15px] font-bold text-white shadow-lg"><span className="grid h-6 w-6 place-items-center rounded-full bg-[var(--positive)]"><Plus size={16} strokeWidth={2.5}/></span>판매 등록</Link>}
+    {seller && <Link to="/seller/new" className="fixed bottom-[calc(88px+env(safe-area-inset-bottom,0px))] right-[max(16px,calc(50%-179px))] z-30 flex h-12 items-center gap-2 rounded-full bg-[var(--ink)] pl-3 pr-5 text-[15px] font-bold text-white shadow-lg"><span className="grid h-6 w-6 place-items-center rounded-full bg-[var(--positive)]"><Plus size={16} strokeWidth={2.5}/></span>판매 등록</Link>}
   </div>;
 }
 

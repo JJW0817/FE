@@ -407,7 +407,7 @@ export function AdminDetailPage() {
         ? <><div className="rounded-[4px] bg-[#EEF8F3] p-4"><p className="text-[13px] font-bold text-[#3FB181]">판매자 권한 추가 완료</p><p className="mt-1 text-[12px] text-[#7B7B7B]">승인 일시 {dateTime(app.approvedAt!)} · 처리자 운영자</p></div><Link className="btn w-full mt-4" to="/admin/applications">신청 목록으로</Link></>
         : app.status === 'rejected'
         ? <><Note title="반려 처리됨">{app.rejectionItems?.map(i => i.reason).join(' ') || '반려 사유가 판매자에게 전달됐어요.'}</Note><Link className="btn btn-outline mt-4 w-full" to="/admin/applications">신청 목록으로</Link></>
-        : <div className="fixed bottom-0 left-1/2 w-full max-w-[390px] -translate-x-1/2 bg-white px-4 pb-8 pt-3">
+        : <div className="fixed bottom-0 left-1/2 w-full max-w-[390px] -translate-x-1/2 bg-white px-4 safe-bottom pt-3">
             <p className="mb-2 text-center text-[12px] text-[#949494]">{bothViewed ? '사업자등록증과 판매 URL을 모두 열람했어요' : '사업자등록증 PDF와 판매 URL을 먼저 열람해 주세요.'}</p>
             <div className="flex gap-2">
               <Button outline className="w-[96px]" disabled={!bothViewed} onClick={() => setRejecting(true)}>반려</Button>
@@ -664,7 +664,7 @@ export function AdminProductDetailPage() {
       {p.published
         ? <Link className="btn btn-outline w-full" to="/admin/products">심사 목록으로</Link>
         : !p.rejectionReason
-          ? <div className="fixed bottom-0 left-1/2 w-full max-w-[390px] -translate-x-1/2 border-t border-[var(--line)] bg-white px-4 pb-8 pt-3">
+          ? <div className="fixed bottom-0 left-1/2 w-full max-w-[390px] -translate-x-1/2 border-t border-[var(--line)] bg-white px-4 safe-bottom pt-3">
               <p className="mb-2 text-center text-[12px] text-[#949494]">승인하면 판매 일정에 맞춰 자동으로 오픈돼요</p>
               <div className="flex gap-2">
                 <Button outline className="w-[96px]" onClick={() => setReject(true)}>반려</Button>
@@ -808,7 +808,7 @@ export function AddressManagePage() {
 
   function AddrCard({ addr, isDefault }: { addr: ApiAddr; isDefault: boolean }) {
     return (
-      <div className={`rounded-[6px] p-4 space-y-3 ${isDefault ? 'border-[1.5px] border-[var(--ink)]' : ''}`}>
+      <div className={`rounded-[6px] p-4 space-y-3 border-[1.5px] ${isDefault ? 'border-[var(--ink)]' : 'border-transparent'}`}>
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-3">
             {/* radio indicator */}
@@ -868,7 +868,7 @@ export function AddressManagePage() {
         </section>
       )}
       {/* CTA Bar — Figma: fixed bottom black button */}
-      <div className="fixed bottom-0 left-1/2 w-full max-w-[390px] -translate-x-1/2 border-t border-[var(--line)] bg-[var(--surface)] px-4 py-3">
+      <div className="fixed bottom-0 left-1/2 w-full max-w-[390px] -translate-x-1/2 border-t border-[var(--line)] bg-[var(--surface)] px-4 pt-3 safe-bottom">
         <button onClick={() => navigate('/addresses/new')} className="flex w-full items-center justify-center gap-2 rounded-[6px] bg-[var(--ink)] py-3 text-[15px] font-bold text-[var(--surface)]">
           + 새 배송지 추가
         </button>

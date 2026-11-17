@@ -9,7 +9,7 @@ const ToastContext = createContext<(message: string) => void>(() => {});
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [message, setMessage] = useState('');
   useEffect(() => { if (!message) return; const timer = setTimeout(() => setMessage(''), 4000); return () => clearTimeout(timer); }, [message]);
-  return <ToastContext.Provider value={text => setMessage(text)}>{children}{message && <div role="status" className="fixed bottom-24 left-1/2 z-[100] w-[calc(100%-32px)] max-w-[358px] -translate-x-1/2 rounded-[6px] bg-[var(--ink)] px-4 py-3 text-center text-[12px] leading-relaxed text-[var(--surface)]">{message}</div>}</ToastContext.Provider>;
+  return <ToastContext.Provider value={text => setMessage(text)}>{children}{message && <div className="toast-wrap"><div role="status" className="toast">{message}</div></div>}</ToastContext.Provider>;
 }
 export const useToast = () => useContext(ToastContext);
 export function Button({ children, outline, buy, className = '', ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { outline?: boolean; buy?: boolean }) { return <button type="button" className={`btn ${outline ? 'btn-outline' : ''} ${buy ? 'btn-buy' : ''} ${className}`} {...props}>{children}</button>; }
@@ -78,7 +78,7 @@ export function DeliveryProgress({ status }: { status: Order['status'] }) { cons
 export function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => { const node = ref.current!; node.showModal(); const alreadyLocked = document.body.classList.contains('overflow-hidden'); document.body.classList.add('overflow-hidden'); return () => { node.close(); if (!alreadyLocked) document.body.classList.remove('overflow-hidden'); }; }, []);
-  return <dialog ref={ref} aria-label={title} onCancel={event => { event.preventDefault(); onClose(); }} onClick={event => { if (event.target === event.currentTarget) onClose(); }} className="fixed inset-x-0 bottom-0 top-auto m-0 mx-auto max-h-[92dvh] w-full max-w-[390px] overflow-y-auto rounded-t-[16px] border-0 bg-[var(--surface)] p-5 text-[var(--ink)] backdrop:bg-[var(--overlay)]"><div className="mx-auto mb-5 h-1 w-9 rounded-full bg-[var(--line)]"/><div className="mb-5 flex items-center justify-between gap-4"><h2 className="text-[18px] font-bold">{title}</h2><button aria-label="닫기" onClick={onClose} className="grid h-9 w-9 shrink-0 place-items-center"><X size={20}/></button></div>{children}</dialog>;
+  return <dialog ref={ref} aria-label={title} onCancel={event => { event.preventDefault(); onClose(); }} onClick={event => { if (event.target === event.currentTarget) onClose(); }} className="fixed inset-x-0 bottom-0 top-auto m-0 mx-auto max-h-[92dvh] w-full max-w-[390px] overflow-y-auto rounded-t-[16px] border-0 bg-[var(--surface)] p-5 pb-[max(20px,env(safe-area-inset-bottom))] text-[var(--ink)] backdrop:bg-[var(--overlay)]"><div className="mx-auto mb-5 h-1 w-9 rounded-full bg-[var(--line)]"/><div className="mb-5 flex items-center justify-between gap-4"><h2 className="text-[18px] font-bold">{title}</h2><button aria-label="닫기" onClick={onClose} className="grid h-9 w-9 shrink-0 place-items-center"><X size={20}/></button></div>{children}</dialog>;
 }
 /** 하단 탭으로 들어온 화면인지 — 탭으로 열면 Figma대로 뒤로 가기 없음, 마이페이지·결제 완료·알림 등에서 열면 뒤로 가기 */
 export const useFromTab = () => !!(useLocation().state as { tab?: boolean } | null)?.tab;
