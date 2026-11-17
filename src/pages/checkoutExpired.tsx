@@ -30,7 +30,7 @@ export function ExpiredCheckout({ hold, product: p, remaining, busy, error, onRe
     </div>
     <div className="rounded-[6px] bg-[var(--soft)] p-4"><p className="muted text-[12px] leading-relaxed">결제가 승인되지 않아 금액이 빠져나가지 않아요.<br/>입력한 배송지는 다음 주문에 그대로 쓸 수 있어요.</p></div>
     {error && <p role="alert" className="text-[12px] text-[var(--red)]">{error}</p>}
-    <div className="fixed inset-x-0 bottom-0 z-20 mx-auto flex w-full max-w-[390px] gap-2 border-t border-[var(--line)] bg-[var(--surface)] px-4 py-3">
+    <div className="fixed inset-x-0 bottom-0 z-20 mx-auto flex w-full max-w-[390px] gap-2 border-t border-[var(--line)] bg-[var(--surface)] px-4 pt-3 safe-bottom">
       <Link className="btn btn-outline flex-1" to="/">홈으로</Link>
       <Button className="flex-1" disabled={busy} onClick={onRebuy}>{busy ? '재고 확보 중…' : '다시 구매하기'}</Button>
     </div>

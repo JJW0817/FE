@@ -36,7 +36,7 @@
   button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
   button:not(:disabled), a, select, summary { cursor: pointer; }
   button:disabled { cursor: not-allowed; }
-  button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--green); outline-offset: 3px; }
+  button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
   input, textarea, select { accent-color: var(--ink); }
   textarea { resize: vertical; }
   .font-number { font-family: 'Inter', 'Noto Sans KR', sans-serif; }
@@ -71,38 +71,25 @@ main > div.flex:has(> header + div > img) > div:last-child .btn.flex-1 > svg { d
   from { opacity: 0; transform: translateY(24px); }
   to { opacity: 1; transform: translateY(0); }
 }
-@keyframes toast-in {
-  from { opacity: 0; transform: translate(-50%, 8px) scale(.98); }
-  to { opacity: 1; transform: translate(-50%, 0) scale(1); }
-}
 
 /* backwards: 애니메이션이 끝난 뒤 transform을 남기지 않아야 화면 안 fixed 버튼이 뷰포트 기준으로 붙는다 */
 main { animation: page-in 220ms cubic-bezier(.22, 1, .36, 1) backwards; }
 
-.btn {
-  transition: transform 160ms cubic-bezier(.22, 1, .36, 1),
-              box-shadow 160ms ease,
-              opacity 160ms ease,
-              background-color 160ms ease;
-  will-change: transform;
+.btn { transition: transform 120ms ease, opacity 120ms ease, background-color 120ms ease; }
+.btn:not(:disabled):active { opacity: .86; transform: scale(.98); }
+@media (hover: hover) {
+  .btn:not(:disabled):hover { opacity: .92; }
+  .btn-outline:not(:disabled):hover { background: var(--blue-soft); opacity: 1; }
 }
-.btn:not(:disabled):hover { box-shadow: 0 5px 14px rgb(0 0 0 / 12%); transform: translateY(-1px); }
-.btn:not(:disabled):active { box-shadow: none; opacity: .86; transform: translateY(1px) scale(.985); }
-.btn-outline:not(:disabled):hover { background: var(--blue-soft); box-shadow: none; }
 
-a[href^="#/product/"], a[href*="/product/"] { transition: transform 180ms cubic-bezier(.22, 1, .36, 1), opacity 180ms ease; }
-a[href^="#/product/"]:hover, a[href*="/product/"]:hover { transform: translateY(-2px); }
-a[href^="#/product/"]:active, a[href*="/product/"]:active { opacity: .75; transform: scale(.985); }
-a[href^="#/product/"] img, a[href*="/product/"] img { transition: transform 260ms cubic-bezier(.22, 1, .36, 1), filter 200ms ease; }
-a[href^="#/product/"]:hover img, a[href*="/product/"]:hover img { filter: brightness(.98); transform: scale(1.015); }
+a[href*="/product/"] { transition: opacity 120ms ease, transform 120ms ease; }
+a[href*="/product/"]:active { opacity: .75; transform: scale(.98); }
 
-a.divider { transition: background-color 150ms ease, padding 180ms cubic-bezier(.22, 1, .36, 1); }
-a.divider:hover { background: var(--blue-soft); padding-left: 6px; }
-a.divider svg { transition: transform 180ms cubic-bezier(.22, 1, .36, 1); }
-a.divider:hover svg { transform: translateX(3px); }
+a.divider { transition: background-color 150ms ease; }
+@media (hover: hover) { a.divider:hover { background: var(--blue-soft); } }
 
 nav[aria-label] a { position: relative; transition: color 160ms ease, transform 160ms cubic-bezier(.22, 1, .36, 1); }
-nav[aria-label] a:active { transform: scale(.92); }
+nav[aria-label] a:active { transform: scale(.98); }
 nav[aria-label] a[aria-current="page"]::after {
   position: absolute; bottom: -2px; left: 50%; width: 4px; height: 4px;
   border-radius: 999px; background: currentColor; content: ""; transform: translateX(-50%);
@@ -136,3 +123,17 @@ input:focus, textarea:focus, select:focus { border-color: var(--ink); }
   80% { transform: translateY(-6px); opacity: 1; }
   100% { transform: translateY(0); opacity: 1; }
 }
+
+/* 아이폰은 입력칸 글자가 16px보다 작으면 포커스 때 화면을 확대한다 — 디자인 글자 크기와 상관없이 입력칸은 16px(레이어 밖이라 유틸리티 클래스보다 우선) */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]), textarea, select { font-size: 16px; }
+
+/* 상단·하단 안전 영역: 홈 화면 앱에서 상태 표시줄(시계·배터리)·홈 인디케이터와 겹치지 않게 */
+main { padding-top: calc(12px + env(safe-area-inset-top, 0px)); }
+.safe-bottom { padding-bottom: max(32px, calc(env(safe-area-inset-bottom, 0px) + 12px)); }
+
+/* 토스트: 화면 가운데 아래, 좌우 16px 여백(최대 너비는 화면 − 32px), 하단 메뉴·고정 버튼 위 */
+.toast-wrap { position: fixed; z-index: 100; left: 0; right: 0; bottom: calc(env(safe-area-inset-bottom, 0px) + 128px); display: flex; justify-content: center; padding: 0 16px; pointer-events: none; }
+.toast { box-sizing: border-box; max-width: min(358px, calc(100vw - 32px)); max-width: min(358px, 100%); border-radius: 6px; background: var(--ink); color: var(--surface); padding: 12px 16px; text-align: center; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; animation: toast-up 220ms cubic-bezier(.22, 1, .36, 1) both; }
+@keyframes toast-up { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+
+.pb-safe { padding-bottom: max(16px, env(safe-area-inset-bottom, 0px)); }

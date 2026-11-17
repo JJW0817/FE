@@ -12,7 +12,7 @@ export function PhotoViewer({ images, start = 0, onClose, panel }: { images: str
   }, [images.length]);
   if (!images.length) return null;
   const step = (d: number) => setZoom(z => Math.min(4, Math.max(1, +(z + d).toFixed(2))));
-  return <div role="dialog" aria-modal="true" aria-label="사진 크게 보기" className="fixed inset-0 z-[100] mx-auto flex max-w-[390px] flex-col bg-black text-white">
+  return <div role="dialog" aria-modal="true" aria-label="사진 크게 보기" className="fixed inset-0 z-[100] mx-auto flex max-w-[390px] flex-col bg-black pt-[env(safe-area-inset-top)] text-white">
     <div className="flex items-center justify-between px-4 py-3">
       <span className="text-[13px]" aria-live="polite">{i + 1} / {images.length}</span>
       <div className="flex items-center gap-3">
