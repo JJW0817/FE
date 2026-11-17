@@ -137,3 +137,6 @@ main { padding-top: calc(12px + env(safe-area-inset-top, 0px)); }
 @keyframes toast-up { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
 
 .pb-safe { padding-bottom: max(16px, env(safe-area-inset-bottom, 0px)); }
+
+/* 상태 표시줄 뒤(홈 화면 앱, black-translucent)를 앱 시작 화면과 같은 검정으로 채운다 — 흰 글자 시계가 읽히고 흰 띠가 안 생긴다. 안전 영역이 없는 곳에서는 높이 0 */
+body::before { content: ""; position: fixed; top: 0; left: 0; right: 0; height: env(safe-area-inset-top, 0px); background: #0E0E0F; z-index: 150; pointer-events: none; }
