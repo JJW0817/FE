@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mem = (): Storage => { const m = new Map<string, string>(); return { getItem: k => m.get(k) ?? null, setItem: (k, v) => void m.set(k, String(v)), removeItem: k => void m.delete(k), clear: () => m.clear(), key: () => null, get length() { return m.size; } }; };
 vi.stubGlobal('localStorage', mem()); vi.stubGlobal('sessionStorage', mem());
 const { ApiError } = await import('./client');
-const { CONFIRM_POLL_MS, processTossSuccess, readTossParams, sentRecord, tossFailure, tossReturnUrls } = await import('./tossReturn');
+const { CONFIRM_POLL_MS, orderIdOfToss, processTossSuccess, readTossParams, sentRecord, tossFailure, tossOrderIdOf, tossReturnUrls } = await import('./tossReturn');
 import type { OrderCommandDto } from './types';
 
 const cmd = (o: Partial<OrderCommandDto> = {}) => ({ orderId: 'o1', state: 'HELD', totalAmount: 21000, failureCode: null, termsVersion: 'v1', ...o }) as OrderCommandDto;
@@ -26,6 +26,20 @@ describe('돌아오는 주소와 쿼리 읽기', () => {
     expect(readTossParams({ search: '', hash: '#/payments/toss/fail?code=PAY_PROCESS_CANCELED&message=' + encodeURIComponent('취소') + '&orderId=o1' })).toMatchObject({ code: 'PAY_PROCESS_CANCELED', message: '취소', paymentKey: null });
   });
   it('금액이 숫자가 아니면 null', () => { expect(readTossParams({ search: '?amount=1e3', hash: '' }).amount).toBeNull(); });
+});
+
+describe('토스 orderId 규칙', () => {
+  it('결제창 orderId는 서버 승인 요청과 같은 "SD-" + 주문 id, 서버가 tossOrderId를 주면 그 값', () => {
+    expect(tossOrderIdOf('720ec20e-9503-4a86-b1e2-282d88d8f0c7')).toBe('SD-720ec20e-9503-4a86-b1e2-282d88d8f0c7');
+    expect(tossOrderIdOf('o1', 'X-o1')).toBe('X-o1'); expect(tossOrderIdOf('o1', null)).toBe('SD-o1');
+    expect(tossOrderIdOf('720ec20e-9503-4a86-b1e2-282d88d8f0c7').length).toBeLessThanOrEqual(64);
+  });
+  it('보관값이 없으면(사파리로 열림) 토스 orderId에서 "SD-"를 떼어 우리 주문을 찾는다', async () => {
+    expect(orderIdOfToss('SD-o1')).toBe('o1');
+    const d = deps([{ state: 'HELD' }, { state: 'CONFIRMED' }]);
+    const r = await processTossSuccess({ ...params, orderId: 'SD-o1' }, null, d);
+    expect(d.getCheckout).toHaveBeenCalledWith('o1'); expect(r.kind).toBe('confirmed');
+  });
 });
 
 describe('결제 확정', () => {

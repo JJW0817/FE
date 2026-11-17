@@ -8,7 +8,7 @@ import type { Hold, Order, State } from '../domain';
 import { api } from './client';
 import { isApiError } from './errors';
 import { ms, orderStatus, addressFromApi, orderFromApi } from './mappers';
-import { rememberTossPending, tossReturnUrls } from './tossReturn';
+import { rememberTossPending, tossOrderIdOf, tossReturnUrls } from './tossReturn';
 import type { CheckoutTermsDto, OrderCommandDto, OrderItemDto, OrderListItemDto, OrderDetailDto, OrderState } from './types';
 
 const general = 'general' as const, purchase = 'purchase' as const;
@@ -112,14 +112,15 @@ function loadToss(): Promise<any> {
 }
 /** 결제창을 연다. 성공/실패 시 successUrl/failUrl(#/payments/toss/…)로 이동한다. 반환하지 않고 페이지가 이동한다 */
 /** amount·orderName은 서버의 checkout 응답(totalAmount·productName) 값을 그대로 넘긴다 */
-export async function openTossPayment(o: { orderId: string; orderName: string; amount: number }, signal?: AbortSignal) {
+export async function openTossPayment(o: { orderId: string; orderName: string; amount: number; tossOrderId?: string | null }, signal?: AbortSignal) {
   const [Toss, clientKey] = await Promise.all([loadToss(), getPaymentClientKey(signal)]);
   // 돌아오는 주소는 해시 경로(#/payments/toss/success|fail). 토스가 붙이는 paymentKey·orderId·amount(실패면 code·message)는 tossReturn.ts가 읽는다
   const { successUrl, failUrl } = tossReturnUrls(location.origin, location.pathname);
-  // 추측(명세 없음): 토스 orderId는 우리 주문 UUID(36자, 토스 허용 6~64자)를 쓴다. 돌아와서 금액·주문을 확인하려고 결제창을 열기 직전에 보관한다
-  rememberTossPending({ orderId: o.orderId, tossOrderId: o.orderId, amount: o.amount });
+  // 토스 orderId는 서버 승인 요청과 같아야 한다: "SD-" + 주문 UUID(39자, 토스 허용 6~64자). 돌아와서 금액·주문을 확인하려고 결제창을 열기 직전에 보관한다
+  const tossOrderId = tossOrderIdOf(o.orderId, o.tossOrderId);
+  rememberTossPending({ orderId: o.orderId, tossOrderId, amount: o.amount });
   await Toss(clientKey).payment({ customerKey: TOSS.customerKey(Toss) }).requestPayment({
-    method: TOSS.method, amount: { currency: TOSS.currency, value: o.amount }, orderId: o.orderId, orderName: o.orderName, successUrl, failUrl,
+    method: TOSS.method, amount: { currency: TOSS.currency, value: o.amount }, orderId: tossOrderId, orderName: o.orderName, successUrl, failUrl,
   });
 }
 /* ── store 반영 ── */

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { mergeCheckout } from '../api';
-import { defaultTossDeps, hasTossParams, processTossSuccess, readTossParams, readTossPending, readTossReturn, rememberTossPending, stashTossReturn, tossFailure, TOSS_RETURN_PATH } from '../api/tossReturn';
+import { defaultTossDeps, hasTossParams, orderIdOfToss, processTossSuccess, readTossParams, readTossPending, readTossReturn, rememberTossPending, stashTossReturn, tossFailure, TOSS_RETURN_PATH } from '../api/tossReturn';
 import type { TossOutcome, TossReturn } from '../api/tossReturn';
 import { errorMessage } from '../api/errors';
 import { loginHref, signedIn } from '../auth';
@@ -33,7 +33,7 @@ function TossReturnView({ result }: { result?: string }) {
     if (USE_MOCK || !ret || started.current) return;
     if (!logged) { navigate(loginHref(TOSS_RETURN_PATH[ret.result]), { replace: true }); return; } // 보관한 값으로 로그인 뒤 이어서
     started.current = true;
-    const run = ret.result === 'fail' ? Promise.resolve(tossFailure(readTossPending()?.orderId ?? ret.orderId ?? '', ret.code, ret.message))
+    const run = ret.result === 'fail' ? Promise.resolve(tossFailure(readTossPending()?.orderId ?? (ret.orderId ? orderIdOfToss(ret.orderId) : ''), ret.code, ret.message))
       : processTossSuccess(ret, readTossPending(), { ...defaultTossDeps(), onUpdate: d => mutate(st => mergeCheckout(st, d)) });
     run.then(o => { setOutcome(o); if (o.kind !== 'delayed') { stashTossReturn(null); rememberTossPending(null); } }).catch(e => setError(errorMessage(e)));
   }, [ret, logged]);

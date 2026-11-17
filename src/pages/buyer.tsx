@@ -224,7 +224,7 @@ export function CheckoutPage() {
         let cur = await getCheckout(id!); // 승인 금액은 서버가 계산한 totalAmount를 쓴다(화면 계산값 사용 안 함)
         if (addrId) { cur = await changeShippingAddress(id!, addrId, cur.version); mutate(st => mergeCheckout(st, cur)); }
         if (cur.totalAmount == null) throw new Error('결제 금액을 확인하지 못했어요. 잠시 후 다시 시도해 주세요.');
-        await openTossPayment({ orderId: id!, orderName: cur.productName ?? p!.name, amount: cur.totalAmount });
+        await openTossPayment({ orderId: id!, orderName: cur.productName ?? p!.name, amount: cur.totalAmount, tossOrderId: cur.tossOrderId });
         return;
       }
       await atomic(state => beginPayment(state, state.activeUserId, id!, nowOf(state)));
