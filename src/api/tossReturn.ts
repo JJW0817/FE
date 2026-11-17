@@ -20,6 +20,14 @@ export function readTossParams(loc: { search: string; hash: string }): TossParam
   const amount = get('amount');
   return { paymentKey: get('paymentKey'), orderId: get('orderId'), amount: amount !== null && /^\d+$/.test(amount) ? Number(amount) : null, code: get('code'), message: get('message') };
 }
+/**
+ * 토스 orderId 규칙(백엔드 PaymentWork): 승인 요청에 "SD-" + 주문 UUID를 쓴다. 결제창에도 같은 값을 넣어야 토스가 승인한다(다르면 거절 → 주문 실패).
+ * 서버가 checkout 응답에 tossOrderId를 내려주면 그 값을 우선 쓴다.
+ */
+export const TOSS_ORDER_PREFIX = 'SD-';
+export const tossOrderIdOf = (orderId: string, fromServer?: string | null) => fromServer || `${TOSS_ORDER_PREFIX}${orderId}`;
+/** 토스 orderId → 우리 주문 id (보관값이 없을 때: 아이폰 홈 화면 앱 → 사파리) */
+export const orderIdOfToss = (tossOrderId: string) => (tossOrderId.startsWith(TOSS_ORDER_PREFIX) ? tossOrderId.slice(TOSS_ORDER_PREFIX.length) : tossOrderId);
 export const hasTossParams = (p: TossParams) => !!(p.paymentKey || p.orderId || p.code);
 
 /* ── 결제창을 열기 직전 보관(같은 탭) ── 아이폰 홈 화면 앱 → 사파리로 열리면 저장소가 달라 비어 있다. 그때는 토스 orderId(=우리 주문 id)와 서버 금액으로 확인한다 */
@@ -63,8 +71,8 @@ export const tossFailure = (orderId: string, code: string | null, message: strin
 /** 결제창 성공(successUrl) 처리: 주문 찾기 → 금액 확인 → (한 번만) 승인 요청 → 확정까지 확인 */
 export async function processTossSuccess(p: TossParams, pending: TossPending | null, deps: TossDeps): Promise<TossOutcome> {
   if (!p.paymentKey || !p.orderId) return { kind: 'failed', orderId: pending?.orderId ?? p.orderId ?? '', code: 'PAYMENT_NOT_COMPLETED', message: '결제 정보를 받지 못했어요' };
-  // 토스에 보낸 orderId로 우리 주문을 찾는다(지금은 우리 주문 id를 그대로 보낸다)
-  const orderId = pending && pending.tossOrderId === p.orderId ? pending.orderId : p.orderId;
+  // 토스에 보낸 orderId("SD-" + 주문 id)로 우리 주문을 찾는다
+  const orderId = pending && pending.tossOrderId === p.orderId ? pending.orderId : orderIdOfToss(p.orderId);
   let cur = await deps.getCheckout(orderId); deps.onUpdate?.(cur);
   // 금액 확인: 토스가 돌려준 amount가 결제창을 열 때 보낸 금액·서버 주문 금액과 같아야 한다(승인 요청에는 금액을 보내지 않는다 — 서버가 주문 금액으로 승인)
   const expected = pending && pending.orderId === orderId ? pending.amount : cur.totalAmount;
