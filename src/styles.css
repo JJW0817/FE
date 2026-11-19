@@ -1,4 +1,9 @@
+/* Astryx 공존: 레이어 순서는 Tailwind import보다 먼저(astryx docs styling-libraries/tailwind) */
+@layer reset, theme, base, astryx-base, astryx-theme, components, utilities;
 @import "tailwindcss";
+@import "@astryxdesign/core/reset.css";
+@import "@astryxdesign/core/astryx.css";
+@import "@astryxdesign/theme-neutral/theme.css";
 :root {
   --bg: #FFFFFF;
   --surface: #FFFFFF;

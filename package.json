@@ -12,6 +12,9 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@astryxdesign/core": "^0.7.16",
+    "@astryxdesign/theme-neutral": "^0.7.16",
+    "@stylexjs/stylex": "^0.19.2",
     "@tailwindcss/vite": "^4.1.0",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
@@ -20,6 +23,7 @@
     "tailwindcss": "^4.1.0"
   },
   "devDependencies": {
+    "@astryxdesign/cli": "^0.7.16",
     "@playwright/test": "^1.51.0",
     "@types/node": "^24.19.2",
     "@types/react": "^19.0.0",
